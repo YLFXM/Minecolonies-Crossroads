@@ -59,6 +59,8 @@ public final class RoadBuildWatcher {
     private static final long CLOSED_WATCH_MS = 10L * 60L * 1000L;
     /** 20 s of cover for late queued placement tasks after the road is marked built. */
     private static final long GUARD_TICKS = 400L;
+    /** How often ownership prefixes are re-checked (ticks): 10 s. */
+    private static final int RECONCILE_INTERVAL = 200;
 
     private record Watch(ServerLevel level, long deadline, Blueprint blueprint) {
     }
@@ -142,6 +144,31 @@ public final class RoadBuildWatcher {
         }
         if (!GUARD.isEmpty()) {
             pollGuard();
+        }
+        // Ownership is derived from position, so a colony growing over a road
+        // changes its owner without touching the plan. Re-check the labels a few
+        // times a minute; a full sweep of a dimension's road index is trivial.
+        if (event.getServer().getTickCount() % RECONCILE_INTERVAL == 0) {
+            reconcileLabels(event.getServer());
+        }
+    }
+
+    /** Rewrites road labels whose ownership prefix no longer matches. */
+    private static void reconcileLabels(final MinecraftServer server) {
+        for (final ServerLevel level : server.getAllLevels()) {
+            final java.util.List<RoadPlan> changed = new java.util.ArrayList<>();
+            for (final RoadPlan plan : RoadManager.get(level).all()) {
+                if (RoadNames.reconcile(level, plan)) {
+                    changed.add(plan);
+                }
+            }
+            if (changed.isEmpty()) {
+                continue;
+            }
+            // RoadManager#add replaces by id and marks the saved data dirty, but it
+            // cannot be called while iterating the index.
+            changed.forEach(RoadManager.get(level)::add);
+            level.players().forEach(Network::sendRoads);
         }
     }
 

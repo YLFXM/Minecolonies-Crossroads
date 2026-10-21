@@ -37,16 +37,14 @@ public final class UnitTemplate {
     private final int sizeX;
     private final int sizeY;
     private final int sizeZ;
-    private final int walkWidth;
     private final int surfaceY;
     private final Direction.Axis axis;
 
-    public UnitTemplate(final int sizeX, final int sizeY, final int sizeZ, final int walkWidth,
+    public UnitTemplate(final int sizeX, final int sizeY, final int sizeZ,
                         final int surfaceY, final Direction.Axis axis) {
         this.sizeX = sizeX;
         this.sizeY = sizeY;
         this.sizeZ = sizeZ;
-        this.walkWidth = walkWidth;
         this.surfaceY = surfaceY;
         this.axis = axis;
     }
@@ -69,10 +67,6 @@ public final class UnitTemplate {
 
     public int sizeZ() {
         return sizeZ;
-    }
-
-    public int walkWidth() {
-        return walkWidth;
     }
 
     public int surfaceY() {

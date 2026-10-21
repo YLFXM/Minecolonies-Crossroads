@@ -43,9 +43,9 @@ public final class RoadUnitExtractor {
         final Direction.Axis axis = unit.axis();
         final int slice = unit.slice();
 
-        final int outX = axis == Direction.Axis.X ? 1 : sx;
-        final int outZ = axis == Direction.Axis.Z ? 1 : sz;
-        final UnitTemplate template = new UnitTemplate(outX, sy, outZ, unit.walkWidth(), unit.surfaceY(), axis);
+        final int outX = axis == Direction.Axis.X ? 1 : unit.width();
+        final int outZ = axis == Direction.Axis.Z ? 1 : unit.width();
+        final UnitTemplate template = new UnitTemplate(outX, sy, outZ, unit.surfaceY(), axis);
 
         for (int y = 0; y < sy; y++) {
             for (int z = 0; z < sz; z++) {
@@ -54,6 +54,14 @@ public final class RoadUnitExtractor {
                     if (along != slice) {
                         continue;
                     }
+                    // A unit owns only part of the slice width: a tile owns all of
+                    // it, a lamp owns just its own column plus the one the lantern
+                    // hangs over.
+                    final int lateral = axis == Direction.Axis.X ? z : x;
+                    if (lateral < unit.lateralFrom() || lateral > unit.lateralTo()) {
+                        continue;
+                    }
+                    final int localLateral = lateral - unit.lateralFrom();
 
                     final BlockPos srcPos = new BlockPos(x, y, z);
                     final BlockState state = source.getBlockState(srcPos);
@@ -69,8 +77,8 @@ public final class RoadUnitExtractor {
                     }
 
                     final BlockPos local = axis == Direction.Axis.X
-                            ? new BlockPos(0, y, z)
-                            : new BlockPos(x, y, 0);
+                            ? new BlockPos(0, y, localLateral)
+                            : new BlockPos(localLateral, y, 0);
 
                     CompoundTag te = null;
                     final CompoundTag sourceTe = source.getTileEntities()[y][z][x];

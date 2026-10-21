@@ -128,7 +128,7 @@ public final class Network {
             final Direction facing = old != null ? old.controllerFacing()
                     : (payload.hasEndpoints() ? directionBetween(payload.a(), payload.b()) : Direction.NORTH);
             final BlockPos anchorPos = old != null ? old.anchorPos() : controllerPos;
-            final String pack = old != null ? old.pack() : "Minecolonies Original";
+            final String pack = old != null ? old.pack() : com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK;
             final String variant = old != null ? old.variant() : "street";
             final int widthSide = old != null ? old.widthSide() : 1;
             final boolean mirror = payload.mirror();
@@ -149,8 +149,10 @@ public final class Network {
                     final Direction.Axis axis = facing.getAxis().isHorizontal() ? facing.getAxis() : Direction.Axis.X;
                     plan = new RoadPlan(UUID.randomUUID(), level.dimension(), anchorPos,
                             payload.controllerPos(), facing, mirror, pack, variant,
-                            width, Math.min(2, width), effectiveWidthSide, lampSpacing);
+                            width, com.YLFXM.mcreconstruction.road.WalkRange.centered(width, Math.min(2, width)),
+                            effectiveWidthSide, lampSpacing);
                     plan.addSegment(new RoadSegment(payload.controllerPos(), length, axis, 0, SegmentKind.ROAD));
+                    plan.setTravelDir(facing.getAxisDirection().getStep());
                     plan.setState(RoadState.PLANNED);
                     intersections = 0;
                 }
@@ -170,7 +172,9 @@ public final class Network {
                 plan.setDisplayName(old.displayName());
             }
             if (plan.displayName().isEmpty()) {
-                plan.setDisplayName(RoadNames.generate(level, anchorPos, player));
+                final RoadNames.Name generated = RoadNames.generate(level, plan.controllerPos(), player);
+                plan.setRoadName(generated.base());
+                plan.setDisplayName(generated.display());
             }
 
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
@@ -418,8 +422,17 @@ public final class Network {
             // synced on join, so a freshly generated one does not exist here yet.
             com.YLFXM.mcreconstruction.client.ClientRoadPackWriter.ensure(
                     payload.blueprintPath(), payload.blueprint(), payload.packVersion());
+            // The selected pack is a global: whichever pack is selected when a
+            // building is placed or a colony is created is the one MineColonies
+            // records in the save. Switching to the road pack therefore has to be
+            // undone as soon as the window closes, or the colony ends up with
+            // "Reconstruction Plan" as its style pack and looks for
+            // fundamentals/townhall1 inside our pack on every startup.
+            final com.ldtteam.structurize.storage.StructurePackMeta previous =
+                    com.ldtteam.structurize.storage.StructurePacks.getSelectedPack();
             com.YLFXM.mcreconstruction.client.ClientNativeBuildTracker.begin(
-                    payload.planId(), payload.blueprintPath());
+                    payload.planId(), payload.blueprintPath(),
+                    previous == null ? null : previous.getName());
             com.ldtteam.structurize.storage.StructurePacks.switchSelectedPack(
                     com.YLFXM.mcreconstruction.CustomRoadPack.PACK_NAME);
             new com.ldtteam.structurize.client.gui.WindowExtendedBuildTool(
@@ -635,6 +648,20 @@ public final class Network {
      */
     public static void sendRoads(final ServerPlayer player,
                                  final com.minecolonies.api.colony.IColony colony) {
+        sendRoads(player, colony, false);
+    }
+
+    /**
+     * @param wildernessOnly when unbound, list wilderness roads only. The Road
+     *                       Surveyor asks for this: a road standing inside a
+     *                       colony belongs to that colony, so it has no business
+     *                       in an unbound view. The Wand must not use it — it
+     *                       resolves its bound controller out of this same cache
+     *                       and would stop finding colony roads.
+     */
+    public static void sendRoads(final ServerPlayer player,
+                                 final com.minecolonies.api.colony.IColony colony,
+                                 final boolean wildernessOnly) {
         final ServerLevel level = player.serverLevel();
         final CompoundTag tag = new CompoundTag();
         tag.putString("dimension", level.dimension().location().toString());
@@ -648,14 +675,21 @@ public final class Network {
             final com.minecolonies.api.colony.IColony owner = IColonyManager.getInstance()
                     .getColonyByPosFromWorld(level, plan.controllerPos());
             if (colony != null) {
-                // Bound view: the roads of the tool's colony that this player is
-                // allowed to see. Without the visibility check here, binding to
-                // any town hall would bypass the colony-road permission gate.
-                if (owner == null || owner.getID() != colony.getID()
-                        || !isVisibleTo(plan, owner, player)) {
+                // Bound view: the roads of this colony, plus the player's own
+                // wilderness roads — binding a surveyor to a town hall should not
+                // hide the roads the player built out in the wild. Someone else's
+                // wilderness road never appears here.
+                if (owner != null) {
+                    // Without the visibility check, binding to any town hall would
+                    // bypass the colony-road permission gate.
+                    if (owner.getID() != colony.getID() || !isVisibleTo(plan, owner, player)) {
+                        continue;
+                    }
+                } else if (!isVisibleTo(plan, null, player)) {
                     continue;
                 }
-            } else if (!isVisibleTo(plan, owner, player)) {
+            } else if (!isVisibleTo(plan, owner, player)
+                    || (wildernessOnly && owner != null)) {
                 continue;
             }
             list.add(plan.save());
@@ -710,46 +744,44 @@ public final class Network {
     /**
      * Who may receive the blueprint file of a road.
      *
+     * <p>Ownership has exactly two forms, and colony ownership wins: a road
+     * standing on colony land belongs to that colony, <b>not</b> to whoever drew
+     * it. So the original creator keeps no special right there — if the colony
+     * grew over their wilderness road, the road is the colony's now.</p>
+     *
      * <ul>
-     *   <li>The player who planned it, always.</li>
-     *   <li>Colony roads: the owner and anyone with {@code MANAGE_HUTS} in that
-     *       colony — i.e. the people who can actually authorise work there.</li>
+     *   <li>Colony roads: whoever holds {@code MANAGE_HUTS} in that colony, i.e.
+     *       the people who can actually authorise work there.</li>
      *   <li>Wilderness roads: the creator only. Never a colony manager from
-     *       somewhere else.</li>
+     *       somewhere else. Roads planned before the creator field existed are
+     *       unowned, and unowned means public.</li>
      * </ul>
      */
     private static boolean isEntitledToBlueprint(final RoadPlan plan,
                                                  final com.minecolonies.api.colony.IColony owner,
                                                  final ServerPlayer player) {
-        if (plan.isCreatedBy(player.getUUID())) {
-            return true;
+        if (owner != null) {
+            return com.YLFXM.mcreconstruction.RoadPermissions.canManage(player, owner);
         }
-        if (owner == null) {
-            // Wilderness roads planned before the creator field existed are
-            // unowned, and unowned means public.
-            return plan.creator() == null;
-        }
-        return com.YLFXM.mcreconstruction.RoadPermissions.canManage(player, owner);
+        return plan.creator() == null || plan.isCreatedBy(player.getUUID());
     }
 
     /**
      * Whether {@code player} is allowed to know that {@code plan} exists.
      *
-     * <p><b>Colony roads are not filtered at all.</b> MineColonies has no
-     * "member of a colony" notion to gate this on: {@code Permissions#getPlayers()}
-     * is a rank roster, and it also holds <em>hostile</em> players (a colony adds
-     * an attacker's owner with {@code HOSTILE_RANK_ID}, see
-     * {@code EntityCitizen}), so using "is in the roster" as "is a member" would
-     * hand a raider the colony's whole road index. Vanilla does not gate this
-     * kind of view either: {@code ItemClipboard} opens the resource scroll with
-     * no permission check whatsoever, and this mod's own Work Order Scroll is
-     * viewable by anyone by design. A road is made of blocks in the world —
-     * walking the colony already shows it — so hiding the index would protect
-     * nothing while making the tool useless to visitors.</p>
+     * <p>Colony roads need {@code ACCESS_HUTS} in the owning colony — the same
+     * bit the original uses to let a player into a hut at all. Do <b>not</b>
+     * replace that with a "member of a colony" test: MineColonies has no such
+     * notion, and {@code Permissions#getPlayers()} is a rank roster that also
+     * holds <em>hostile</em> players (a colony adds an attacker's owner with
+     * {@code HOSTILE_RANK_ID}, see {@code EntityCitizen}), so using "is in the
+     * roster" as "is a member" would hand a raider the colony's whole road
+     * index.</p>
      *
-     * <p>Wilderness roads are the exception: no colony covers them, so there is
-     * no permission to consult, and an unbuilt plan would otherwise reveal where
-     * somebody intends to build. They are limited to their creator.</p>
+     * <p>Wilderness roads have no colony to consult, and an unbuilt plan would
+     * otherwise reveal where somebody intends to build, so they are limited to
+     * their creator. Roads planned before the creator field existed are unowned,
+     * and unowned means public.</p>
      */
     private static boolean isVisibleTo(final RoadPlan plan,
                                        final com.minecolonies.api.colony.IColony owner,

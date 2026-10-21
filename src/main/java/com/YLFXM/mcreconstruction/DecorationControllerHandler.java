@@ -85,9 +85,12 @@ public final class DecorationControllerHandler {
             }
             plan = new RoadPlan(java.util.UUID.randomUUID(), level.dimension(), anchorPos, event.getPos(),
                     Direction.NORTH, false, CustomRoadPack.PACK_NAME, "street",
-                    4, 2, 1, Config.lampSpacing());
+                    4, com.YLFXM.mcreconstruction.road.WalkRange.centered(4, 2), 1, Config.lampSpacing());
             plan.setState(com.YLFXM.mcreconstruction.road.RoadState.DRAFT);
-            plan.setDisplayName(com.YLFXM.mcreconstruction.road.RoadNames.generate(level, anchorPos, player));
+            final com.YLFXM.mcreconstruction.road.RoadNames.Name roadName =
+                    com.YLFXM.mcreconstruction.road.RoadNames.generate(level, event.getPos(), player);
+            plan.setRoadName(roadName.base());
+            plan.setDisplayName(roadName.display());
             // Ownership decides who may see a wilderness road, so it is recorded
             // at creation time and never changed afterwards.
             plan.setCreator(player.getUUID());

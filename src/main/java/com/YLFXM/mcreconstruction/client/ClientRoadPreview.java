@@ -62,8 +62,9 @@ public final class ClientRoadPreview {
                     ? (b.getZ() > a.getZ() ? Direction.SOUTH : Direction.NORTH)
                     : (b.getX() > a.getX() ? Direction.EAST : Direction.WEST);
             base = new RoadPlan(UUID.randomUUID(), minecraft.level.dimension(), a, a,
-                    facing, false, "Minecolonies Original", "street",
-                    4, 2, 1, com.YLFXM.mcreconstruction.Config.lampSpacing());
+                    facing, false, com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK, "street",
+                    4, com.YLFXM.mcreconstruction.road.WalkRange.centered(4, 2), 1,
+                    com.YLFXM.mcreconstruction.Config.lampSpacing());
         }
 
         final boolean sameX = a.getX() == b.getX();
@@ -83,8 +84,9 @@ public final class ClientRoadPreview {
         final int side = mirrored ? -Math.abs(base.widthSide()) : Math.abs(base.widthSide());
         final RoadPlan plan = new RoadPlan(UUID.randomUUID(), base.dimension(), base.anchorPos(),
                 base.controllerPos(), base.controllerFacing(), mirrored, base.pack(), base.variant(),
-                base.width(), base.walkWidth(), side, base.lampSpacing());
+                base.width(), base.walkRange(), side, base.lampSpacing());
         plan.addSegment(new RoadSegment(new BlockPos(minX, a.getY(), minZ), length, axis, 0, SegmentKind.ROAD));
+        plan.setTravelDir(Integer.signum((axis == Direction.Axis.X ? b.getX() - a.getX() : b.getZ() - a.getZ())));
         plan.setState(RoadState.PLANNED);
         preview = plan;
         return plan;

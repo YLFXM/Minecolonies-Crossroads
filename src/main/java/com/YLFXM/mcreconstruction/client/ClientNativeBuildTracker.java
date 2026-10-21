@@ -39,22 +39,49 @@ import net.neoforged.neoforge.network.PacketDistributor;
 /**
  * Tracks the native build-tool window and tries to preselect the freshly
  * generated road blueprint, so the player only has to press Confirm.
+ *
+ * <p>It also owns undoing the pack switch made to open the window: the selected
+ * structure pack is a global that MineColonies writes into the save whenever a
+ * building is placed or a colony is created, so leaving the road pack selected
+ * after the window closes records it as a colony's style pack.</p>
  */
 @EventBusSubscriber(modid = MCReconstruction.MODID, value = Dist.CLIENT)
 public final class ClientNativeBuildTracker {
     private static UUID activePlan;
     private static String blueprintPath;
+    /** Pack that was selected before the road pack took over; restored on close. */
+    private static String previousPackName;
     private static boolean nativeWindowSeen;
     private static boolean applied;
     private static int applyAttempts;
     private static Method setBlueprintMethod;
 
-    public static void begin(final UUID planId, final String path) {
+    public static void begin(final UUID planId, final String path, final String previousPack) {
         activePlan = planId;
         blueprintPath = path;
+        previousPackName = previousPack;
         nativeWindowSeen = false;
         applied = false;
         applyAttempts = 0;
+    }
+
+    /**
+     * Puts the previously selected pack back. Nothing recorded the road pack as a
+     * style in the meantime, so this is always the pack the player last chose.
+     */
+    public static void restorePack() {
+        if (previousPackName == null) {
+            return;
+        }
+        final String restore = previousPackName;
+        previousPackName = null;
+        // A null name means nothing was selected, and leaving the road pack there
+        // would let Structurize hand it back as a default pick. Fall back to the
+        // style pack the road units are authored against.
+        final String name = StructurePacks.getStructurePack(restore) != null
+                ? restore
+                : CustomRoadPack.STYLE_PACK;
+        StructurePacks.switchSelectedPack(name);
     }
 
     @SubscribeEvent
@@ -71,6 +98,7 @@ public final class ClientNativeBuildTracker {
                 blueprintPath = null;
                 nativeWindowSeen = false;
                 applied = false;
+                restorePack();
             }
             return;
         }

@@ -41,19 +41,101 @@ public final class RoadNames {
             "Queens", "Market", "Mill", "Stone", "Green", "Rose", "Lark",
             "Foxglove", "Amber");
 
-    /** Road name without the colony prefix, for narrow native-tool buttons. */
+    /** Prefix used for roads that stand outside every colony. */
+    public static final String WILDERNESS_ZH = "野外";
+    public static final String WILDERNESS_EN = "Wilderness";
+
+    /** A generated name: the base on its own, and the labelled form with prefix. */
+    public record Name(String base, String display) {
+    }
+
+    /** Road name without the ownership prefix, for narrow native-tool buttons. */
     public static String shortName(final RoadPlan plan) {
-        String name = label(plan);
-        final int english = name.lastIndexOf(" - ");
-        if (english >= 0) {
-            name = name.substring(english + 3);
-        } else {
-            final int chinese = name.lastIndexOf('-');
-            if (chinese >= 0) {
-                name = name.substring(chinese + 1);
-            }
+        return baseNameOf(label(plan));
+    }
+
+    /**
+     * Strips the ownership prefix from a full road label.
+     *
+     * <p>Prefixes are "&lt;owner&gt;-&lt;base&gt;" or "&lt;owner&gt; - &lt;base&gt;";
+     * base names never contain a dash, so the last separator is the split point.
+     * That is also why renaming a road's owner does not change its blueprint file
+     * name — {@link #fileName} is built from the base alone.</p>
+     */
+    public static String baseNameOf(final String display) {
+        if (display == null) {
+            return "";
         }
-        return name;
+        final int english = display.lastIndexOf(" - ");
+        if (english >= 0) {
+            return display.substring(english + 3);
+        }
+        final int chinese = display.lastIndexOf('-');
+        if (chinese >= 0) {
+            return display.substring(chinese + 1);
+        }
+        return display;
+    }
+
+    /** Whether a road name is Chinese, which also picks the separator. */
+    public static boolean isChinese(final String text) {
+        return text != null && text.codePoints()
+                .anyMatch(codePoint -> Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN);
+    }
+
+    /** Joins an ownership prefix and a base name. */
+    public static String compose(final String prefix, final String base) {
+        return isChinese(base) ? prefix + "-" + base : prefix + " - " + base;
+    }
+
+    /**
+     * Prefix for a road at {@code pos}: the colony that <em>claims</em> it, or the
+     * wilderness marker.
+     *
+     * <p>Deliberately {@code getColonyByPosFromWorld} and not
+     * {@code getClosestColony}: the latter returns a colony for any position in
+     * the world, so a road built out in the wild used to be signed with the
+     * player's own colony just because that colony happened to be the nearest
+     * one.</p>
+     */
+    public static String ownerPrefix(final ServerLevel level, final BlockPos pos, final boolean chinese) {
+        final IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, pos);
+        if (colony != null) {
+            return colony.getName();
+        }
+        return chinese ? WILDERNESS_ZH : WILDERNESS_EN;
+    }
+
+    /**
+     * Re-applies the ownership prefix if it no longer matches who owns the road.
+     *
+     * <p>Ownership is derived from the controller's position on every check, so a
+     * colony growing over a wilderness road changes the owner without touching
+     * the plan. The label has to follow, otherwise a road would keep claiming to
+     * belong to whoever drew it.</p>
+     *
+     * @return true when the label changed and the plan needs saving
+     */
+    public static boolean reconcile(final ServerLevel level, final RoadPlan plan) {
+        final String display = plan.displayName();
+        if (display == null || display.isBlank()) {
+            return false;
+        }
+        final String base = plan.roadName().isBlank() ? baseNameOf(display) : plan.roadName();
+        if (base.isBlank()) {
+            return false;
+        }
+        if (plan.roadName().isBlank()) {
+            plan.setRoadName(base);
+        }
+        // Ownership is resolved from the controller position everywhere else, so
+        // the label uses the same coordinate and cannot disagree at a border.
+        final String wanted = compose(ownerPrefix(level, plan.controllerPos(), isChinese(base)), base);
+        if (wanted.equals(display)) {
+            return false;
+        }
+        plan.setDisplayName(wanted);
+        return true;
     }
 
     /**
@@ -79,37 +161,36 @@ public final class RoadNames {
                 ? plan.id().toString() : plan.displayName();
     }
 
-    public static String generate(final ServerLevel level,
-                                  final BlockPos pos,
-                                  final ServerPlayer player) {
-        final IColony colony = IColonyManager.getInstance().getClosestColony(level, pos);
-        final String colonyName = colony == null ? "Colony" : colony.getName();
+    public static Name generate(final ServerLevel level,
+                                final BlockPos pos,
+                                final ServerPlayer player) {
         final boolean chinese = player.getLanguage() != null
                 && player.getLanguage().toLowerCase(java.util.Locale.ROOT).startsWith("zh");
+        final String prefix = ownerPrefix(level, pos, chinese);
 
         for (int attempt = 0; attempt < 64; attempt++) {
-            final String candidate;
+            final String base;
             if (chinese) {
-                final String base = ZH_NAMES.get(level.getRandom().nextInt(ZH_NAMES.size()));
-                final boolean avenue = level.getRandom().nextInt(4) == 0;
-                candidate = colonyName + "-" + base + (avenue ? "大道" : "路");
+                final String word = ZH_NAMES.get(level.getRandom().nextInt(ZH_NAMES.size()));
+                base = word + (level.getRandom().nextInt(4) == 0 ? "大道" : "路");
             } else {
-                final String base = EN_NAMES.get(level.getRandom().nextInt(EN_NAMES.size()));
-                final boolean avenue = level.getRandom().nextInt(4) == 0;
-                candidate = colonyName + " - " + base + (avenue ? " Avenue" : " Road");
+                final String word = EN_NAMES.get(level.getRandom().nextInt(EN_NAMES.size()));
+                base = word + (level.getRandom().nextInt(4) == 0 ? " Avenue" : " Road");
             }
+            final String candidate = compose(prefix, base);
             if (isUnique(level, candidate)) {
-                return candidate;
+                return new Name(base, candidate);
             }
         }
 
         // Extremely unlikely fallback: suffix until unique.
-        final String base = (chinese ? colonyName + "-道路" : colonyName + " - Road");
+        final String base = chinese ? "道路" : "Road";
         int suffix = 2;
-        while (!isUnique(level, base + " " + suffix)) {
+        while (!isUnique(level, compose(prefix, base + " " + suffix))) {
             suffix++;
         }
-        return base + " " + suffix;
+        final String numbered = base + " " + suffix;
+        return new Name(numbered, compose(prefix, numbered));
     }
 
     private static boolean isUnique(final ServerLevel level, final String name) {

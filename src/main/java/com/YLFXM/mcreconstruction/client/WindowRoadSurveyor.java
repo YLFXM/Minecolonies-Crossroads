@@ -149,7 +149,7 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
                 : "Road Surveyor"));
         this.selectedText.setText(Component.literal(ClientRoadCache.bound()
                 ? "Selected: " + this.selected.size()
-                : "Not bound to a town hall - shift + right-click one to bind"));
+                : "Not bound - showing wilderness roads you own; shift + right-click a town hall for a colony"));
         // Only offer the actions when at least one selected road is manageable;
         // the server still checks each road individually.
         final boolean canAct = !this.selected.isEmpty()

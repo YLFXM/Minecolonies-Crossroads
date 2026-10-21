@@ -20,6 +20,7 @@ package com.YLFXM.mcreconstruction;
 
 import com.ldtteam.structurize.blueprints.v1.Blueprint;
 import com.ldtteam.structurize.blueprints.v1.BlueprintUtil;
+import com.ldtteam.structurize.storage.StructurePackMeta;
 import com.ldtteam.structurize.storage.StructurePacks;
 import com.minecolonies.core.blocks.BlockDecorationController;
 import java.io.IOException;
@@ -51,6 +52,8 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 @EventBusSubscriber(modid = MCReconstruction.MODID)
 public final class CustomRoadPack {
     public static final String PACK_NAME = "Reconstruction Plan";
+    /** Style pack the road units are authored against, and the safe default pick. */
+    public static final String STYLE_PACK = "Minecolonies Original";
     private static final String BLUEPRINT_PATH = "initial/road.blueprint";
 
     @SubscribeEvent
@@ -111,11 +114,51 @@ public final class CustomRoadPack {
             // the build tool shows no packs at all.
             StructurePacks.discoverPackAtPath(packRoot, false,
                     List.of("structurize", "minecolonies"), false, "mcreconstruction");
+            keepDefaultPackOffRoadPack();
             return version;
         } catch (final IOException ex) {
             MCReconstruction.LOGGER.error("Could not create custom road pack", ex);
             return -1L;
         }
+    }
+
+    /**
+     * Keeps Structurize's "currently selected pack" pointing at a real style pack.
+     *
+     * <p>{@code StructurePacks.ensureSelectedPack} picks a default at <b>random</b>
+     * from every non-disabled pack, and any code that resolves a blueprint by
+     * relative path goes through that choice. Registering this pack therefore
+     * puts it in the draw, and roughly one in N such lookups then asks
+     * <em>us</em> for a style-pack blueprint — MineColonies loads
+     * {@code fundamentals/townhall1.blueprint} that way when a colony is created
+     * or upgraded, and it dies with {@code NoSuchFileException} inside our pack.
+     * Restoring a real pack right after registering keeps the road pack out of
+     * that default.</p>
+     *
+     * <p>Deliberately does nothing when a real pack is already selected: a player
+     * who picked a colony style must keep it.</p>
+     */
+    private static void keepDefaultPackOffRoadPack() {
+        final StructurePackMeta selected = StructurePacks.getSelectedPack();
+        if (selected != null && !selected.isDisabled() && !PACK_NAME.equals(selected.getName())) {
+            return;
+        }
+        final List<StructurePackMeta> candidates = StructurePacks.getPackMetas().stream()
+                .filter(meta -> !meta.isDisabled())
+                .filter(meta -> !PACK_NAME.equals(meta.getName()))
+                .toList();
+        if (candidates.isEmpty()) {
+            return;
+        }
+        for (final StructurePackMeta meta : candidates) {
+            // Prefer the pack the road units are authored against, so a default
+            // pick still resolves the blueprints MineColonies asks for.
+            if (STYLE_PACK.equals(meta.getName())) {
+                StructurePacks.switchSelectedPack(meta.getName());
+                return;
+            }
+        }
+        StructurePacks.switchSelectedPack(candidates.get(0).getName());
     }
 
     /**

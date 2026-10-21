@@ -80,7 +80,7 @@ MineColonies 的，权限系统是 MineColonies 的，控制器就是原版装�
 几个点（结构包 immutable 标记、结构包只同步一次、原生工具预选的反射调用、
 BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行为、
 原版权限的绕过规则、控制器迁移的幂等判断、全量完成判定），
-以及十三条不可动摇的开发约定。
+以及十五条不可动摇的开发约定。
 
 也可以直接在仓库开 issue，勾选 **「迁移 / 版本移植」** 模板说明你的目标版本。
 
@@ -143,7 +143,7 @@ BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行�
 ### 建路流程
 
 1. 放置原生 `minecolonies:decorationcontroller`，让它的 `FACING` 贴着作为锚点的方块（默认 `minecraft:stone_bricks`）。
-2. 右键控制器（不潜行）→ 打开控制器面板；此时 `DecorationControllerHandler` 已经为该控制器建立了 `RoadPlan`，并按 `<殖民地名>-<道路名>` 生成唯一名称。
+2. 右键控制器（不潜行）→ 打开控制器面板；此时 `DecorationControllerHandler` 已经为该控制器建立了 `RoadPlan`，并按 `<归属前缀>-<道路名>` 生成唯一名称。前缀取自控制器所在位置：落在殖民地境内是殖民地名，落在野外是 **`野外`**（英文客户端 `Wilderness`）。
 3. 手持 Road Wand：
    - **左键**选点 A；
    - **Shift + 左键**选点 B；
@@ -402,7 +402,13 @@ data/mcreconstruction/recipe/work_order_scroll.json
 
 ## 数据模型
 
-`RoadPlan` 持久化字段：`id`(UUID)、`dimension`、`anchorPos`、`controllerPos`、`controllerFacing`、`mirror`、`pack`、`variant`、`displayName`、`width`、`walkWidth`、`widthSide`、`lampSpacing`、`segments`、`state`、`workOrderId`、`creator`(UUID，可空)。
+`RoadPlan` 持久化字段：`id`(UUID)、`dimension`、`anchorPos`、`controllerPos`、`controllerFacing`、`mirror`、`pack`、`variant`、`displayName`、`width`、`walkFrom`/`walkTo`、`widthSide`、`lampSpacing`、`travelDir`、`segments`、`cells`、`state`、`workOrderId`、`creator`(UUID，可空)。
+
+三个字段值得单独说明：
+
+- **`walkFrom`/`walkTo`**（`WalkRange`）取代了原来的 `walkWidth`。可行走区是一个**区间**而不是宽度，这样风格包作者可以做不对称道路（例如只有一侧有宽人行道）。原版 streets 单元是 `[1, 2]`：0 是灯侧路沿、1 和 2 是铺装、3 是另一侧路沿。老存档只有 `walkWidth`，加载时居中还原，对称风格包结果完全一致。
+- **`travelDir`**（`+1`/`-1`）记录 A→B 的方向。`RoadSegment.start` 存的是归一化后的最小角，方向信息在那一步就丢了，而台阶的正/反是**相对行进方向**定义的，所以必须单独存。
+- **`cells`** 是逐格覆盖表：键为 `(along, lateral)`，`along` 是道路轴上的世界坐标、`lateral` 是宽度方向的列号，**不含 Y**。不含 Y 是关键——把某一格改成台阶会抬升后面所有格的高度，若用世界坐标做键，整张表会在改一格的瞬间全部失效。
 
 状态机：
 
@@ -474,9 +480,29 @@ Structurize 同步结构包时是 `zipPack(pack.getPath())` —— 它**逐个�
 
 | 道路位置 | 列表里能看到 | 能拿到蓝图文件 |
 |---|---|---|
-| 殖民地内 | **`ACCESS_HUTS`**（默认 = 领主 + 官员 + 好友） | 创建者本人，或该殖民地有 **`MANAGE_HUTS`** 的人（= 领主 + 官员） |
+| 殖民地内 | **`ACCESS_HUTS`**（默认 = 领主 + 官员 + 好友） | 该殖民地有 **`MANAGE_HUTS`** 的人（= 领主 + 官员） |
 | 野外·有主 | **仅创建者** | **仅创建者** |
 | 野外·无主（`creator == null`） | 所有人 | 所有人 |
+
+**所有权只有两种归属：所在殖民地，或创建者，且殖民地优先。** 位置决定归属——控制器落在某个
+殖民地境内，这条路就属于那个殖民地，可见性与操作全部按殖民地权限走；落在野外则属于创建者。
+
+**殖民地一旦吞并了某条野外道路，创建者的豁免权就消失了**：他不再是这条路的所有者，蓝图授权
+与其他殖民地道路一样只按 `MANAGE_HUTS` 判定，不会因为"当初是我画的"而多一分权限。这一条是
+刻意的不对称——领地属于殖民地，不属于曾经路过的人。
+
+由此推出勘测仪的两种视图：
+
+| 视图 | 内容 |
+|---|---|
+| 已绑定市政厅 | 该殖民地境内且玩家有 `ACCESS_HUTS` 的道路 **+ 玩家自己的野外道路** |
+| 未绑定 | **只列野外道路**（自己创建的，以及无主的）。殖民地道路不属于个人，不在这里出现 |
+
+**名字里的前缀跟着归属走。** 归属是每次根据控制器位置现算的，所以殖民地扩张把某条野外路圈进去之后，
+名字会在几秒内从 `野外-望江路` 变成 `<殖民地名>-望江路`，不需要玩家手动改，也不需要重建蓝图——
+原生按钮显示的是**去掉前缀**的短名（`RoadNames.fileName`），所以改名不会让蓝图文件或工单对不上。
+
+绑定后仍然带着自己的野外道路，是因为绑定只是「聚焦某个殖民地」，不该让玩家找不到自己建在别处的路。
 
 ### 为什么用 `ACCESS_HUTS` 而不是自造"成员"或"新能力值"
 
@@ -660,7 +686,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 **P1 严格原生流程收口**（进行中）：Survival 建单验证、WorkOrder 显示名统一、控制器迁移边界、预选回退提示。
 
-**P2 路灯/台阶/交叉口**：`lampunit` 提取与放置、`lampSpacing` 参与生成、建筑工把锚点替换为路灯、`stairunit` 的 rise/walkWidth、交叉口连续铺装与路灯避让、预览按高度更新。
+**P2 路灯/台阶/交叉口**：灯单元提取与按间距覆盖、台阶单元与逐格编辑、交叉口路沿剔除与路灯避让、预览改为真实蓝图。
 
 **P3 地形/装饰/寻路/联机**：custom dig/fill、装饰控制扩展、Pathfinding Edition 联动、专用服务器结构包同步、Surveyor 过滤/分页/统计、自定义模型、完整本地化、旧代码清理。
 

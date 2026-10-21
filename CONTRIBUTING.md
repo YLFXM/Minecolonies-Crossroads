@@ -98,9 +98,13 @@
      Repair / Remove / 完成判定都读它。
    详见 README「蓝图归属：谁能看到哪条路」。
 10. **权限分两层：看和改**。`RoadPermissions#canView`（`ACCESS_HUTS`）= 读殖民地内部信息
-    （道路列表、控制器面板、蓝图文件、工单列表）；`RoadPermissions#canManage`
-    （`MANAGE_HUTS`）= 改变殖民地（建计划、生成蓝图、修复、拆除、取消工单）。
+    （道路列表、控制器面板、工单列表）；`RoadPermissions#canManage`（`MANAGE_HUTS`）=
+    改变殖民地（建计划、生成蓝图、修复、拆除、取消工单），也是**殖民地道路蓝图文件**的授权位。
     改任一处都要想清楚另一处。
+    **所有权只有两种：所在殖民地，或创建者，殖民地优先**。因此殖民地道路的蓝图不看创建者，
+    只按 `MANAGE_HUTS` —— 曾经的创建者被殖民地吞并后不再有任何豁免，别把这条"修好"。
+    名字前缀同样由控制器位置推导（`RoadNames.ownerPrefix` + 周期性 `reconcile`），所以吞并后会自动改名。
+    **不要用 `getClosestColony`**：它对任何坐标都返回最近的殖民地，会把野外道路署名成玩家自己的殖民地。
 11. **不要用 `Permissions#getPlayers()` 当"殖民地成员"判定**。它是等级名册，不是成员表，
     里面同时装着 `NEUTRAL` 和 `HOSTILE`（攻击者会被防守方以 HOSTILE 写进去）。
     要判断玩家能做什么，只能用 `hasPermission(player, Action)` 这类能力位。
@@ -108,7 +112,19 @@
     `IExtensibleEnum` 要求目标自己实现该接口（MineColonies 没有）；而且权限界面是
     `Arrays.asList(Action.values())` 生成的，枚举外的位不会出现在界面上、无法配置。
     要加"新能力"只能用现有的位，或在 README 里写清楚为什么做不到。
-13. **拒绝提示统一走 `RoadPermissions#notifyDenied`**：原版
+13. **单元定义用 `WalkRange`（区间），不要用宽度**。可行走区是区间而不是一个数字，
+    这样风格包作者能做不对称道路；`WalkRange.centered()` 只是对称场景的简写。
+    **装饰/叠加类单元（灯）的 `walkRange` 必须是 `null`**（表示不可用）：灯不是路面，
+    它叠加在某个路格之上、必须让出原有的铺装或台阶。哪一列要让出由计划自己的
+    `walkRange` 决定，不由灯单元声明 —— 构造函数会对这两种情况互相矛盾的组合直接抛错。
+    同理，逐格覆盖表的键是 `(along, lateral)`，**不含 Y** —— 把一格改成台阶会抬升其后
+    所有格的高度，用世界坐标做键会让整张表在改一格的瞬间失效。
+14. **切换结构包后必须还原**。`StructurePacks` 的"当前选中包"是全局状态，原版在放置建筑、
+    创建殖民地时会把它写进存档。打开原生建造工具前切到我们的包、关窗后必须切回去
+    （`ClientNativeBuildTracker#restorePack`），否则存档里的市政厅会被记成
+    `Reconstruction Plan`，之后每次启动都去我们的包里找 `fundamentals/townhall1.blueprint`
+    并报 `NoSuchFileException`。这个 bug 出过一次。
+15. **拒绝提示统一走 `RoadPermissions#notifyDenied`**：原版
     `com.minecolonies.coremod.permission.no` + `MessagePriority.NORMAL`（灰色），
     10 秒节流。不要自己写 `displayClientMessage` 拼中文。
 

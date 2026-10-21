@@ -109,7 +109,11 @@ public class ItemRoadSurveyor extends Item {
     private static void send(final ServerPlayer player, final Level level, final ItemStack stack) {
         final BlockPos townHall = TownHallBinding.get(stack);
         if (townHall == null) {
-            // Unbound: the client shows the hint; do not push any roads.
+            // Unbound: wilderness roads only. A road inside a colony belongs to
+            // that colony, so it stays out of this view even for a player who
+            // could open its huts. Refusing to send anything here meant an owner
+            // could not find their own wilderness roads again after unbinding.
+            Network.sendRoads(player, null, true);
             return;
         }
         final IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, townHall);

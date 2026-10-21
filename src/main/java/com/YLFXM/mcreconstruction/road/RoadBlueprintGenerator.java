@@ -41,19 +41,52 @@ import net.minecraft.world.level.block.state.BlockState;
  * RoadPlan; it is never written to a structure pack.
  */
 public final class RoadBlueprintGenerator {
+    /**
+     * Default tile unit: one slice of the original style pack's long street.
+     * Four columns wide, pavement on columns 1 and 2, lamp verge on column 0.
+     */
     private static final RoadUnit DEFAULT_UNIT = new RoadUnit(
             "minecolonies/street",
             RoadUnit.UnitType.ROAD,
-            "Minecolonies Original",
+            com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK,
             "infrastructure/roads/streets",
             "infrastructure/roads/streets/longroad1.blueprint",
             Direction.Axis.X,
             0,
-            4,
-            2,
-            1,
             0,
+            3,
+            WalkRange.of(1, 2),
+            1,
             1);
+
+    /**
+     * Lamp unit, cut from the lamp column of the same street blueprint so the
+     * material always matches the pavement of its style pack.
+     *
+     * <p>It owns only two columns — the lamp column and the one the lantern hangs
+     * over — and declares no walk range, because a lamp is not pavement. When it
+     * is overlaid, the plan's own walk range decides which surface cells it must
+     * leave alone, so one unit works on a flat verge and on a stair verge
+     * alike.</p>
+     */
+    private static final RoadUnit LAMP_UNIT = new RoadUnit(
+            "minecolonies/street_lamp",
+            RoadUnit.UnitType.LAMP,
+            com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK,
+            "infrastructure/roads/streets",
+            "infrastructure/roads/streets/longroad1.blueprint",
+            Direction.Axis.X,
+            3,
+            0,
+            1,
+            null,
+            1,
+            0);
+
+    /** The lamp unit the generator overlays every {@code lampSpacing} cells. */
+    public static RoadUnit lampUnit() {
+        return LAMP_UNIT;
+    }
 
     public static Blueprint generate(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight) {
         final RoadUnit unit = resolveUnit(plan);

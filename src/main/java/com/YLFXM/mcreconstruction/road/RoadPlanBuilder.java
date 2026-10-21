@@ -94,8 +94,15 @@ public final class RoadPlanBuilder {
 
         final BlockPos start = new BlockPos(minX, a.getY(), minZ);
         final RoadPlan plan = new RoadPlan(java.util.UUID.randomUUID(), level.dimension(), anchorPos, controllerPos,
-                controllerFacing, false, pack, variant, width, walkWidth, widthSide, lampSpacing);
+                controllerFacing, false, pack, variant, width,
+                WalkRange.centered(width, walkWidth), widthSide, lampSpacing);
         plan.addSegment(new RoadSegment(start, length, axis, 0, SegmentKind.ROAD));
+        // Which end the player clicked first is not recoverable from the
+        // normalised segment start, but stairs are stored relative to travel, so
+        // it has to be recorded.
+        final int alongA = axis == Direction.Axis.X ? a.getX() : a.getZ();
+        final int alongB = axis == Direction.Axis.X ? b.getX() : b.getZ();
+        plan.setTravelDir(Integer.signum(alongB - alongA));
         plan.setState(RoadState.PLANNED);
 
         final RoadBounds bounds = plan.bounds(Config.defaultLampReserveHeight());
