@@ -18,4 +18,16 @@
     <button id="clear" size="88 17" pos="104 106"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="Clear" color="black"/>
+
+    <text id="lampLabel" size="110 10" pos="8 134" color="black"
+          label="Lamp spacing"/>
+    <button id="lampDown" size="20 17" pos="124 130"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="-" color="black"/>
+    <button id="lampValue" size="30 17" pos="147 130"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="4" color="black"/>
+    <button id="lampUp" size="20 17" pos="180 130"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="+" color="black"/>
 </window>

@@ -41,12 +41,18 @@ import net.neoforged.neoforge.network.PacketDistributor;
  * building pack, not from this window.
  */
 public class WindowRoadWand extends AbstractWindowSkeleton {
+    /** Lamp spacing the panel can reach; 0 would mean "no lamps at all". */
+    private static final int MIN_LAMP_SPACING = 1;
+    private static final int MAX_LAMP_SPACING = 8;
+
     private final Text summaryText;
     private final Text boundText;
     private final Text stateText;
     private final Button mirrorButton;
     private final Button planButton;
     private final Button clearButton;
+    /** Read-only display of the current lamp spacing between the -/+ buttons. */
+    private final Button lampValueButton;
     private boolean mirror;
 
     public WindowRoadWand() {
@@ -57,21 +63,50 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         this.mirrorButton = this.findPaneOfTypeByID("mirror", Button.class);
         this.planButton = this.findPaneOfTypeByID("plan", Button.class);
         this.clearButton = this.findPaneOfTypeByID("clear", Button.class);
+        this.lampValueButton = this.findPaneOfTypeByID("lampValue", Button.class);
         this.mirror = RoadSelectionClient.mirror();
         this.mirrorButton.setText(Component.literal("Mirror: " + (this.mirror ? "on" : "off")));
         // "color" alone is reused by BlockUI for the disabled state; set an
         // explicit grey so disabled buttons read as disabled.
-        for (final Button button : new Button[]{this.planButton, this.mirrorButton, this.clearButton}) {
+        for (final Button button : new Button[]{this.planButton, this.mirrorButton, this.clearButton,
+                this.lampValueButton}) {
             button.setColors(0x000000, 0x9A9A9A, 0x000000);
         }
 
-        this.registerButton("plan", button -> this.send(RoadPlacementMode.PLAN));
+        this.registerButton("plan", button -> this.send(RoadPlacementMode.PLAN, -1));
         this.registerButton("mirror", button -> {
             this.mirror = !this.mirror;
             RoadSelectionClient.setMirror(this.mirror);
             this.mirrorButton.setText(Component.literal("Mirror: " + (this.mirror ? "on" : "off")));
         });
         this.registerButton("clear", button -> RoadSelectionClient.clear());
+        this.registerButton("lampDown", button -> this.adjustLampSpacing(-1));
+        this.registerButton("lampUp", button -> this.adjustLampSpacing(1));
+    }
+
+    /**
+     * Steps the lamp spacing by one and applies it straight away.
+     *
+     * <p>Range is 1-8. Stepping is used instead of a typed value because a
+     * number alone never said when the player was done editing; 0 is left out
+     * because a large spacing already means "practically no lamps" and stepping
+     * down to it would just cost clicks.</p>
+     *
+     * <p>The panel stays open and the value updates from the server, so the
+     * ghost redraws while the player keeps clicking.</p>
+     */
+    private void adjustLampSpacing(final int delta) {
+        final RoadPlan plan = this.boundPlan(this.boundController());
+        if (plan == null) {
+            return;
+        }
+        if (plan.state() != RoadState.DRAFT && plan.state() != RoadState.PLANNED) {
+            return;
+        }
+        final int next = Math.max(MIN_LAMP_SPACING, Math.min(MAX_LAMP_SPACING, plan.lampSpacing() + delta));
+        if (next != plan.lampSpacing()) {
+            this.send(RoadPlacementMode.CONFIGURE, next);
+        }
     }
 
     @Override
@@ -97,12 +132,14 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         // bound road; the server re-checks anyway.
         final boolean allowed = plan != null && ClientRoadCache.canManage(plan.id());
         this.stateText.setText(Component.literal(plan == null ? "No plan" : "Plan: " + plan.state()));
+        this.lampValueButton.setText(Component.literal(plan == null ? "-" : String.valueOf(plan.lampSpacing())));
+        this.lampValueButton.setEnabled(!locked && allowed);
         this.planButton.setEnabled(!locked && allowed);
         this.mirrorButton.setEnabled(!locked && allowed);
         this.clearButton.setEnabled(!locked);
     }
 
-    private void send(final RoadPlacementMode mode) {
+    private void send(final RoadPlacementMode mode, final int lampSpacingOverride) {
         if (!RoadSelectionClient.hasBoth()) {
             if (this.mc.player != null) {
                 this.mc.player.displayClientMessage(Component.literal(
@@ -127,13 +164,20 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
             return;
         }
         PacketDistributor.sendToServer(new ConfigureRoadPayload(controller, 1, plan.width(),
-                plan.lampSpacing(), RoadSelectionClient.a(), RoadSelectionClient.b(), this.mirror, mode));
+                lampSpacingOverride >= 0 ? lampSpacingOverride : plan.lampSpacing(),
+                RoadSelectionClient.a(), RoadSelectionClient.b(),
+                this.mirror, mode));
         // The selection is deliberately kept. The plan now exists in PLANNED
         // state and the ghost preview is still what the player wants to look
         // at; clearing A/B here dropped them straight back to the plain outline
         // box, and the preview only came back if they re-picked an endpoint.
         // The ghost goes away on its own once the road leaves PLANNED.
-        this.close();
+        //
+        // A settings-only update keeps the panel open: the player is stepping a
+        // number and wants to see the ghost follow, not close the window.
+        if (mode != RoadPlacementMode.CONFIGURE) {
+            this.close();
+        }
     }
 
     private RoadPlan boundPlan(final BlockPos controller) {

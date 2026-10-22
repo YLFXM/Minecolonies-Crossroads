@@ -93,8 +93,26 @@ public final class ClientRoadPreviewRenderer {
         final BlueprintPreviewData data = new BlueprintPreviewData(false);
         data.setBlueprint(blueprint);
         data.setPos(payload.origin());
-        data.setRenderBlocksNice(true);
+        // Show the blueprint as authored. "Nice" rendering swaps solid
+        // substitutions for the surrounding terrain and paints placeholders as
+        // air, which is exactly wrong for a road: the ghost has to show the
+        // filler and the reserved controller cell, not a smooth guess of them.
+        data.setRenderBlocksNice(false);
+        // Structurize caches one rendered mesh per (rotation, blueprint) and
+        // Blueprint.equals only compares name/fileName/filePath/pack/volume -
+        // never the blocks. A rebuilt road keeps all of those, so the cache
+        // handed back the PREVIOUS mesh and the ghost only moved instead of
+        // changing. Dropping the meshes forces a rebuild from the new blocks.
+        com.ldtteam.structurize.client.BlueprintHandler.getInstance().clearCache();
         RenderingCache.queue(CACHE_KEY, data);
+        // Matches the server-side log line: the ghost is drawn from
+        // origin - primaryOffset, so these two numbers are all it takes to tell
+        // "the blueprint content is wrong" from "it is drawn in the wrong spot".
+        com.YLFXM.mcreconstruction.MCReconstruction.LOGGER.info(
+                "Road preview ghost: pos={} size={}x{}x{} primaryOffset={} start={}",
+                payload.origin(), blueprint.getSizeX(), blueprint.getSizeY(), blueprint.getSizeZ(),
+                blueprint.getPrimaryBlockOffset(),
+                payload.origin().subtract(blueprint.getPrimaryBlockOffset()));
         staleBelow = payload.sequence();
         return true;
     }

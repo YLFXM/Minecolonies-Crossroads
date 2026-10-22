@@ -74,7 +74,18 @@ public record RoadBounds(int minX, int minY, int minZ, int maxX, int maxY, int m
             final int y1 = segment.start().getY() + Math.max(0, segment.rise());
 
             // Width is perpendicular to the segment axis; side is +1 or -1.
+            //
+            // The lateral base is the ANCHOR column, never the segment start.
+            // Mirroring has to flip the road around the anchor: the anchor (and
+            // the controller standing beside it) keeps its world position and
+            // the road crosses over to its other side. Growing from the segment
+            // start produces the same interval only while the two happen to
+            // coincide, and reads as "slide the road sideways" the moment they
+            // do not.
             final int sideOffset = plan.widthSide() * (plan.width() - 1);
+            final int lateralBase = segment.axis() == net.minecraft.core.Direction.Axis.X
+                    ? plan.anchorPos().getZ()
+                    : plan.anchorPos().getX();
             final int w0x;
             final int w1x;
             final int w0z;
@@ -82,13 +93,13 @@ public record RoadBounds(int minX, int minY, int minZ, int maxX, int maxY, int m
             if (segment.axis() == net.minecraft.core.Direction.Axis.X) {
                 w0x = x0;
                 w1x = x1;
-                w0z = Math.min(segment.start().getZ(), segment.start().getZ() + sideOffset);
-                w1z = Math.max(segment.start().getZ(), segment.start().getZ() + sideOffset);
+                w0z = Math.min(lateralBase, lateralBase + sideOffset);
+                w1z = Math.max(lateralBase, lateralBase + sideOffset);
             } else {
                 w0z = z0;
                 w1z = z1;
-                w0x = Math.min(segment.start().getX(), segment.start().getX() + sideOffset);
-                w1x = Math.max(segment.start().getX(), segment.start().getX() + sideOffset);
+                w0x = Math.min(lateralBase, lateralBase + sideOffset);
+                w1x = Math.max(lateralBase, lateralBase + sideOffset);
             }
 
             minX = Math.min(minX, w0x);

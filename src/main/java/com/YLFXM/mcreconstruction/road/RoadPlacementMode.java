@@ -21,6 +21,11 @@ package com.YLFXM.mcreconstruction.road;
 public enum RoadPlacementMode {
     /** Create the temporary blueprint and open the native build tool. */
     PLAN,
+    /**
+     * Update the plan's settings only (lamp spacing) and refresh the preview,
+     * without generating a build request or opening any window.
+     */
+    CONFIGURE,
     /** Instant exact copy (creative build-tool Complete). */
     COMPLETE,
     /** Instant terrain-clearing placement (creative build-tool Pretty). */

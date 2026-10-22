@@ -69,6 +69,20 @@ public final class RoadPlan {
     private int widthSide;
     private int lampSpacing;
     /**
+     * Endpoints the geometry was built from, or null for roads that were laid
+     * out from the controller instead.
+     *
+     * <p>They are part of the saved plan because the ghost preview is driven by
+     * them: the selection otherwise lives in client memory only, so it dies on
+     * every restart and the player drops back to the plain outline box even
+     * though the plan is still PLANNED. Keeping them here also lets the server
+     * notice that a player re-picked A/B on an already-planned road and rebuild
+     * the temporary blueprint, instead of leaving the natively opened blueprint
+     * on the old geometry.</p>
+     */
+    private BlockPos endpointA;
+    private BlockPos endpointB;
+    /**
      * Direction of travel along {@link #axis()}, {@code +1} or {@code -1}: with
      * {@code +1} the player clicked A at the low end of the axis. Cell stair
      * directions are stored relative to this, so it has to survive a save.
@@ -265,6 +279,26 @@ public final class RoadPlan {
 
     public void setLampSpacing(final int lampSpacing) {
         this.lampSpacing = Math.max(0, lampSpacing);
+    }
+
+    /** First endpoint the geometry was built from, or null if there was none. */
+    public BlockPos endpointA() {
+        return endpointA;
+    }
+
+    /** Second endpoint the geometry was built from, or null if there was none. */
+    public BlockPos endpointB() {
+        return endpointB;
+    }
+
+    public void setEndpoints(final BlockPos a, final BlockPos b) {
+        this.endpointA = a == null ? null : a.immutable();
+        this.endpointB = b == null ? null : b.immutable();
+    }
+
+    /** True when this plan remembers the two endpoints it was planned from. */
+    public boolean hasEndpoints() {
+        return endpointA != null && endpointB != null;
     }
 
     /** {@code +1} when A sits at the low end of the axis, {@code -1} otherwise. */
@@ -479,6 +513,10 @@ public final class RoadPlan {
         tag.putInt("walkTo", walkRange.to());
         tag.putInt("widthSide", widthSide);
         tag.putInt("lampSpacing", lampSpacing);
+        if (hasEndpoints()) {
+            tag.put("endpointA", NbtUtils.writeBlockPos(endpointA));
+            tag.put("endpointB", NbtUtils.writeBlockPos(endpointB));
+        }
         tag.putInt("travelDir", travelDir);
         tag.putString("state", state.name());
         tag.putInt("workOrderId", workOrderId);
@@ -529,6 +567,10 @@ public final class RoadPlan {
                 tag.getInt("widthSide"),
                 tag.getInt("lampSpacing"));
         plan.setTravelDir(tag.contains("travelDir") ? tag.getInt("travelDir") : 1);
+        // Older saves predate the stored endpoints; they simply fall back to the
+        // outline box until the player re-picks A/B once.
+        plan.setEndpoints(NbtUtils.readBlockPos(tag, "endpointA").orElse(null),
+                NbtUtils.readBlockPos(tag, "endpointB").orElse(null));
         try {
             plan.setState(RoadState.valueOf(tag.getString("state")));
         } catch (final IllegalArgumentException ex) {

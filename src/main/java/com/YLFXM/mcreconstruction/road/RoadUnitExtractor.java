@@ -25,6 +25,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -63,6 +64,25 @@ public final class RoadUnitExtractor {
                     }
                     final int localLateral = lateral - unit.lateralFrom();
 
+                    final BlockPos local = axis == Direction.Axis.X
+                            ? new BlockPos(0, y, localLateral)
+                            : new BlockPos(localLateral, y, 0);
+
+                    // A lamp slice carries two things that must not be copied:
+                    // the foundation below the surface (the road template lays
+                    // that down itself) and the pavement column next to the pole
+                    // (it may be flat path or a stair, so it is claimed, never
+                    // written). Everything above the surface is copied as-is.
+                    if (unit.type() == RoadUnit.UnitType.LAMP) {
+                        if (y < unit.surfaceY()) {
+                            continue;
+                        }
+                        if (y == unit.surfaceY() && localLateral > 0) {
+                            template.addPlaceholder(local);
+                            continue;
+                        }
+                    }
+
                     final BlockPos srcPos = new BlockPos(x, y, z);
                     final BlockState state = source.getBlockState(srcPos);
                     if (state == null || state.isAir()) {
@@ -71,14 +91,13 @@ public final class RoadUnitExtractor {
 
                     final ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
                     if ("minecolonies".equals(blockId.getNamespace()) && "decorationcontroller".equals(blockId.getPath())) {
-                        // The road controller is placed by the road system, not copied
-                        // from the style-pack lamp column.
+                        // The style pack marks its own lamp column with a controller.
+                        // Only one controller may exist per road and the road system
+                        // places it, so this cell is actively emptied: a placeholder
+                        // would tell the builder to leave whatever is there.
+                        template.add(local, Blocks.AIR.defaultBlockState(), null);
                         continue;
                     }
-
-                    final BlockPos local = axis == Direction.Axis.X
-                            ? new BlockPos(0, y, localLateral)
-                            : new BlockPos(localLateral, y, 0);
 
                     CompoundTag te = null;
                     final CompoundTag sourceTe = source.getTileEntities()[y][z][x];

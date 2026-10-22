@@ -149,8 +149,8 @@ BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行�
    - **Shift + 左键**选点 B；
    - A/B 必须共享 x 或 z 之一，Y 取 A 的 Y（平路）。
 4. 选点后立即出现**白色 AABB** 预览，范围就是严格道路宽度。
-5. **右键空气** → 打开 Wand 面板：`Create Blueprint / Open Build Tool`、`Mirror`、`Clear`。宽度不可编辑（来自风格包），Mirror 翻转 `widthSide` 并实时重算预览。
-6. 点 `Create Blueprint` 后服务端：校验 A/B → 构造 `RoadPlan` → 生成严格宽度蓝图 → 写入结构包 → 切包并打开原生 `WindowExtendedBuildTool`（自动预选该蓝图）。
+5. **右键空气** → 打开 Wand 面板：`Create Blueprint / Open Build Tool`、`Mirror`、`Lamp spacing -/+`、`Clear`。宽度不可编辑（来自风格包），Mirror 绕锚点列翻转路面并实时重算预览，灯距 1-8 点一下即生效。
+6. 点 `Create Blueprint` 后服务端：校验 A/B → 构造 `RoadPlan` → 生成严格宽度蓝图 → 写入结构包 → 切包并打开原生 `WindowExtendedBuildTool`（列表定位到 `generated/`，蓝图由玩家手动点选）。
 7. 在原生工具里选 **Complete / Pretty / Survival**（或 **Paste**）。
 8. `RoadBuildWatcher` 检测到全部道路方块就位后：迁移控制器到锚点内侧、状态置 `BUILT`、Wand 自动重绑、蓝图保留。
 
@@ -402,7 +402,7 @@ data/mcreconstruction/recipe/work_order_scroll.json
 
 ## 数据模型
 
-`RoadPlan` 持久化字段：`id`(UUID)、`dimension`、`anchorPos`、`controllerPos`、`controllerFacing`、`mirror`、`pack`、`variant`、`displayName`、`width`、`walkFrom`/`walkTo`、`widthSide`、`lampSpacing`、`travelDir`、`segments`、`cells`、`state`、`workOrderId`、`creator`(UUID，可空)。
+`RoadPlan` 持久化字段：`id`(UUID)、`dimension`、`anchorPos`、`controllerPos`、`controllerFacing`、`mirror`、`pack`、`variant`、`displayName`、`width`、`walkFrom`/`walkTo`、`widthSide`、`lampSpacing`、`endpointA`/`endpointB`(可空)、`travelDir`、`segments`、`cells`、`state`、`workOrderId`、`creator`(UUID，可空)。
 
 三个字段值得单独说明：
 
@@ -580,7 +580,7 @@ Structurize 同步结构包时是 `zipPack(pack.getPath())` —— 它**逐个�
 |---|---|---|
 | `roadFillBlock` | `minecraft:stone` | 支撑填充的兜底方块 |
 | `roadAnchorBlock` | `minecraft:stone_bricks` | 锚点方块，也是控制器 `FACING` 指向的目标 |
-| `lampSpacing` | 4 | 路灯间距（当前只存储、不生成） |
+| `lampSpacing` | 4 | 路灯间距，从锚点向两端按此间隔放灯；1 表示不生成路灯（上限 8） |
 | `defaultLampReserveHeight` | 6 | 预览与蓝图预留的路灯高度 |
 | `maxRoadLength` | 256 | 单段道路最大长度 |
 | `creativeInstantBuild` | true | 创意模式允许面板即时建造 |
@@ -650,14 +650,12 @@ unzip -q minecolonies.zip -d minecolonies
 
 **整体状态：开发中。** 以下功能未完成或仅有部分实现：
 
-- 路灯只预留高度，不生成；`lampSpacing` 不参与生成。
 - 台阶 `SegmentKind.STAIR_UP/STAIR_DOWN` 已定义，但生成器只处理 `ROAD`。
 - 交叉口只做几何检测与覆盖，没有专门铺装和路灯协调。
 - Repair 是服务端即时修复，不是建筑工任务；Upgrade 按钮禁用。
 - 名称唯一性是**维度内**全局，不是严格"同殖民地内"。
 - 宽度 1 的道路几何上无法把控制器放进铺装体，会退化为相邻格。
 - 专用服务器：结构包本体在服务端存档目录，客户端不下载整包；蓝图改为随 `OpenBuildToolPayload` 点对点下发（见「结构包同步」）。
-- 自动预选依赖反射调用 Structurize 的 `AbstractBlueprintManipulationWindow.setBlueprint`，Structurize 版本变化可能失效（失败时手动在 `generated` 里选）。
 - README 之外没有正式 wiki；英文文案仍有中英混杂。
 - 游戏内验证由人工完成，**尚未做完整的回归测试**；存档格式仍可能变动。
 
@@ -675,7 +673,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 未完成或未充分验证的：
 
-- 路灯、台阶、交叉口（见「已知限制」）；
+- 台阶、交叉口（见「已知限制」）；
 - 完整回归测试，存档格式稳定性；
 - 英文本地化（`en_us.json` 内容仍是中文）；
 - **蓝图归属模型（`RoadPlan.creator` + 客户端蓝图清理）刚落地，尚未做多人联机实测**。
@@ -686,7 +684,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 **P1 严格原生流程收口**（进行中）：Survival 建单验证、WorkOrder 显示名统一、控制器迁移边界、预选回退提示。
 
-**P2 路灯/台阶/交叉口**：灯单元提取与按间距覆盖、台阶单元与逐格编辑、交叉口路沿剔除与路灯避让、预览改为真实蓝图。
+**P2 路灯/台阶/交叉口**：~~灯单元提取与按间距覆盖~~、~~预览改为真实蓝图~~（0.1.3 已完成）、台阶单元与逐格编辑、交叉口路沿剔除与路灯避让。
 
 **P3 地形/装饰/寻路/联机**：custom dig/fill、装饰控制扩展、Pathfinding Edition 联动、专用服务器结构包同步、Surveyor 过滤/分页/统计、自定义模型、完整本地化、旧代码清理。
 

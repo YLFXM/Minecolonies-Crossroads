@@ -33,7 +33,11 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DirectionalBlock;
+import net.minecraft.world.level.block.Mirror;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.Property;
 
 /**
  * Builds an in-memory blueprint from a RoadPlan and a one-block slice template.
@@ -129,7 +133,7 @@ public final class RoadBlueprintGenerator {
         for (final RoadSegment segment : plan.segments()) {
             final int surfaceY = segment.start().getY();
             for (int y = surfaceY + 1; y <= bounds.maxY(); y++) {
-                fillSegmentSlice(out, plan, bounds, originY, segment, y, air);
+                fillSegmentSlice(out, plan, bounds, originY, segment, y, air, anchorPos);
             }
         }
 
@@ -138,7 +142,7 @@ public final class RoadBlueprintGenerator {
         for (final RoadSegment segment : plan.segments()) {
             final int surfaceY = segment.start().getY();
             for (int y = bounds.minY(); y < surfaceY; y++) {
-                fillSegmentSlice(out, plan, bounds, originY, segment, y, filler);
+                fillSegmentSlice(out, plan, bounds, originY, segment, y, filler, anchorPos);
             }
         }
 
@@ -146,8 +150,13 @@ public final class RoadBlueprintGenerator {
         for (final RoadSegment segment : plan.segments()) {
             final int length = segment.length();
             for (int i = 0; i < length; i++) {
-                final int baseX = segment.axis() == Direction.Axis.X ? segment.start().getX() + i : segment.start().getX();
-                final int baseZ = segment.axis() == Direction.Axis.Z ? segment.start().getZ() + i : segment.start().getZ();
+                // Along the road the cell follows the segment; across it the cell
+                // is measured from the anchor column, so a mirrored plan flips
+                // the road around the anchor instead of sliding it.
+                final int baseX = segment.axis() == Direction.Axis.X
+                        ? segment.start().getX() + i : anchorPos.getX();
+                final int baseZ = segment.axis() == Direction.Axis.X
+                        ? anchorPos.getZ() : segment.start().getZ() + i;
                 final int baseY = segment.start().getY();
 
                 for (final UnitTemplate.Entry entry : template.entries()) {
@@ -181,14 +190,43 @@ public final class RoadBlueprintGenerator {
             }
         }
 
+        // Overlay the road lamps. The style pack bakes a lamp column into its own
+        // street tile; cutting that column out as a separate unit keeps the
+        // material identical while making the spacing ours to choose.
+        final int spacing = plan.lampSpacing();
+        if (spacing > 1 && !plan.segments().isEmpty()) {
+            final UnitTemplate lamp = RoadUnitExtractor.extract(source, LAMP_UNIT);
+            if (lamp != null) {
+                overlayLamps(out, plan, bounds, originY, lamp, spacing, anchorPos, level);
+            }
+        }
+
+        // The anchor block is only a temporary marker: the player places it by
+        // hand so the controller has something to sit against, and the road is
+        // supposed to take that cell over (pavement, or the lamp base when the
+        // anchor sits on the lamp column). Writing it into the blueprint would
+        // leave a stray anchor block standing in the finished road.
+
+        // Fences and walls store their connections in block state, and the state
+        // copied from the source pack was authored for that pack's own axis.
+        // Rotating it is fragile (the result depends on exactly how each block
+        // class maps mirror/rotation), so instead every connecting block is told
+        // to look at its neighbours and wire itself up. That is also what the
+        // game does when a fence is placed by hand.
+        fixConnections(out);
+
         // Reserve the inner controller cell with a Structurize placeholder, not
-        // air. The builder ignores placeholders, so it will neither place a
-        // road block nor dig out the future controller cell.
+        // air. The builder ignores placeholders, so it will neither place a road
+        // block nor dig out the future controller cell.
+        //
+        // This has to stay the LAST write to the blueprint volume. The lamp unit
+        // carves the source pack's own decoration controller out as air, and the
+        // lamp sits right next to the anchor; writing the reserve earlier let
+        // that air erase the placeholder, so the builder then dug the cell out
+        // and no controller could be migrated into it.
         final BlockPos controllerReserve = RoadControllerMigration.target(plan);
         put(out, bounds, originY, controllerReserve,
                 com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get().defaultBlockState(), null);
-
-        placeAnchor(out, bounds, originY, anchorPos);
 
         out.setPackName(unit.pack());
         out.setFilePath(java.nio.file.Path.of(unit.source()));
@@ -204,17 +242,167 @@ public final class RoadBlueprintGenerator {
         return out;
     }
 
+    /**
+     * Lays the lamp unit every {@code spacing} cells.
+     *
+     * <p>Spacing is measured from the anchor rather than from endpoint A: the
+     * anchor is the controller the plan is attached to, so re-picking A/B to make
+     * the road longer or shorter leaves the existing lamps where they are instead
+     * of sliding the whole row along.</p>
+     *
+     * <p>Placeholder cells in the unit are skipped on purpose — they only claim
+     * that the road owns that ground, which may be flat pavement or a stair whose
+     * real block must survive.</p>
+     */
+    private static void overlayLamps(final Blueprint out, final RoadPlan plan, final RoadBounds bounds,
+                                     final int originY, final UnitTemplate lamp,
+                                     final int spacing, final BlockPos anchorPos,
+                                     final ServerLevel level) {
+        final Direction.Axis roadAxis = plan.segments().get(0).axis();
+        int minAlong = Integer.MAX_VALUE;
+        for (final RoadSegment segment : plan.segments()) {
+            final int along = roadAxis == Direction.Axis.X
+                    ? segment.start().getX() : segment.start().getZ();
+            minAlong = Math.min(minAlong, along);
+        }
+        if (minAlong == Integer.MAX_VALUE) {
+            return;
+        }
+        final int anchorAlong = (roadAxis == Direction.Axis.X
+                ? anchorPos.getX() : anchorPos.getZ()) - minAlong;
+        final int side = plan.widthSide() >= 0 ? 1 : -1;
+        int dropped = 0;
+        BlockPos firstLamp = null;
+
+        for (final RoadSegment segment : plan.segments()) {
+            final int length = segment.length();
+            for (int i = 0; i < length; i++) {
+                // Lateral base is the anchor column (see the road block loop):
+                // the lamp pole is lateral 0, so it lands exactly on the anchor.
+                final int baseX = segment.axis() == Direction.Axis.X
+                        ? segment.start().getX() + i : anchorPos.getX();
+                final int baseZ = segment.axis() == Direction.Axis.X
+                        ? anchorPos.getZ() : segment.start().getZ() + i;
+                final int baseY = segment.start().getY();
+                final int along = (roadAxis == Direction.Axis.X ? baseX : baseZ) - minAlong;
+                // floorMod, not %: the offset to the anchor is negative for the
+                // half of the road before it, and % would return a negative
+                // remainder and silently skip every lamp there.
+                if (Math.floorMod(along - anchorAlong, spacing) != 0) {
+                    continue;
+                }
+                if (firstLamp == null) {
+                    firstLamp = new BlockPos(baseX, baseY, baseZ);
+                }
+                for (final UnitTemplate.Entry entry : lamp.entries()) {
+                    if (entry.placeholder()) {
+                        continue;
+                    }
+                    final BlockPos local = entry.pos();
+                    final int worldX;
+                    final int worldZ;
+                    if (segment.axis() == lamp.axis()) {
+                        if (segment.axis() == Direction.Axis.X) {
+                            worldX = baseX;
+                            worldZ = baseZ + side * local.getZ();
+                        } else {
+                            worldZ = baseZ;
+                            worldX = baseX + side * local.getX();
+                        }
+                    } else if (lamp.axis() == Direction.Axis.X) {
+                        worldZ = baseZ;
+                        worldX = baseX + side * local.getZ();
+                    } else {
+                        worldX = baseX;
+                        worldZ = baseZ + side * local.getX();
+                    }
+                    final int worldY = baseY + local.getY() - lamp.surfaceY();
+
+                    // put() drops out-of-range cells silently; counting them here
+                    // is what turns "the lamp is cut in half" into a log line.
+                    final int lx = worldX - bounds.minX();
+                    final int ly = worldY - originY;
+                    final int lz = worldZ - bounds.minZ();
+                    if (lx < 0 || ly < 0 || lz < 0
+                            || lx >= out.getSizeX() || ly >= out.getSizeY() || lz >= out.getSizeZ()) {
+                        dropped++;
+                        continue;
+                    }
+                    put(out, bounds, originY, new BlockPos(worldX, worldY, worldZ),
+                            orient(entry.state(), lamp.axis(), segment.axis() == lamp.axis(), side, level,
+                                    new BlockPos(worldX, worldY, worldZ)),
+                            entry.tileEntity());
+                }
+            }
+        }
+        if (dropped > 0) {
+            MCReconstruction.LOGGER.warn(
+                    "Road {}: {} lamp block(s) fell outside the reserved height/size and were dropped"
+                            + " (lampReserveHeight={}). Raise defaultLampReserveHeight if lamps look cut.",
+                    plan.id(), dropped, bounds.maxY() - bounds.minY());
+        }
+        // Mirrored plans put the road on the other side of the anchor; when the
+        // result looks shifted rather than flipped this line says which cell the
+        // lamps actually landed on. firstLamp is the lamp pole column: it must
+        // equal anchorPos in x/z, mirrored or not.
+        MCReconstruction.LOGGER.info(
+                "Road {} lamps: anchor={} side={} spacing={} width={} firstLamp={} bounds=[{},{},{}]-[{},{},{}]",
+                plan.id(), anchorPos, side, spacing, plan.width(), firstLamp,
+                bounds.minX(), bounds.minY(), bounds.minZ(),
+                bounds.maxX(), bounds.maxY(), bounds.maxZ());
+    }
+
+    /**
+     * Turns one cell of a unit so its facing follows the road it is laid on.
+     *
+     * <p>Units are authored along +X. A road that runs along Z turns the whole
+     * slice 90 degrees, and a mirrored width side reflects it as well. Fences,
+     * walls and posts keep their connections and facing in block state
+     * (north/south/east/west, facing), so without this a lamp pole on a
+     * north-south road keeps the east-west connections it was authored with and
+     * the two overhanging fences render broken.</p>
+     *
+     * <p>Order matters: rotate first, mirror second. Reflecting before the
+     * rotation lands the shape in the wrong quadrant.</p>
+     */
+    private static BlockState orient(final BlockState state, final Direction.Axis templateAxis,
+                                     final boolean sameAxis, final int side,
+                                     final ServerLevel level, final BlockPos pos) {
+        if (sameAxis) {
+            if (side > 0) {
+                return state;
+            }
+            // Reflect across the road line: the width axis is Z for an X-authored
+            // unit and X for a Z-authored one.
+            return state.mirror(templateAxis == Direction.Axis.X ? Mirror.FRONT_BACK : Mirror.LEFT_RIGHT);
+        }
+        if (templateAxis == Direction.Axis.X) {
+            // Authored +X (along the road) has to become world +Z, authored +Z
+            // (across the road) becomes world +-X.
+            final BlockState rotated = state.rotate(level, pos, Rotation.CLOCKWISE_90);
+            return side > 0 ? rotated.mirror(Mirror.LEFT_RIGHT) : rotated;
+        }
+        // Authored +Z (along the road) has to become world +X.
+        final BlockState rotated = state.rotate(level, pos, Rotation.COUNTERCLOCKWISE_90);
+        return side > 0 ? rotated.mirror(Mirror.FRONT_BACK) : rotated;
+    }
+
     private static void fillSegmentSlice(final Blueprint out,
                                          final RoadPlan plan,
                                          final RoadBounds bounds,
                                          final int originY,
                                          final RoadSegment segment,
                                          final int y,
-                                         final BlockState filler) {
+                                         final BlockState filler,
+                                         final BlockPos anchorPos) {
         final int length = segment.length();
         for (int i = 0; i < length; i++) {
-            final int baseX = segment.axis() == Direction.Axis.X ? segment.start().getX() + i : segment.start().getX();
-            final int baseZ = segment.axis() == Direction.Axis.Z ? segment.start().getZ() + i : segment.start().getZ();
+            // Same lateral base as the road blocks and the lamps: the anchor
+            // column. Fill must line up with what it is filling.
+            final int baseX = segment.axis() == Direction.Axis.X
+                    ? segment.start().getX() + i : anchorPos.getX();
+            final int baseZ = segment.axis() == Direction.Axis.X
+                    ? anchorPos.getZ() : segment.start().getZ() + i;
             for (int w = 0; w < plan.width(); w++) {
                 final int worldX;
                 final int worldZ;
@@ -295,10 +483,82 @@ public final class RoadBlueprintGenerator {
         return stored;
     }
 
-    private static void placeAnchor(final Blueprint out, final RoadBounds bounds,
-                                    final int originY, final BlockPos anchorPos) {
-        final BlockState anchor = RoadUnitExtractor.blockState(Config.roadAnchorBlock());
-        put(out, bounds, originY, anchorPos, anchor, null);
+    /**
+     * Rebuilds the horizontal connections of every fence/wall inside the
+     * blueprint from what is actually next to it.
+     *
+     * <p>Blueprint states are stored as authored by the style pack. Once a unit
+     * is laid on a road running in another direction, the copied connections
+     * point the wrong way and the pole renders broken. Rather than transform the
+     * state (which depends on each block class's own mirror/rotate rules), each
+     * connecting cell is rewritten from its neighbours — the same rule the game
+     * applies when a fence is placed by hand.</p>
+     */
+    private static void fixConnections(final Blueprint out) {
+        final int sx = out.getSizeX();
+        final int sy = out.getSizeY();
+        final int sz = out.getSizeZ();
+        for (int y = 0; y < sy; y++) {
+            for (int z = 0; z < sz; z++) {
+                for (int x = 0; x < sx; x++) {
+                    final BlockPos pos = new BlockPos(x, y, z);
+                    final BlockState state = out.getBlockState(pos);
+                    if (!connectsSideways(state)) {
+                        continue;
+                    }
+                    BlockState updated = state;
+                    for (final Direction direction : Direction.Plane.HORIZONTAL) {
+                        final Property<Boolean> property = sideProperty(updated, direction);
+                        if (property == null) {
+                            continue;
+                        }
+                        final BlockPos neighbour = pos.relative(direction);
+                        final boolean inside = neighbour.getX() >= 0 && neighbour.getX() < sx
+                                && neighbour.getY() >= 0 && neighbour.getY() < sy
+                                && neighbour.getZ() >= 0 && neighbour.getZ() < sz;
+                        final boolean link = inside && connectsTo(out.getBlockState(neighbour));
+                        updated = updated.setValue(property, link);
+                    }
+                    if (updated != state) {
+                        out.addBlockState(pos, updated);
+                    }
+                }
+            }
+        }
+    }
+
+    /** True when the block keeps north/south/east/west booleans (fence, wall). */
+    private static boolean connectsSideways(final BlockState state) {
+        return state != null
+                && sideProperty(state, Direction.NORTH) != null
+                && sideProperty(state, Direction.SOUTH) != null
+                && sideProperty(state, Direction.EAST) != null
+                && sideProperty(state, Direction.WEST) != null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Property<Boolean> sideProperty(final BlockState state, final Direction direction) {
+        final Property<?> property = switch (direction) {
+            case NORTH -> state.getProperties().contains(net.minecraft.world.level.block.state.properties.BlockStateProperties.NORTH)
+                    ? net.minecraft.world.level.block.state.properties.BlockStateProperties.NORTH : null;
+            case SOUTH -> state.getProperties().contains(net.minecraft.world.level.block.state.properties.BlockStateProperties.SOUTH)
+                    ? net.minecraft.world.level.block.state.properties.BlockStateProperties.SOUTH : null;
+            case EAST -> state.getProperties().contains(net.minecraft.world.level.block.state.properties.BlockStateProperties.EAST)
+                    ? net.minecraft.world.level.block.state.properties.BlockStateProperties.EAST : null;
+            case WEST -> state.getProperties().contains(net.minecraft.world.level.block.state.properties.BlockStateProperties.WEST)
+                    ? net.minecraft.world.level.block.state.properties.BlockStateProperties.WEST : null;
+            default -> null;
+        };
+        return property instanceof final Property<?> p && p.getValueClass() == Boolean.class
+                ? (Property<Boolean>) p : null;
+    }
+
+    /** Something a fence or wall would visually connect to. */
+    private static boolean connectsTo(final BlockState neighbour) {
+        if (neighbour == null) {
+            return false;
+        }
+        return connectsSideways(neighbour) || neighbour.isSolid();
     }
 
     private static RoadUnit resolveUnit(final RoadPlan plan) {

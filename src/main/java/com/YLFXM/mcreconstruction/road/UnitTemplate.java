@@ -30,7 +30,18 @@ import net.minecraft.world.level.block.state.BlockState;
  * are local to the slice; the controller block is removed from the template.
  */
 public final class UnitTemplate {
-    public record Entry(BlockPos pos, BlockState state, CompoundTag tileEntity) {
+    /**
+     * One cell of the slice.
+     *
+     * <p>{@code placeholder} marks a cell the unit must <em>not</em> write: it
+     * only says "the ground here belongs to the road, whatever it happens to
+     * be". A lamp uses this for the pavement column it hangs over, which may be
+     * flat path or a stair, so the overlay never overwrites edited pavement.</p>
+     */
+    public record Entry(BlockPos pos, BlockState state, CompoundTag tileEntity, boolean placeholder) {
+        public Entry(final BlockPos pos, final BlockState state, final CompoundTag tileEntity) {
+            this(pos, state, tileEntity, false);
+        }
     }
 
     private final List<Entry> entries = new ArrayList<>();
@@ -51,6 +62,14 @@ public final class UnitTemplate {
 
     public void add(final BlockPos pos, final BlockState state, final CompoundTag tileEntity) {
         entries.add(new Entry(pos, state, tileEntity));
+    }
+
+    /**
+     * Adds a cell that only claims "road owns this ground": overlays skip it, so
+     * whatever is really there (flat pavement, stair, edited block) survives.
+     */
+    public void addPlaceholder(final BlockPos pos) {
+        entries.add(new Entry(pos, null, null, true));
     }
 
     public List<Entry> entries() {

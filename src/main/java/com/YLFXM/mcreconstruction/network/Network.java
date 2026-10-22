@@ -123,19 +123,38 @@ public final class Network {
             final boolean mirror = payload.mirror();
             final int effectiveWidthSide = mirror ? -1 : 1;
 
-            final RoadPlan plan;
-            try {
-                final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, payload.anchorPos(),
-                        controllerPos, facing, payload.a(), payload.b(),
-                        com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK, "street",
-                        width, Math.min(2, width), effectiveWidthSide,
-                        Math.max(0, payload.lampSpacing()));
-                plan = result.plan();
-                plan.setMirror(mirror);
-            } catch (final IllegalArgumentException ex) {
-                // Selection is not a road yet (diagonal, too long, anchor off the
-                // line). The client keeps its last preview; no chat noise.
-                return;
+            // A road that is already planned has to follow a re-picked A/B. The
+            // ghost and the outline are recomputed from the payload every time,
+            // but the temporary blueprint the native tool opens is a file on disk
+            // anchored on the OLD minimum corner: leaving it alone showed the new
+            // shape in the preview while the build used the old one, in the old
+            // place. Rebuilding keeps the plan identity, so the file name, the
+            // Wand binding and the ownership all survive.
+            final RoadPlan existing = findEditableRoad(level, controllerPos);
+            RoadPlan plan;
+            if (existing != null
+                    && geometryDiffers(existing, payload.a(), payload.b(), mirror,
+                            Math.max(0, Math.min(8, payload.lampSpacing())))) {
+                final RoadPlan rebuilt = rebuildPlannedRoad(level, player, payload, existing);
+                if (rebuilt == null) {
+                    return;
+                }
+                plan = rebuilt;
+                sendRoads(player, colony);
+            } else {
+                try {
+                    final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, payload.anchorPos(),
+                            controllerPos, facing, payload.a(), payload.b(),
+                            com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK, "street",
+                            width, Math.min(2, width), effectiveWidthSide,
+                            Math.max(0, payload.lampSpacing()));
+                    plan = result.plan();
+                    plan.setMirror(mirror);
+                } catch (final IllegalArgumentException ex) {
+                    // Selection is not a road yet (diagonal, too long, anchor off
+                    // the line). The client keeps its last preview; no chat noise.
+                    return;
+                }
             }
 
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
@@ -153,10 +172,97 @@ public final class Network {
             // Placing real blocks is the opposite case: that path needs
             // anchor - offset to compute the minimum corner.
             final BlockPos origin = plan.anchorPos();
+            // One line per preview (the client de-duplicates, so this is not
+            // per-frame). It is the quickest way to tell a content problem from
+            // a placement problem: the ghost starts at origin - primaryOffset.
+            MCReconstruction.LOGGER.info(
+                    "Road preview {}: origin={} size={}x{}x{} primaryOffset={}",
+                    plan.id(), origin, blueprint.getSizeX(), blueprint.getSizeY(),
+                    blueprint.getSizeZ(), blueprint.getPrimaryBlockOffset());
             PacketDistributor.sendToPlayer(player, new RoadPreviewPayload(
                     com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint),
                     origin, payload.sequence()));
         });
+    }
+
+    /**
+     * The road attached to this controller while it can still be re-planned, or
+     * null. Built roads are locked: their controller is placed and their
+     * temporary blueprint is gone, so a new selection means a new road.
+     */
+    private static RoadPlan findEditableRoad(final ServerLevel level, final BlockPos controllerPos) {
+        for (final RoadPlan candidate : RoadManager.get(level).all()) {
+            if (!candidate.controllerPos().equals(controllerPos)) {
+                continue;
+            }
+            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT
+                    || candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.PLANNED) {
+                return candidate;
+            }
+            return null;
+        }
+        return null;
+    }
+
+    /** True when the payload describes a different road than the plan holds. */
+    private static boolean geometryDiffers(final RoadPlan plan, final BlockPos a, final BlockPos b,
+                                           final boolean mirror, final int lampSpacing) {
+        // Plans saved before endpoints were stored cannot be compared; treat
+        // them as different so one rebuild fills the endpoints in. Lamp spacing
+        // counts as geometry too: the lamps are baked into the blueprint, so a
+        // new spacing needs the file rewritten just like a new A/B does.
+        return !plan.hasEndpoints()
+                || !plan.endpointA().equals(a)
+                || !plan.endpointB().equals(b)
+                || plan.mirror() != mirror
+                || plan.lampSpacing() != lampSpacing;
+    }
+
+    /**
+     * Re-lays a planned road on a new A/B while keeping its identity.
+     *
+     * <p>The id, creator and names are carried over: they decide the blueprint
+     * file name and the Wand binding, and losing them would orphan the queued
+     * work orders and the controller link.</p>
+     */
+    private static RoadPlan rebuildPlannedRoad(final ServerLevel level, final ServerPlayer player,
+                                               final RequestRoadPreviewPayload payload,
+                                               final RoadPlan old) {
+        final Direction facing = directionBetween(payload.a(), payload.b());
+        final int width = Math.max(1, old.width());
+        final int lampSpacing = Math.max(0, Math.min(8, payload.lampSpacing()));
+        final boolean mirror = payload.mirror();
+        final int effectiveWidthSide = mirror ? -Math.abs(old.widthSide()) : Math.abs(old.widthSide());
+
+        final RoadPlan plan;
+        try {
+            plan = RoadPlanBuilder.build(level, old.anchorPos(), payload.controllerPos(), facing,
+                    payload.a(), payload.b(), old.pack(), old.variant(),
+                    width, Math.min(2, width), effectiveWidthSide, lampSpacing).plan();
+        } catch (final IllegalArgumentException ex) {
+            return null;
+        }
+        plan.setId(old.id());
+        plan.setCreator(old.creator() != null ? old.creator() : player.getUUID());
+        plan.setDisplayName(old.displayName());
+        plan.setRoadName(old.roadName());
+        plan.setMirror(mirror);
+
+        final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
+                Config.defaultLampReserveHeight());
+        if (blueprint == null) {
+            return null;
+        }
+
+        com.YLFXM.mcreconstruction.road.RoadDataCleaner.releaseWorkOrders(old);
+        com.YLFXM.mcreconstruction.road.RoadTemporaryPack.replace(level, old, plan, blueprint);
+        RoadManager.get(level).remove(old.id());
+        RoadManager.get(level).add(plan);
+        com.YLFXM.mcreconstruction.road.RoadBlueprintStore.save(level, plan, blueprint);
+        // The watch caches the blueprint it loaded, so re-arm it with the rebuilt
+        // one or completion would keep being checked against the old geometry.
+        com.YLFXM.mcreconstruction.road.RoadBuildWatcher.watch(level, plan);
+        return plan;
     }
 
     private static void handleConfigure(final ConfigureRoadPayload payload, final IPayloadContext context) {
@@ -210,7 +316,9 @@ public final class Network {
             // Road width is determined by the style-pack blueprint, not by a
             // free-form UI value. Reuse the plan's width.
             final int width = Math.max(1, old.width());
-            final int lampSpacing = Math.max(0, old.lampSpacing());
+            // Lamp spacing is the one construction value the player edits in the
+            // Wand panel, so it comes from the payload rather than the old plan.
+            final int lampSpacing = Math.max(0, Math.min(8, payload.lampSpacing()));
 
             final Direction facing = old != null ? old.controllerFacing()
                     : (payload.hasEndpoints() ? directionBetween(payload.a(), payload.b()) : Direction.NORTH);
@@ -284,6 +392,19 @@ public final class Network {
 
             if (old != null) {
                 RoadManager.get(level).remove(old.id());
+            }
+
+            if (mode == RoadPlacementMode.CONFIGURE) {
+                // Settings only: keep the plan (and its geometry) but change the
+                // lamp spacing. No work order, no window, nothing placed — the
+                // client re-requests the preview as soon as the synced plan
+                // arrives, so the ghost redraws with the new spacing.
+                RoadBlueprintStore.save(level, plan, blueprint);
+                RoadManager.get(level).add(plan);
+                sendRoads(player, colony);
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "Lamp spacing set to " + plan.lampSpacing()), false);
+                return;
             }
 
             if (mode == RoadPlacementMode.PLAN) {
@@ -540,6 +661,13 @@ public final class Network {
             com.ldtteam.structurize.storage.rendering.RenderingCache
                     .getOrCreateBlueprintPreviewData(BUILD_TOOL_PREVIEW_KEY)
                     .setPos(null);
+            // The blueprint we just pushed may have the same name, file name,
+            // path and volume as the previous one — a re-planned road keeps all
+            // of them — and Blueprint.equals ignores the blocks entirely. The
+            // native tool would therefore draw the previously cached mesh: same
+            // shape as before, only moved. Drop the meshes so it is rebuilt from
+            // the blueprint actually on disk.
+            com.ldtteam.structurize.client.BlueprintHandler.getInstance().clearCache();
             // The anchor is the blueprint's primary block (the road controller's
             // support block). Passing null here makes Structurize fall back to
             // "ten blocks in front of the player", which is why the box used to

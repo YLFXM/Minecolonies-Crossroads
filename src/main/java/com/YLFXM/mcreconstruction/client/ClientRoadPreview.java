@@ -49,7 +49,7 @@ public final class ClientRoadPreview {
 
     public static RoadPlan plan() {
         final Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || !RoadSelectionClient.hasBoth()) {
+        if (minecraft.player == null) {
             preview = null;
             com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
             return null;
@@ -64,8 +64,32 @@ public final class ClientRoadPreview {
                 }
             }
         }
-        final BlockPos a = RoadSelectionClient.a();
-        final BlockPos b = RoadSelectionClient.b();
+        // The A/B selection lives in client memory only, so it dies on every
+        // restart and the player would drop back to the plain outline box even
+        // though the plan is still PLANNED. The plan remembers the endpoints it
+        // was built from; reuse them until the player picks a new pair.
+        BlockPos a = RoadSelectionClient.a();
+        BlockPos b = RoadSelectionClient.b();
+        boolean adopted = false;
+        if ((a.equals(BlockPos.ZERO) || b.equals(BlockPos.ZERO))
+                && base != null && base.hasEndpoints()) {
+            a = base.endpointA();
+            b = base.endpointB();
+            adopted = true;
+        }
+        if (a.equals(BlockPos.ZERO) || b.equals(BlockPos.ZERO)) {
+            preview = null;
+            com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
+            return null;
+        }
+        if (adopted) {
+            // Show the restored selection in the Wand panel too, and take the
+            // mirror flag with it: the stored geometry was planned with that
+            // flag, so previewing it with the other one would flip the road.
+            RoadSelectionClient.setA(a);
+            RoadSelectionClient.setB(b);
+            RoadSelectionClient.setMirror(base.mirror());
+        }
         if (base != null && base.state() == RoadState.BUILT) {
             // The road is finished, so PLANNED is over: the ghost has done its
             // job and the plain outline (drawn in blue for built roads) takes

@@ -103,6 +103,9 @@ public final class RoadPlanBuilder {
         final int alongA = axis == Direction.Axis.X ? a.getX() : a.getZ();
         final int alongB = axis == Direction.Axis.X ? b.getX() : b.getZ();
         plan.setTravelDir(Integer.signum(alongB - alongA));
+        // Kept on the plan so the ghost preview survives a restart and so the
+        // server can tell when a player re-picked A/B on a planned road.
+        plan.setEndpoints(a, b);
         plan.setState(RoadState.PLANNED);
 
         final RoadBounds bounds = plan.bounds(Config.defaultLampReserveHeight());
