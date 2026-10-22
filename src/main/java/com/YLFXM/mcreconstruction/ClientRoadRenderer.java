@@ -56,13 +56,24 @@ public final class ClientRoadRenderer {
                 && !minecraft.player.getOffhandItem().is(ModRegistry.ROAD_SURVEYOR.get())
                 && !minecraft.player.getMainHandItem().is(ModRegistry.ROAD_WAND.get())
                 && !minecraft.player.getOffhandItem().is(ModRegistry.ROAD_WAND.get())) {
+            // Not holding a road tool: the ghost preview would otherwise stay on
+            // screen forever, because nothing else asks for it to go away.
+            com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
             return;
         }
 
         final List<RoadPlan> plans = new ArrayList<>(ClientRoadCache.roads());
+        // Drives the ghost preview: the call recomputes the plan each frame,
+        // sends the blueprint request when the selection changed, and clears
+        // the ghost when the selection is dropped. Its result is rendered by
+        // ClientRoadPreviewRenderer, never as a box here.
         final RoadPlan preview = com.YLFXM.mcreconstruction.client.ClientRoadPreview.plan();
         if (preview != null) {
-            plans.add(preview);
+            // A selection is on screen as real ghost blocks. Drawing the synced
+            // road index boxes as well would put stale outlines on top of the
+            // road the player is currently shaping, so they step aside until the
+            // selection goes away.
+            plans.clear();
         }
 
         final PoseStack pose = event.getPoseStack();
@@ -73,12 +84,6 @@ public final class ClientRoadRenderer {
         final MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
         final VertexConsumer lines = buffers.getBuffer(RenderType.lines());
         for (final RoadPlan plan : plans) {
-            // Hide the cached planning box for the same controller, but never
-            // skip the preview plan itself (it is also in this list).
-            if (preview != null && plan != preview
-                    && plan.controllerPos().equals(preview.controllerPos())) {
-                continue;
-            }
             if (!plan.dimension().equals(minecraft.level.dimension())) {
                 continue;
             }

@@ -128,7 +128,11 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         }
         PacketDistributor.sendToServer(new ConfigureRoadPayload(controller, 1, plan.width(),
                 plan.lampSpacing(), RoadSelectionClient.a(), RoadSelectionClient.b(), this.mirror, mode));
-        RoadSelectionClient.clearAll();
+        // The selection is deliberately kept. The plan now exists in PLANNED
+        // state and the ghost preview is still what the player wants to look
+        // at; clearing A/B here dropped them straight back to the plain outline
+        // box, and the preview only came back if they re-picked an endpoint.
+        // The ghost goes away on its own once the road leaves PLANNED.
         this.close();
     }
 

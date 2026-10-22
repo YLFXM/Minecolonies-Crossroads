@@ -20,6 +20,7 @@ package com.YLFXM.mcreconstruction.network;
 
 import com.YLFXM.mcreconstruction.MCReconstruction;
 import java.util.UUID;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -35,9 +36,15 @@ import net.minecraft.resources.ResourceLocation;
  * payload and the client writes it into its local copy of the pack first. The
  * pack version is sent along so the client's pack.json matches the server's and
  * the pack is not discarded by the next sync.</p>
+ *
+ * <p>{@code anchorPos} is the blueprint anchor on the server. The native window
+ * needs it explicitly: given {@code null} it falls back to "ten blocks in front
+ * of the player", which makes the preview box drift in whatever direction the
+ * player happens to face instead of sitting on the road controller.</p>
  */
 public record OpenBuildToolPayload(UUID planId, String blueprintPath,
-                                   CompoundTag blueprint, double packVersion)
+                                   CompoundTag blueprint, double packVersion,
+                                   BlockPos anchorPos)
         implements CustomPacketPayload {
     public static final Type<OpenBuildToolPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "open_build_tool"));
@@ -46,13 +53,15 @@ public record OpenBuildToolPayload(UUID planId, String blueprintPath,
                 buf.writeUUID(payload.planId());
                 buf.writeUtf(payload.blueprintPath());
                 buf.writeDouble(payload.packVersion());
+                buf.writeBlockPos(payload.anchorPos());
                 buf.writeNbt(payload.blueprint());
             },
             buf -> {
                 final UUID planId = buf.readUUID();
                 final String path = buf.readUtf();
                 final double version = buf.readDouble();
-                return new OpenBuildToolPayload(planId, path, buf.readNbt(), version);
+                final BlockPos anchor = buf.readBlockPos();
+                return new OpenBuildToolPayload(planId, path, buf.readNbt(), version, anchor);
             });
 
     @Override

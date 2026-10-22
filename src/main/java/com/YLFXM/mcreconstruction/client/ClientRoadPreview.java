@@ -38,11 +38,20 @@ import net.minecraft.world.item.ItemStack;
  */
 public final class ClientRoadPreview {
     private static RoadPlan preview;
+    /** Selection the last preview request was sent for. */
+    private static BlockPos lastController;
+    private static BlockPos lastAnchor;
+    private static BlockPos lastA;
+    private static BlockPos lastB;
+    private static boolean lastMirror;
+    private static int lastWidth;
+    private static int lastLampSpacing;
 
     public static RoadPlan plan() {
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null || !RoadSelectionClient.hasBoth()) {
             preview = null;
+            com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
             return null;
         }
         final BlockPos controller = boundController(minecraft);
@@ -57,6 +66,15 @@ public final class ClientRoadPreview {
         }
         final BlockPos a = RoadSelectionClient.a();
         final BlockPos b = RoadSelectionClient.b();
+        if (base != null && base.state() == RoadState.BUILT) {
+            // The road is finished, so PLANNED is over: the ghost has done its
+            // job and the plain outline (drawn in blue for built roads) takes
+            // over. This is what ends the preview after a build, because the
+            // selection is no longer cleared when the plan is created.
+            preview = null;
+            com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
+            return null;
+        }
         if (base == null) {
             final Direction facing = a.getX() == b.getX()
                     ? (b.getZ() > a.getZ() ? Direction.SOUTH : Direction.NORTH)
@@ -71,6 +89,7 @@ public final class ClientRoadPreview {
         final boolean sameZ = a.getZ() == b.getZ();
         if (sameX == sameZ) {
             preview = null;
+            com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
             return null;
         }
         final Direction.Axis axis = sameX ? Direction.Axis.Z : Direction.Axis.X;
@@ -89,7 +108,62 @@ public final class ClientRoadPreview {
         plan.setTravelDir(Integer.signum((axis == Direction.Axis.X ? b.getX() - a.getX() : b.getZ() - a.getZ())));
         plan.setState(RoadState.PLANNED);
         preview = plan;
+        requestBlueprint(plan, a, b);
         return plan;
+    }
+
+    /**
+     * Asks the server for the blueprint this selection builds, so the preview can
+     * show real blocks instead of a box.
+     *
+     * <p>Only fires when the selection actually changed. Endpoints are picked with
+     * clicks rather than dragged, so a road costs a handful of packets, not one per
+     * frame. The anchor is sent too because an unbound wand synthesises it from
+     * endpoint A, and the server must place the blueprint at the same spot.</p>
+     */
+    /**
+     * Forgets the selection the last request was sent for, so the next frame asks
+     * the server again.
+     *
+     * <p>Called whenever the ghost is cleared. Without it, dropping the wand (or
+     * opening the build tool) and coming back would leave the de-duplication
+     * thinking nothing changed, send no request, and leave the player staring at
+     * an empty selection — the preview could only return by re-picking an
+     * endpoint.</p>
+     */
+    static void invalidateRequest() {
+        lastController = null;
+        lastAnchor = null;
+        lastA = null;
+        lastB = null;
+    }
+
+    private static void requestBlueprint(final RoadPlan plan, final BlockPos a, final BlockPos b) {
+        final BlockPos controller = plan.controllerPos();
+        final BlockPos anchor = plan.anchorPos();
+        final boolean mirrored = plan.mirror();
+        final int width = plan.width();
+        final int lampSpacing = plan.lampSpacing();
+        if (java.util.Objects.equals(lastController, controller)
+                && java.util.Objects.equals(lastAnchor, anchor)
+                && java.util.Objects.equals(lastA, a)
+                && java.util.Objects.equals(lastB, b)
+                && lastMirror == mirrored
+                && lastWidth == width
+                && lastLampSpacing == lampSpacing) {
+            return;
+        }
+        lastController = controller;
+        lastAnchor = anchor;
+        lastA = a;
+        lastB = b;
+        lastMirror = mirrored;
+        lastWidth = width;
+        lastLampSpacing = lampSpacing;
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new com.YLFXM.mcreconstruction.network.RequestRoadPreviewPayload(
+                        controller, anchor, a, b, mirrored, width, lampSpacing,
+                        com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.nextSequence()));
     }
 
     private static BlockPos boundController(final Minecraft minecraft) {

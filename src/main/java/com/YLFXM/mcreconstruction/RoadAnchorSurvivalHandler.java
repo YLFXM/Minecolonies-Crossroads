@@ -103,13 +103,25 @@ public final class RoadAnchorSurvivalHandler implements ISurvivalBlueprintHandle
             return;
         }
 
-        final BlockPos origin = pos.subtract(blueprint.getPrimaryBlockOffset());
+        // Rotate around the primary block, which lands exactly on the block the
+        // player clicked. Structurize's own setRotationMirror() is not usable
+        // here: it clears the block caches but keeps the cached primary offset,
+        // so getPrimaryBlockOffset() would still report the un-rotated position
+        // and the whole blueprint would be shifted by one cell.
+        //
+        // The blueprint is a 2x1x1 pair (stone_bricks anchor + decoration
+        // controller), so without this every placement ignored the rotation and
+        // always put the controller east of the anchor.
+        final BlockPos primary = blueprint.getPrimaryBlockOffset();
         for (final BlockInfo info : blueprint.getBlockInfoAsList()) {
-            final BlockState state = info.getState();
+            final BlockPos relative = info.getPos().subtract(primary);
+            final BlockPos world = pos.offset(rotationMirror.applyToPos(relative, BlockPos.ZERO));
+            // World-aware overload: some blocks resolve their rotation from the
+            // level, and the plain one is deprecated for exactly that reason.
+            final BlockState state = rotationMirror.applyToBlockState(info.getState(), serverLevel, world);
             if (state.isAir()) {
                 continue;
             }
-            final BlockPos world = origin.offset(info.getPos());
             serverLevel.setBlock(world, state, 3);
             if (info.hasTileEntityData() && info.getTileEntityData() != null) {
                 final BlockEntity be = serverLevel.getBlockEntity(world);

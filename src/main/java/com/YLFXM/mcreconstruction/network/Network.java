@@ -54,6 +54,21 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 public final class Network {
+    /** The item the native build tool is bound to; see Structurize's ModItems. */
+    private static final net.minecraft.world.item.Item BUILD_TOOL =
+            net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+                    net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("structurize", "sceptergold"));
+
+    /**
+     * Rendering-cache slot the native build-tool window renders into.
+     *
+     * <p>Hard-coded to {@code "blueprint"} because that is what
+     * {@code WindowExtendedBuildTool} passes as its blueprint id to
+     * {@code AbstractBlueprintManipulationWindow}. Our own planning ghost uses a
+     * different key, so the two never fight over one slot.</p>
+     */
+    private static final String BUILD_TOOL_PREVIEW_KEY = "blueprint";
+
     public static void register(final RegisterPayloadHandlersEvent event) {
         final var registrar = event.registrar("1");
         registrar.playToServer(RequestRoadsPayload.TYPE, RequestRoadsPayload.CODEC, Network::handleRequest);
@@ -65,11 +80,83 @@ public final class Network {
                 Network::handleNativeBuildClosed);
         registrar.playToServer(CancelWorkOrdersPayload.TYPE, CancelWorkOrdersPayload.CODEC,
                 Network::handleCancelWorkOrders);
+        registrar.playToServer(RequestRoadPreviewPayload.TYPE, RequestRoadPreviewPayload.CODEC,
+                Network::handlePreviewRequest);
         registrar.playToClient(RoadSyncPayload.TYPE, RoadSyncPayload.CODEC, Network::handleSync);
         registrar.playToClient(OpenRoadPlanPayload.TYPE, OpenRoadPlanPayload.CODEC, Network::handleOpenPlan);
         registrar.playToClient(BindRoadWandPayload.TYPE, BindRoadWandPayload.CODEC, Network::handleBindWand);
         registrar.playToClient(OpenBuildToolPayload.TYPE, OpenBuildToolPayload.CODEC, Network::handleOpenBuildTool);
         registrar.playToClient(WorkOrderListPayload.TYPE, WorkOrderListPayload.CODEC, Network::handleWorkOrderList);
+        registrar.playToClient(RoadPreviewPayload.TYPE, RoadPreviewPayload.CODEC, Network::handlePreview);
+    }
+
+    /**
+     * Generates the blueprint for a selection that is still being planned and
+     * sends it back for the ghost preview.
+     *
+     * <p>Nothing is persisted: the plan is built, turned into a blueprint and
+     * thrown away, so previewing a road cannot create one. Any failure — no
+     * permission, endpoints that do not form a valid road, generation problems —
+     * simply sends no answer, and the client keeps showing the previous preview
+     * rather than flashing an empty one.</p>
+     */
+    private static void handlePreview(final RoadPreviewPayload payload, final IPayloadContext context) {
+        context.enqueueWork(() ->
+                com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.accept(payload));
+    }
+
+    private static void handlePreviewRequest(final RequestRoadPreviewPayload payload, final IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            final ServerLevel level = player.serverLevel();
+            final BlockPos controllerPos = payload.controllerPos();
+            final com.minecolonies.api.colony.IColony colony = IColonyManager.getInstance()
+                    .getColonyByPosFromWorld(level, controllerPos);
+            if (!com.YLFXM.mcreconstruction.RoadPermissions.canManage(player, colony)) {
+                return;
+            }
+
+            final Direction facing = directionBetween(payload.a(), payload.b());
+            final int width = Math.max(1, payload.width());
+            final boolean mirror = payload.mirror();
+            final int effectiveWidthSide = mirror ? -1 : 1;
+
+            final RoadPlan plan;
+            try {
+                final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, payload.anchorPos(),
+                        controllerPos, facing, payload.a(), payload.b(),
+                        com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK, "street",
+                        width, Math.min(2, width), effectiveWidthSide,
+                        Math.max(0, payload.lampSpacing()));
+                plan = result.plan();
+                plan.setMirror(mirror);
+            } catch (final IllegalArgumentException ex) {
+                // Selection is not a road yet (diagonal, too long, anchor off the
+                // line). The client keeps its last preview; no chat noise.
+                return;
+            }
+
+            final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
+                    Config.defaultLampReserveHeight());
+            if (blueprint == null) {
+                return;
+            }
+            // The preview position is the anchor itself, NOT anchor - offset.
+            // Structurize's BlueprintPreviewData.setPos takes the world position
+            // of the blueprint's primary block and subtracts the offset itself
+            // when rendering (WorldRenderContext#renderBoxes does
+            // pos.subtract(primaryBlockOffset) and draws its red marker at pos).
+            // Subtracting here as well would shift the whole ghost down by one
+            // primary offset and leave it buried in the ground.
+            // Placing real blocks is the opposite case: that path needs
+            // anchor - offset to compute the minimum corner.
+            final BlockPos origin = plan.anchorPos();
+            PacketDistributor.sendToPlayer(player, new RoadPreviewPayload(
+                    com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint),
+                    origin, payload.sequence()));
+        });
     }
 
     private static void handleConfigure(final ConfigureRoadPayload payload, final IPayloadContext context) {
@@ -206,7 +293,7 @@ public final class Network {
                 PacketDistributor.sendToPlayer(player, new OpenBuildToolPayload(
                         plan.id(), RoadTemporaryPack.pathFor(plan),
                         com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint),
-                        packVersion));
+                        packVersion, plan.anchorPos()));
                 sendRoads(player, colony);
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "Road " + RoadNames.label(plan)
@@ -415,7 +502,16 @@ public final class Network {
     private static void handleOpenBuildTool(final OpenBuildToolPayload payload, final IPayloadContext context) {
         context.enqueueWork(() -> {
             final var minecraft = net.minecraft.client.Minecraft.getInstance();
-            if (minecraft.level == null) {
+            if (minecraft.level == null || minecraft.player == null) {
+                return;
+            }
+            // Nothing to build with. Opening the native tool anyway would put a
+            // panel in front of a player who cannot place anything (the placement
+            // path itself never checks the held item), so say so and stop before
+            // any client state is touched -- no pack written, no pack switched.
+            if (findBuildToolSlot(minecraft.player.getInventory()) < 0) {
+                minecraft.player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "No build tool in your inventory."), false);
                 return;
             }
             // The server pushes the blueprint with the payload: packs are only
@@ -431,13 +527,79 @@ public final class Network {
             final com.ldtteam.structurize.storage.StructurePackMeta previous =
                     com.ldtteam.structurize.storage.StructurePacks.getSelectedPack();
             com.YLFXM.mcreconstruction.client.ClientNativeBuildTracker.begin(
-                    payload.planId(), payload.blueprintPath(),
-                    previous == null ? null : previous.getName());
+                    payload.planId(), previous == null ? null : previous.getName());
             com.ldtteam.structurize.storage.StructurePacks.switchSelectedPack(
                     com.YLFXM.mcreconstruction.CustomRoadPack.PACK_NAME);
+            // The native window draws its own ghost for the same blueprint, so
+            // ours has to go or the two would stack.
+            com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
+            // Where the window puts its box is decided once, from the preview
+            // cache, and only when that cache has no position yet -- a position
+            // left over from an earlier open would win over the anchor we pass.
+            // Clearing it first makes the anchor below authoritative.
+            com.ldtteam.structurize.storage.rendering.RenderingCache
+                    .getOrCreateBlueprintPreviewData(BUILD_TOOL_PREVIEW_KEY)
+                    .setPos(null);
+            // The anchor is the blueprint's primary block (the road controller's
+            // support block). Passing null here makes Structurize fall back to
+            // "ten blocks in front of the player", which is why the box used to
+            // drift off in whatever direction the player was facing.
             new com.ldtteam.structurize.client.gui.WindowExtendedBuildTool(
-                    null, 1, minecraft.level.registryAccess()).open();
+                    payload.anchorPos(),
+                    com.ldtteam.structurize.api.constants.Constants.GROUNDSTYLE_RELATIVE,
+                    minecraft.level.registryAccess()).open();
+            // Hand the player the tool they are about to build with. This is
+            // presentation only: the placement path never checks the held item.
+            selectBuildTool(minecraft);
         });
+    }
+
+    /**
+     * First inventory slot holding the Structurize build tool, or -1.
+     *
+     * <p>Takes the {@code Inventory}, not the player: passing
+     * {@code Minecraft.player} (a {@code LocalPlayer}) as an argument would make
+     * the JVM verifier load that client-only class, which the dist cleaner
+     * rejects on a dedicated server -- the whole mod fails to construct with a
+     * {@code BootstrapMethodError} pointing at {@code Network::register}.</p>
+     *
+     * <p>Scans the whole inventory: slots 0-8 are the hotbar and can simply be
+     * selected, anything above has to be swapped into the selected slot to be
+     * reachable at all.</p>
+     */
+    private static int findBuildToolSlot(final net.minecraft.world.entity.player.Inventory inventory) {
+        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+            if (inventory.getItem(slot).is(BUILD_TOOL)) {
+                return slot;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Points the player's selected hotbar slot at the Structurize build tool.
+     *
+     * <p>If the tool is somewhere in the backpack it cannot be selected at all, so
+     * it is swapped into the selected slot — the one case where items move. The
+     * caller has already verified a tool exists.</p>
+     */
+    private static void selectBuildTool(final net.minecraft.client.Minecraft minecraft) {
+        if (minecraft.player == null) {
+            return;
+        }
+        final net.minecraft.world.entity.player.Inventory inventory = minecraft.player.getInventory();
+        final int found = findBuildToolSlot(minecraft.player.getInventory());
+        if (found < 0) {
+            return;
+        }
+        if (found <= 8) {
+            inventory.selected = found;
+            return;
+        }
+        final int selected = inventory.selected;
+        final net.minecraft.world.item.ItemStack displaced = inventory.getItem(selected);
+        inventory.setItem(selected, inventory.getItem(found));
+        inventory.setItem(found, displaced);
     }
 
     public static void sendWorkOrders(final ServerPlayer player,

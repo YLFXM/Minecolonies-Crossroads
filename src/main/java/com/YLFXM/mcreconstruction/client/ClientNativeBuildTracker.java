@@ -20,49 +20,60 @@ package com.YLFXM.mcreconstruction.client;
 
 import com.ldtteam.blockui.BOScreen;
 import com.ldtteam.structurize.blueprints.v1.Blueprint;
-import com.ldtteam.structurize.client.gui.AbstractBlueprintManipulationWindow;
 import com.ldtteam.structurize.client.gui.WindowExtendedBuildTool;
 import com.ldtteam.structurize.storage.StructurePacks;
 import com.YLFXM.mcreconstruction.CustomRoadPack;
 import com.YLFXM.mcreconstruction.MCReconstruction;
 import com.YLFXM.mcreconstruction.network.NativeBuildClosedPayload;
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.UUID;
-import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraft.client.Minecraft;
 
 /**
- * Tracks the native build-tool window and tries to preselect the freshly
- * generated road blueprint, so the player only has to press Confirm.
+ * Watches for the native build-tool window to open and close.
  *
- * <p>It also owns undoing the pack switch made to open the window: the selected
+ * <p>Its job is undoing the pack switch made to open that window: the selected
  * structure pack is a global that MineColonies writes into the save whenever a
  * building is placed or a colony is created, so leaving the road pack selected
- * after the window closes records it as a colony's style pack.</p>
+ * after the window closes records it as a colony's style pack — which then makes
+ * every later startup look for {@code fundamentals/townhall1} inside our pack.</p>
+ *
+ * <p>It also drops the window straight into our {@code generated} folder, so the
+ * road that was just planned is the first thing on screen instead of the player
+ * having to walk the pack tree to find it. The blueprint is deliberately
+ * <b>not</b> selected for them: without mixins that would mean reaching into the
+ * window's selection state, so the folder is opened and the player clicks.</p>
  */
 @EventBusSubscriber(modid = MCReconstruction.MODID, value = Dist.CLIENT)
 public final class ClientNativeBuildTracker {
+    /** Folder our generated road blueprints live in, inside the road pack. */
+    private static final String GENERATED = "generated";
+    /**
+     * How many client ticks to keep trying to open the folder. The pack file is
+     * written asynchronously, so the first ticks after the window opens can
+     * still see an empty folder; roughly two seconds is plenty.
+     */
+    private static final int FOLDER_ATTEMPTS = 40;
+
     private static UUID activePlan;
-    private static String blueprintPath;
     /** Pack that was selected before the road pack took over; restored on close. */
     private static String previousPackName;
     private static boolean nativeWindowSeen;
-    private static boolean applied;
-    private static int applyAttempts;
-    private static Method setBlueprintMethod;
+    /** True once the folder was opened, or once we stopped trying. */
+    private static boolean folderOpened;
+    private static int folderAttempts;
 
-    public static void begin(final UUID planId, final String path, final String previousPack) {
+    public static void begin(final UUID planId, final String previousPack) {
         activePlan = planId;
-        blueprintPath = path;
         previousPackName = previousPack;
         nativeWindowSeen = false;
-        applied = false;
-        applyAttempts = 0;
+        folderOpened = false;
+        folderAttempts = 0;
     }
 
     /**
@@ -95,56 +106,31 @@ public final class ClientNativeBuildTracker {
             if (nativeWindowSeen) {
                 PacketDistributor.sendToServer(new NativeBuildClosedPayload(activePlan));
                 activePlan = null;
-                blueprintPath = null;
                 nativeWindowSeen = false;
-                applied = false;
+                folderOpened = false;
                 restorePack();
             }
             return;
         }
-
         nativeWindowSeen = true;
-        if (applied || applyAttempts >= 40 || minecraft.level == null) {
+        if (folderOpened || minecraft.level == null) {
             return;
         }
-        applyAttempts++;
-        try {
-            if (window.selectedBlueprint != null) {
-                applied = true;
-                return;
-            }
-            Blueprint blueprint = StructurePacks.getBlueprint(
-                    CustomRoadPack.PACK_NAME, blueprintPath, minecraft.level.registryAccess());
-            if (blueprint == null) {
-                // Some pack APIs expect the category only; fall back to listing
-                // generated and matching the filename.
-                final int slash = blueprintPath.lastIndexOf('/');
-                final String suffix = slash >= 0 ? blueprintPath.substring(slash + 1) : blueprintPath;
-                for (final Blueprint candidate : StructurePacks.getBlueprints(
-                        CustomRoadPack.PACK_NAME, "generated", minecraft.level.registryAccess())) {
-                    if (candidate.getFilePath() != null
-                            && candidate.getFilePath().toString().replace('\\', '/').endsWith(suffix)) {
-                        blueprint = candidate;
-                        break;
-                    }
-                }
-            }
-            if (blueprint == null) {
-                return;
-            }
-            window.updateBlueprints(List.of(blueprint), "generated");
-            if (setBlueprintMethod == null) {
-                setBlueprintMethod = AbstractBlueprintManipulationWindow.class
-                        .getDeclaredMethod("setBlueprint", Blueprint.class);
-                setBlueprintMethod.setAccessible(true);
-            }
-            setBlueprintMethod.invoke(window, blueprint);
-            window.updatePlacementOptions();
-            applied = window.selectedBlueprint != null;
-        } catch (final Exception ex) {
-            MCReconstruction.LOGGER.warn("Could not preselect generated road blueprint", ex);
-            applied = true;
+        if (++folderAttempts > FOLDER_ATTEMPTS) {
+            // Give up quietly: the player is already navigating the list.
+            folderOpened = true;
+            return;
         }
+        final List<Blueprint> generated = StructurePacks.getBlueprints(
+                CustomRoadPack.PACK_NAME, GENERATED, minecraft.level.registryAccess());
+        if (generated.isEmpty()) {
+            return;
+        }
+        // Lands the list straight in our generated folder. Deliberately not
+        // selecting a blueprint: that needs the window's private selection state,
+        // and picking one for the player is not what was asked for.
+        window.updateBlueprints(generated, GENERATED);
+        folderOpened = true;
     }
 
     private ClientNativeBuildTracker() {
