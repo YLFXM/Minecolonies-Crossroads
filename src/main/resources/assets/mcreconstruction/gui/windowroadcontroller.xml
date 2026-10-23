@@ -6,6 +6,7 @@
           label="$(mcreconstruction.gui.road_controller)"/>
     <text id="name" size="260 12" pos="10 24" textalign="MIDDLE" color="black"/>
     <text id="state" size="260 10" pos="10 38" textalign="MIDDLE" color="black"/>
+    <text id="detail" size="260 10" pos="10 52" textalign="MIDDLE" color="black"/>
 
     <button id="upgrade" size="80 17" pos="10 86"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
@@ -16,4 +17,8 @@
     <button id="remove" size="80 17" pos="190 86"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(mcreconstruction.gui.remove)" color="black"/>
+
+    <button id="edit" size="120 17" pos="80 108"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(mcreconstruction.gui.edit_blueprint)" color="black"/>
 </window>

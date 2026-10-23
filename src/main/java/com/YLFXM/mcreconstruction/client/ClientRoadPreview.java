@@ -90,11 +90,16 @@ public final class ClientRoadPreview {
             RoadSelectionClient.setB(b);
             RoadSelectionClient.setMirror(base.mirror());
         }
-        if (base != null && base.state() == RoadState.BUILT) {
+        if (base != null && base.state() == RoadState.BUILT && !base.allowBlueprintEdit()) {
             // The road is finished, so PLANNED is over: the ghost has done its
             // job and the plain outline (drawn in blue for built roads) takes
             // over. This is what ends the preview after a build, because the
             // selection is no longer cleared when the plan is created.
+            //
+            // The controller panel's edit switch is the one exception: with it
+            // on, a built road keeps its ghost so a re-picked A/B can be
+            // previewed (and, because the request goes out, the server rebuilds
+            // the plan and drops it back to PLANNED).
             preview = null;
             com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
             return null;
@@ -128,7 +133,9 @@ public final class ClientRoadPreview {
         final RoadPlan plan = new RoadPlan(UUID.randomUUID(), base.dimension(), base.anchorPos(),
                 base.controllerPos(), base.controllerFacing(), mirrored, base.pack(), base.variant(),
                 base.width(), base.walkRange(), side, base.lampSpacing());
-        plan.addSegment(new RoadSegment(new BlockPos(minX, a.getY(), minZ), length, axis, 0, SegmentKind.ROAD));
+        // Local preview plan only; the surface height still follows the anchor
+        // (one block below it), never A's Y.
+        plan.addSegment(new RoadSegment(new BlockPos(minX, a.getY() - 1, minZ), length, axis, 0, SegmentKind.ROAD));
         plan.setTravelDir(Integer.signum((axis == Direction.Axis.X ? b.getX() - a.getX() : b.getZ() - a.getZ())));
         plan.setState(RoadState.PLANNED);
         preview = plan;

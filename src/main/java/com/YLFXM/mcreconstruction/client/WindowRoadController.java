@@ -32,34 +32,51 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * Post-build controller panel: Upgrade / Repair / Remove only. Construction
- * options belong to the Road Wand / native build tool, not this window.
+ * Controller panel: Upgrade / Repair / Remove, plus the per-plan "edit
+ * blueprint" switch. Construction options belong to the Road Wand / native build
+ * tool, not this window.
  */
 public class WindowRoadController extends AbstractWindowSkeleton {
     private final BlockPos controllerPos;
     private final Text nameText;
     private final Text stateText;
+    private final Text detailText;
     private final Button upgradeButton;
     private final Button repairButton;
     private final Button removeButton;
+    private final Button editButton;
 
     public WindowRoadController(final BlockPos controllerPos) {
         super(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "gui/windowroadcontroller.xml"));
         this.controllerPos = controllerPos;
         this.nameText = this.findPaneOfTypeByID("name", Text.class);
         this.stateText = this.findPaneOfTypeByID("state", Text.class);
+        this.detailText = this.findPaneOfTypeByID("detail", Text.class);
         this.upgradeButton = this.findPaneOfTypeByID("upgrade", Button.class);
         this.repairButton = this.findPaneOfTypeByID("repair", Button.class);
         this.removeButton = this.findPaneOfTypeByID("remove", Button.class);
+        this.editButton = this.findPaneOfTypeByID("edit", Button.class);
         // BlockUI derives the disabled colour from "color" when only that is set,
         // so disabled buttons would look identical to enabled ones. Force a grey.
-        for (final Button button : new Button[]{this.upgradeButton, this.repairButton, this.removeButton}) {
+        for (final Button button : new Button[]{this.upgradeButton, this.repairButton,
+                this.removeButton, this.editButton}) {
             button.setColors(0x000000, 0x9A9A9A, 0x000000);
         }
 
         this.registerButton("upgrade", button -> this.send(RoadControllerActionPayload.Action.UPGRADE));
         this.registerButton("repair", button -> this.send(RoadControllerActionPayload.Action.REPAIR));
         this.registerButton("remove", button -> this.send(RoadControllerActionPayload.Action.REMOVE));
+        // Deliberately not closing the window: the player usually flips it to
+        // edit a few cells right after, and the panel is where they came from.
+        this.registerButton("edit", button -> {
+            final RoadPlan plan = this.plan();
+            if (plan == null) {
+                return;
+            }
+            PacketDistributor.sendToServer(
+                    new com.YLFXM.mcreconstruction.network.ToggleBlueprintEditPayload(
+                            this.controllerPos, !plan.allowBlueprintEdit()));
+        });
     }
 
     @Override
@@ -68,10 +85,22 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         final RoadPlan plan = this.plan();
         this.nameText.setText(Component.literal(plan == null ? "No plan" : RoadNames.label(plan)));
         this.stateText.setText(Component.literal(plan == null ? "" : plan.state().toString()));
+        // Second line: the edit switch plus a per-row diff between the newest
+        // proposal and the table the world was built from. A re-pick that only
+        // shortens the road changes no row's type, so it reports 0 edited and
+        // counts the lost rows as dropped instead.
+        this.detailText.setText(Component.literal(plan == null ? ""
+                : "edit " + (plan.allowBlueprintEdit() ? "ON" : "OFF")
+                        + "  ·  " + plan.editedRowCount() + " edited"
+                        + (plan.lastDroppedRows() > 0
+                                ? "  ·  " + plan.lastDroppedRows() + " dropped" : "")));
         final boolean canManage = plan != null && ClientRoadCache.canManage(plan.id());
         this.upgradeButton.setEnabled(false);
         this.repairButton.setEnabled(canManage);
         this.removeButton.setEnabled(canManage);
+        this.editButton.setEnabled(canManage);
+        this.editButton.setText(Component.literal("Edit Blueprint: "
+                + (plan != null && plan.allowBlueprintEdit() ? "ON" : "OFF")));
     }
 
     private void send(final RoadControllerActionPayload.Action action) {

@@ -54,6 +54,8 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
     /** Read-only display of the current lamp spacing between the -/+ buttons. */
     private final Button lampValueButton;
     private boolean mirror;
+    /** Last state printed to the log, so the panel does not spam every tick. */
+    private String lastPanelDebug = "";
 
     public WindowRoadWand() {
         super(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "gui/windowroadwand.xml"));
@@ -100,7 +102,13 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         if (plan == null) {
             return;
         }
-        if (plan.state() != RoadState.DRAFT && plan.state() != RoadState.PLANNED) {
+        // BUILT is editable only with the controller panel's switch on; without
+        // that the button looked enabled (the panel greys out by state) but the
+        // click was silently dropped here.
+        final boolean editable = plan.state() == RoadState.DRAFT
+                || plan.state() == RoadState.PLANNED
+                || (plan.state() == RoadState.BUILT && plan.allowBlueprintEdit());
+        if (!editable) {
             return;
         }
         final int next = Math.max(MIN_LAMP_SPACING, Math.min(MAX_LAMP_SPACING, plan.lampSpacing() + delta));
@@ -126,17 +134,40 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         this.boundText.setText(Component.literal(plan != null
                 ? "Bound: " + RoadNames.label(plan)
                 : bound == null ? "Unbound: right-click a road controller" : "Bound controller (no plan)"));
+        // The controller panel's edit switch unlocks a BUILT road: without this
+        // the whole panel stays greyed out and the player cannot re-pick A/B at
+        // all, even though the server would accept it.
+        final boolean editingBuilt = plan != null
+                && plan.state() == RoadState.BUILT && plan.allowBlueprintEdit();
         final boolean locked = plan != null && plan.state() != RoadState.DRAFT
-                && plan.state() != RoadState.PLANNED;
+                && plan.state() != RoadState.PLANNED && !editingBuilt;
         // Grey out planning when the server says this player may not manage the
         // bound road; the server re-checks anyway.
         final boolean allowed = plan != null && ClientRoadCache.canManage(plan.id());
         this.stateText.setText(Component.literal(plan == null ? "No plan" : "Plan: " + plan.state()));
         this.lampValueButton.setText(Component.literal(plan == null ? "-" : String.valueOf(plan.lampSpacing())));
         this.lampValueButton.setEnabled(!locked && allowed);
-        this.planButton.setEnabled(!locked && allowed);
+        // Creating a blueprint is a first-time action: only a road that has not
+        // been confirmed yet (DRAFT) can open the native tool. Everything after
+        // that goes through Repair — replanning a built road included, whose
+        // state is PLANNED and would otherwise re-open this door.
+        this.planButton.setEnabled(plan != null
+                && plan.state() == RoadState.DRAFT && allowed);
         this.mirrorButton.setEnabled(!locked && allowed);
         this.clearButton.setEnabled(!locked);
+
+        // Logged only when the combination changes. When a button stays grey the
+        // reason is one of these four values, and guessing which one wasted a
+        // whole test round.
+        final String debug = "bound=" + bound
+                + " plan=" + (plan == null ? "none" : plan.id())
+                + " state=" + (plan == null ? "-" : plan.state())
+                + " edit=" + (plan != null && plan.allowBlueprintEdit())
+                + " locked=" + locked + " canManage=" + allowed;
+        if (!debug.equals(this.lastPanelDebug)) {
+            this.lastPanelDebug = debug;
+            com.YLFXM.mcreconstruction.MCReconstruction.LOGGER.info("Wand panel: {}", debug);
+        }
     }
 
     private void send(final RoadPlacementMode mode, final int lampSpacingOverride) {

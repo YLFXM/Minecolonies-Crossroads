@@ -6,5 +6,6 @@
   "mcreconstruction.gui.upgrade": "Upgrade",
   "mcreconstruction.gui.repair": "Repair",
   "mcreconstruction.gui.remove": "Remove",
+  "mcreconstruction.gui.edit_blueprint": "Edit Blueprint",
   "itemGroup.mcreconstruction": "MineColonies: Reconstruction Plan"
 }

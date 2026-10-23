@@ -61,6 +61,16 @@ public final class RoadBuildWatcher {
     private static final long GUARD_TICKS = 400L;
     /** How often ownership prefixes are re-checked (ticks): 10 s. */
     private static final int RECONCILE_INTERVAL = 200;
+    /**
+     * Plans whose only commit so far was opening the native tool from {@code DRAFT}.
+     *
+     * <p>In-memory on purpose: it describes one build session, not the road. If the
+     * tool is closed without placing anything, such a plan goes back to
+     * {@code DRAFT} so the Wand's "Create Blueprint" button becomes usable again;
+     * without it, the single commit a fresh road gets would be spent on opening a
+     * window and the player would have no way back into the tool.</p>
+     */
+    private static final java.util.Set<UUID> FROM_DRAFT = ConcurrentHashMap.newKeySet();
 
     private record Watch(ServerLevel level, long deadline, Blueprint blueprint) {
     }
@@ -109,6 +119,11 @@ public final class RoadBuildWatcher {
         }
     }
 
+    /** Records that this build session was opened from a never-confirmed road. */
+    public static void noteOpenedFromDraft(final RoadPlan plan) {
+        FROM_DRAFT.add(plan.id());
+    }
+
     public static void requestClose(final ServerLevel level, final RoadPlan plan) {
         CLOSING.put(plan.id(), System.currentTimeMillis() + 3000L);
         // Closing the window stops nothing: Complete/Pretty/Paste may still be
@@ -130,6 +145,7 @@ public final class RoadBuildWatcher {
         RoadTemporaryPack.delete(level, plan);
         ACTIVE.remove(plan.id());
         CLOSING.remove(plan.id());
+        FROM_DRAFT.remove(plan.id());
         GUARD.put(plan.id(), new Guard(level, level.getGameTime() + GUARD_TICKS));
         MCReconstruction.LOGGER.info("Road {} marked built", plan.id());
     }
@@ -180,28 +196,57 @@ public final class RoadBuildWatcher {
             final RoadPlan plan = RoadManager.get(watch.level()).get(id);
             if (plan == null || plan.state() == RoadState.REMOVED) {
                 ACTIVE.remove(id);
+                FROM_DRAFT.remove(id);
                 continue;
             }
             if (plan.state() == RoadState.BUILT) {
                 ACTIVE.remove(id);
                 CLOSING.remove(id);
+                FROM_DRAFT.remove(id);
                 continue;
             }
-            if (isBuilt(watch.level(), plan, watch.blueprint())) {
-                markBuilt(watch.level(), plan);
-                continue;
-            }
-
+            // Work order first: while a builder order is still in the manager the
+            // road is being built, and blocks matching early (the builder may
+            // finish the visible layer first) must NOT flip it to BUILT.
+            // The order disappearing from the manager is the "building finished"
+            // signal — MineColonies has no completion event to subscribe to, but
+            // the manager entry vanishing is the same observable fact.
             final boolean workOrder = hasWorkOrder(plan);
             if (workOrder) {
                 if (plan.state() != RoadState.BUILDING) {
                     plan.setState(RoadState.BUILDING);
                     RoadManager.get(watch.level()).add(plan);
                     watch.level().players().forEach(Network::sendRoads);
+                    MCReconstruction.LOGGER.info("Road {} picked up by a builder work order", id);
                 }
                 // A builder work order can run for a long time; keep watching
                 // instead of timing out and never migrating the controller.
                 ACTIVE.put(id, new Watch(watch.level(), now + TIMEOUT_MS, watch.blueprint()));
+                continue;
+            }
+
+            // No order left. Finish with one block check either way: an order can
+            // also be cancelled or replaced, and migrating the controller onto a
+            // shape that was never placed would be worse than missing a beat.
+            if (isBuilt(watch.level(), plan, watch.blueprint())) {
+                if (plan.state() == RoadState.BUILDING) {
+                    MCReconstruction.LOGGER.info("Road {} work order finished; marking built", id);
+                }
+                markBuilt(watch.level(), plan);
+                continue;
+            }
+            if (plan.state() == RoadState.BUILDING) {
+                // The order is gone but the shape is not there: it was cancelled.
+                // Back to DRAFT when nothing was ever confirmed, so the Wand's
+                // blueprint button can be used again.
+                final boolean fromDraft = FROM_DRAFT.remove(id);
+                plan.setState(fromDraft ? RoadState.DRAFT : RoadState.PLANNED);
+                RoadManager.get(watch.level()).add(plan);
+                ACTIVE.remove(id);
+                CLOSING.remove(id);
+                watch.level().players().forEach(Network::sendRoads);
+                MCReconstruction.LOGGER.info("Road {} lost its work order before completion; {}",
+                        id, fromDraft ? "back to draft" : "back to planned");
                 continue;
             }
 
@@ -210,14 +255,23 @@ public final class RoadBuildWatcher {
                 // The tool closed without finishing: unlock the plan UI, but
                 // keep watching. A large Paste can still be draining its queue
                 // at this point and must be allowed to complete and migrate.
-                plan.setState(RoadState.PLANNED);
+                //
+                // A road that had never been confirmed goes back to DRAFT instead:
+                // opening the tool was its only commit, and leaving it PLANNED
+                // would strand it with no way to reopen the tool (the Wand button
+                // is DRAFT-only). A road re-planned from BUILT stays PLANNED — it
+                // has pavement in the world and waits for Repair.
+                final boolean fromDraft = FROM_DRAFT.remove(id);
+                plan.setState(fromDraft ? RoadState.DRAFT : RoadState.PLANNED);
                 RoadManager.get(watch.level()).add(plan);
                 CLOSING.remove(id);
                 watch.level().players().forEach(Network::sendRoads);
-                MCReconstruction.LOGGER.info("Road {} native placement closed; still watching", id);
+                MCReconstruction.LOGGER.info("Road {} native placement closed; {} and still watching",
+                        id, fromDraft ? "back to draft" : "kept planned");
             } else if (closeAt == null && now > watch.deadline()) {
                 ACTIVE.remove(id);
                 CLOSING.remove(id);
+                FROM_DRAFT.remove(id);
                 MCReconstruction.LOGGER.info("Road {} native placement timed out; blueprint kept", id);
             }
         }

@@ -83,16 +83,43 @@ public final class RoadPlan {
     private BlockPos endpointA;
     private BlockPos endpointB;
     /**
+     * Controller-panel switch: when on, a BUILT road unlocks cell editing and
+     * re-selecting A/B. Off (default) keeps the old behaviour, where a finished
+     * road is frozen.
+     */
+    private boolean allowBlueprintEdit;
+    /**
      * Direction of travel along {@link #axis()}, {@code +1} or {@code -1}: with
      * {@code +1} the player clicked A at the low end of the axis. Cell stair
      * directions are stored relative to this, so it has to survive a save.
      */
     private int travelDir = 1;
     private final List<RoadSegment> segments = new ArrayList<>();
-    /** Per-cell overrides; a cell with no entry is {@link CellType#FLAT}. */
-    private final Map<CellKey, CellType> cellOverrides = new LinkedHashMap<>();
+    /**
+     * Per-row overrides, keyed by the world along-coordinate of the row. A row
+     * with no entry is {@link CellType#FLAT}.
+     *
+     * <p>Keyed by row, not by cell: a stair raises the whole walkable width of
+     * that row, so a per-column state could only ever describe a physically
+     * broken road. Which columns a row affects is decided by {@code walkRange}.</p>
+     */
+    private final Map<Integer, CellType> rowOverrides = new LinkedHashMap<>();
+    /**
+     * Unapplied changes, stored as a row-level diff against {@link #rowOverrides}.
+     *
+     * <p>Only rows whose type differs from the committed table live here, so
+     * {@link #editedRowCount()} is literally the size of the pending change.
+     * Repair applies them; nothing else writes the committed table.</p>
+     *
+     * <p>Persisted too: the client has to be able to show how much is waiting for
+     * Repair, and a restart in the middle of an edit session must not silently
+     * throw the changes away. Only Repair / Clear remove them.</p>
+     */
+    private Map<Integer, CellType> pendingRows;
     private RoadState state;
     private int workOrderId;
+    /** Rows dropped by the most recent re-plan; shown in the controller panel. */
+    private int lastDroppedRows;
     /**
      * Player who planned this road. Wilderness roads are only visible to their
      * creator, so this has to survive a save/load. Older saves have no such tag
@@ -100,14 +127,6 @@ public final class RoadPlan {
      * see the road then.
      */
     private UUID creator;
-
-    /** Addressing key of one road cell. */
-    public record CellKey(int along, int lateral) {
-    }
-
-    /** What a re-plan did to the per-cell overrides: reported to the player. */
-    public record Remap(boolean flippedStairs, boolean mirroredSide, int dropped) {
-    }
 
     public RoadPlan(final UUID id,
                     final ResourceKey<Level> dimension,
@@ -394,100 +413,240 @@ public final class RoadPlan {
         return travelDir >= 0 ? maxAlong() : minAlong();
     }
 
-    public CellType cellType(final int along, final int lateral) {
-        return cellOverrides.getOrDefault(new CellKey(along, lateral), CellType.FLAT);
+    /** Controller-panel switch; see the {@code allowBlueprintEdit} field. */
+    public boolean allowBlueprintEdit() {
+        return allowBlueprintEdit;
     }
 
-    public void setCellType(final int along, final int lateral, final CellType type) {
-        final CellKey key = new CellKey(along, lateral);
-        if (type == null || type == CellType.FLAT) {
-            cellOverrides.remove(key);
-        } else {
-            cellOverrides.put(key, type);
-        }
-    }
-
-    public Map<CellKey, CellType> cellOverrides() {
-        return Collections.unmodifiableMap(cellOverrides);
-    }
-
-    public int cellOverrideCount() {
-        return cellOverrides.size();
+    public void setAllowBlueprintEdit(final boolean allow) {
+        this.allowBlueprintEdit = allow;
     }
 
     /**
-     * Re-anchors every per-cell override after the player re-selected A and B.
-     *
-     * <p>Must be called <b>before</b> the segments and the travel direction are
-     * replaced, because it reads the old travel direction from this plan.</p>
-     *
-     * <p>There is deliberately <b>no shift</b>. Cells are keyed by their world
-     * coordinate on the axis, so a cell the player customised keeps pointing at
-     * the same block no matter how the endpoints move: extending the road, moving
-     * an endpoint, or re-clicking the same pair all leave the table where it is.
-     * The alternative — measuring each cell's distance from A and replaying it
-     * from the new A — looks equivalent but is not: extending a road at the A end
-     * would slide the whole table along the road, so a stair the player placed at
-     * x=3 would end up marked at x=-2 on ground that was never built. Only two
-     * things actually change identity:</p>
-     *
-     * <ul>
-     *   <li><b>Travel direction.</b> Stairs are stored relative to A to B, so if
-     *       the endpoints come back in the opposite order every stair is flipped.
-     *       The physical slope must not invert just because the clicks did.</li>
-     *   <li><b>Width side.</b> Mirroring the road mirrors the lateral index.</li>
-     * </ul>
-     *
-     * @return whether stairs were flipped, whether the sides were mirrored, and
-     *         how many cells fell outside the new road and were dropped.
+     * Offset across the road for a world position: {@code 0} is the anchor
+     * column and the index grows towards {@link #widthSide}, so it runs
+     * {@code 0..width-1} while the position is on the paved body.
      */
-    public Remap remapCellOverrides(final int newAlongA, final int newAlongB, final int newWidthSide) {
-        final int newDir = Integer.signum(newAlongB - newAlongA);
-        final boolean flipStairs = newDir != 0 && newDir != travelDir;
-        final boolean mirrorSide = (newWidthSide >= 0) != (widthSide >= 0);
-        final int newMin = Math.min(newAlongA, newAlongB);
-        final int newMax = Math.max(newAlongA, newAlongB);
-
-        if (!flipStairs && !mirrorSide) {
-            // Common case: the road only grew or shrank, so entries already point
-            // at the right cells and only out-of-range ones need removing.
-            int dropped = 0;
-            final var iterator = cellOverrides.entrySet().iterator();
-            while (iterator.hasNext()) {
-                final int along = iterator.next().getKey().along();
-                if (along < newMin || along > newMax) {
-                    iterator.remove();
-                    dropped++;
-                }
-            }
-            return new Remap(false, false, dropped);
-        }
-
-        final Map<CellKey, CellType> moved = new LinkedHashMap<>();
-        int dropped = 0;
-        for (final Map.Entry<CellKey, CellType> entry : cellOverrides.entrySet()) {
-            final int along = entry.getKey().along();
-            if (along < newMin || along > newMax) {
-                dropped++;
-                continue;
-            }
-            final int lateral = mirrorSide
-                    ? width - 1 - entry.getKey().lateral()
-                    : entry.getKey().lateral();
-            if (lateral < 0 || lateral >= width) {
-                dropped++;
-                continue;
-            }
-            moved.put(new CellKey(along, lateral),
-                    flipStairs ? entry.getValue().flipped() : entry.getValue());
-        }
-        cellOverrides.clear();
-        cellOverrides.putAll(moved);
-        return new Remap(flipStairs, mirrorSide, dropped);
+    public int lateralOf(final BlockPos pos) {
+        final boolean alongX = axis() == Direction.Axis.X;
+        final int base = alongX ? anchorPos.getZ() : anchorPos.getX();
+        final int delta = (alongX ? pos.getZ() : pos.getX()) - base;
+        return delta * (widthSide >= 0 ? 1 : -1);
     }
 
-    public void clearCellOverrides() {
-        cellOverrides.clear();
+    /**
+     * Row index for a world position, or null when the position is not on this
+     * road.
+     *
+     * <p>Only the paved rectangle is accepted (along inside the segments, lateral
+     * inside the width); the surrounding ground is not. A ROW is returned, not a
+     * column: editing a row changes the whole walkable width, so which column was
+     * clicked carries no information.</p>
+     */
+    public Integer rowAt(final BlockPos pos) {
+        if (segments.isEmpty()) {
+            return null;
+        }
+        final int along = alongOf(pos);
+        if (along < minAlong() || along > maxAlong()) {
+            return null;
+        }
+        final int lateral = lateralOf(pos);
+        if (lateral < 0 || lateral >= width) {
+            return null;
+        }
+        return along;
+    }
+
+    public CellType cellType(final int along) {
+        final CellType staged = pendingRows == null ? null : pendingRows.get(along);
+        // A staged FLAT entry means "the player cleared this row", which reads the
+        // same as having no entry at all.
+        return staged != null ? staged : rowOverrides.getOrDefault(along, CellType.FLAT);
+    }
+
+    /**
+     * Records a row's unit type in the newest proposal; {@code FLAT} clears it.
+     *
+     * <p>The proposal is a <b>diff</b>, not a copy: it only holds rows whose type
+     * differs from the committed table. Two things follow — "edited" is literally
+     * the size of that diff, and a row set back to its committed value simply
+     * leaves it again.</p>
+     */
+    public void setRowType(final int along, final CellType type) {
+        final CellType wanted = type == null ? CellType.FLAT : type;
+        if (rowOverrides.getOrDefault(along, CellType.FLAT) == wanted) {
+            if (pendingRows != null) {
+                pendingRows.remove(along);
+                if (pendingRows.isEmpty()) {
+                    pendingRows = null;
+                }
+            }
+            return;
+        }
+        if (pendingRows == null) {
+            pendingRows = new LinkedHashMap<>();
+        }
+        pendingRows.put(along, wanted);
+    }
+
+    /**
+     * Takes over another plan's committed table when the road is rebuilt.
+     *
+     * <p>Rebuilding (a re-pick) produces a fresh {@link RoadPlan}, so the table the
+     * world was built from has to be carried across explicitly — it is the base
+     * every proposal is computed against.</p>
+     */
+    public void adoptCommittedRows(final Map<Integer, CellType> rows) {
+        rowOverrides.clear();
+        rowOverrides.putAll(rows);
+    }
+
+    private static void writeRow(final Map<Integer, CellType> rows, final int along,
+                                 final CellType type) {
+        if (type == null || type == CellType.FLAT) {
+            rows.remove(along);
+        } else {
+            rows.put(along, type);
+        }
+    }
+
+    /** The table Repair has committed — what the world was built from. */
+    public Map<Integer, CellType> rowOverrides() {
+        return Collections.unmodifiableMap(rowOverrides);
+    }
+
+    public int confirmedRowCount() {
+        return rowOverrides.size();
+    }
+
+    /** True while a proposal is waiting for Repair. */
+    public boolean hasPendingRows() {
+        return pendingRows != null;
+    }
+
+    /** The newest unapplied proposal; empty when there is none. */
+    public Map<Integer, CellType> pendingRows() {
+        return pendingRows == null ? Map.of() : Collections.unmodifiableMap(pendingRows);
+    }
+
+    /**
+     * Carries an unapplied proposal across when the road is rebuilt.
+     *
+     * <p>Rebuilding (a re-pick, a lamp-spacing change) produces a fresh
+     * {@link RoadPlan}; without this the proposal would be dropped and every
+     * unapplied edit would silently revert to the committed values — which also
+     * made the panel's diff read 0 right after any re-pick.</p>
+     */
+    public void adoptPendingRows(final Map<Integer, CellType> rows) {
+        if (rows == null || rows.isEmpty()) {
+            pendingRows = null;
+        } else {
+            pendingRows = new LinkedHashMap<>(rows);
+        }
+    }
+
+    /**
+     * How many rows the newest proposal changes relative to the committed table.
+     *
+     * <p>This is the per-row diff (`dropped` is counted separately). A re-pick that
+     * only extends or shortens the road changes no row's type, so it reports 0 —
+     * and after Repair the diff is empty by definition.</p>
+     */
+    public int editedRowCount() {
+        if (pendingRows == null) {
+            return 0;
+        }
+        int changed = 0;
+        for (final Map.Entry<Integer, CellType> entry : pendingRows.entrySet()) {
+            if (rowOverrides.getOrDefault(entry.getKey(), CellType.FLAT) != entry.getValue()) {
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    /** Rows dropped by the most recent re-plan; shown in the controller panel. */
+    public int lastDroppedRows() {
+        return lastDroppedRows;
+    }
+
+    public void setLastDroppedRows(final int lastDroppedRows) {
+        this.lastDroppedRows = Math.max(0, lastDroppedRows);
+    }
+
+    /**
+     * Filters the proposal down to the new endpoint range.
+     *
+     * <p>Rows are keyed by their world along-coordinate, so extending or shrinking
+     * a road leaves every surviving row exactly where it was — there is nothing to
+     * shift, flip or mirror. Direction can never invert either: before the first
+     * build the table is only a proposal, and after it the pick is snapped to the
+     * stored orientation. Filtering out-of-range rows is the entire migration.</p>
+     *
+     * <p>Rows the road no longer covers are counted from the <b>committed</b> table
+     * every time, so re-picking repeatedly cannot accumulate losses: a row that
+     * comes back into range is still in the committed table with its old value.</p>
+     *
+     * @return how many committed rows fall outside the new range
+     */
+    public int stageRemap(final int newAlongA, final int newAlongB) {
+        final int newMin = Math.min(newAlongA, newAlongB);
+        final int newMax = Math.max(newAlongA, newAlongB);
+        if (pendingRows != null) {
+            // Unapplied edits outside the new road no longer apply to anything;
+            // everything still inside it stays a pending change.
+            pendingRows.keySet().removeIf(along -> along < newMin || along > newMax);
+            if (pendingRows.isEmpty()) {
+                pendingRows = null;
+            }
+        }
+        int dropped = 0;
+        for (final int along : rowOverrides.keySet()) {
+            if (along < newMin || along > newMax) {
+                dropped++;
+            }
+        }
+        lastDroppedRows = dropped;
+        return dropped;
+    }
+
+    /**
+     * Commits the proposal onto the committed table and prunes rows the road no
+     * longer covers.
+     *
+     * @return true when the table actually changed
+     */
+    public boolean applyPendingRows() {
+        boolean changed = false;
+        if (pendingRows != null) {
+            for (final Map.Entry<Integer, CellType> entry : pendingRows.entrySet()) {
+                writeRow(rowOverrides, entry.getKey(), entry.getValue());
+            }
+            pendingRows = null;
+            changed = true;
+        }
+        // A shrink only becomes permanent here: until Repair runs, the rows outside
+        // the new range are kept so that re-extending the road restores them.
+        // Guarded on segments: a plan without geometry reports 0/0 as its range and
+        // would prune everything.
+        if (!segments.isEmpty()) {
+            final int min = minAlong();
+            final int max = maxAlong();
+            if (rowOverrides.keySet().removeIf(along -> along < min || along > max)) {
+                changed = true;
+            }
+        }
+        if (changed) {
+            lastDroppedRows = 0;
+        }
+        return changed;
+    }
+
+    public void clearRowOverrides() {
+        rowOverrides.clear();
+        pendingRows = null;
+        lastDroppedRows = 0;
     }
 
     private int alongOf(final BlockPos pos) {
@@ -513,6 +672,7 @@ public final class RoadPlan {
         tag.putInt("walkTo", walkRange.to());
         tag.putInt("widthSide", widthSide);
         tag.putInt("lampSpacing", lampSpacing);
+        tag.putBoolean("allowBlueprintEdit", allowBlueprintEdit);
         if (hasEndpoints()) {
             tag.put("endpointA", NbtUtils.writeBlockPos(endpointA));
             tag.put("endpointB", NbtUtils.writeBlockPos(endpointB));
@@ -530,17 +690,31 @@ public final class RoadPlan {
         }
         tag.put("segments", list);
 
-        if (!cellOverrides.isEmpty()) {
-            final ListTag cells = new ListTag();
-            for (final Map.Entry<CellKey, CellType> entry : cellOverrides.entrySet()) {
-                final CompoundTag cell = new CompoundTag();
-                cell.putInt("along", entry.getKey().along());
-                cell.putInt("lateral", entry.getKey().lateral());
-                cell.putString("type", entry.getValue().name());
-                cells.add(cell);
+        if (!rowOverrides.isEmpty()) {
+            final ListTag rows = new ListTag();
+            for (final Map.Entry<Integer, CellType> entry : rowOverrides.entrySet()) {
+                final CompoundTag row = new CompoundTag();
+                row.putInt("along", entry.getKey());
+                row.putString("type", entry.getValue().name());
+                rows.add(row);
             }
-            tag.put("cells", cells);
+            tag.put("rows", rows);
         }
+        // Persisted as well: a proposal has to survive a restart and to reach the
+        // client, otherwise the controller panel could not show that Repair is
+        // still waiting for something. Repair (or Clear) is what removes it, so a
+        // stale proposal is never silently applied by anything else.
+        if (pendingRows != null) {
+            final ListTag pending = new ListTag();
+            for (final Map.Entry<Integer, CellType> entry : pendingRows.entrySet()) {
+                final CompoundTag row = new CompoundTag();
+                row.putInt("along", entry.getKey());
+                row.putString("type", entry.getValue().name());
+                pending.add(row);
+            }
+            tag.put("pendingRows", pending);
+        }
+        tag.putInt("lastDroppedRows", lastDroppedRows);
         return tag;
     }
 
@@ -567,6 +741,9 @@ public final class RoadPlan {
                 tag.getInt("widthSide"),
                 tag.getInt("lampSpacing"));
         plan.setTravelDir(tag.contains("travelDir") ? tag.getInt("travelDir") : 1);
+        // Older saves predate the switch; a finished road stays frozen until the
+        // player turns it on in the controller panel.
+        plan.setAllowBlueprintEdit(tag.getBoolean("allowBlueprintEdit"));
         // Older saves predate the stored endpoints; they simply fall back to the
         // outline box until the player re-picks A/B once.
         plan.setEndpoints(NbtUtils.readBlockPos(tag, "endpointA").orElse(null),
@@ -592,17 +769,43 @@ public final class RoadPlan {
             plan.addSegment(RoadSegment.load(list.getCompound(i)));
         }
 
+        // Current format: one entry per edited row. Written straight into the
+        // committed table — setRowType stages into the proposal instead.
+        final ListTag rows = tag.getList("rows", 10);
+        for (int i = 0; i < rows.size(); i++) {
+            final CompoundTag row = rows.getCompound(i);
+            writeRow(plan.rowOverrides, row.getInt("along"), parseCellType(row.getString("type")));
+        }
+        // Older saves stored one entry per CELL. Collapse them onto their row;
+        // a row that disagrees with itself keeps the last entry, which is the only
+        // thing a per-row model can do.
         final ListTag cells = tag.getList("cells", 10);
         for (int i = 0; i < cells.size(); i++) {
             final CompoundTag cell = cells.getCompound(i);
-            try {
-                plan.setCellType(cell.getInt("along"), cell.getInt("lateral"),
-                        CellType.valueOf(cell.getString("type")));
-            } catch (final IllegalArgumentException ex) {
-                // Unknown cell type from a newer save: fall back to flat.
-                plan.setCellType(cell.getInt("along"), cell.getInt("lateral"), CellType.FLAT);
+            writeRow(plan.rowOverrides, cell.getInt("along"), parseCellType(cell.getString("type")));
+        }
+        plan.setLastDroppedRows(tag.getInt("lastDroppedRows"));
+        // Staged proposal, if the player has edits Repair has not applied yet.
+        // Read after the committed rows: the two tables are loaded separately and
+        // assigning the field directly keeps them from mixing.
+        if (tag.contains("pendingRows", 9)) {
+            final ListTag pending = tag.getList("pendingRows", 10);
+            final Map<Integer, CellType> staged = new LinkedHashMap<>();
+            for (int i = 0; i < pending.size(); i++) {
+                final CompoundTag row = pending.getCompound(i);
+                staged.put(row.getInt("along"), parseCellType(row.getString("type")));
             }
+            plan.pendingRows = staged;
         }
         return plan;
+    }
+
+    private static CellType parseCellType(final String name) {
+        try {
+            return CellType.valueOf(name);
+        } catch (final IllegalArgumentException ex) {
+            // Unknown type from a newer save: fall back to flat.
+            return CellType.FLAT;
+        }
     }
 }

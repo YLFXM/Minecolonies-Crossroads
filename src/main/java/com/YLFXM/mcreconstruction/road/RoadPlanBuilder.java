@@ -62,9 +62,9 @@ public final class RoadPlanBuilder {
                                final int walkWidth,
                                final int widthSide,
                                final int lampSpacing) {
-        // MVP is flat: B's Y is ignored and A's Y is used as the road surface.
-        // This keeps endpoint selection usable on uneven terrain while stairs
-        // remain Phase 2.
+        // Flat MVP: neither endpoint's Y is used. The surface height is decided
+        // by the anchor (see below), so clicking A/B at different heights on
+        // uneven ground still produces one level road.
         final boolean sameX = a.getX() == b.getX();
         final boolean sameZ = a.getZ() == b.getZ();
         if (sameX == sameZ) {
@@ -92,7 +92,12 @@ public final class RoadPlanBuilder {
             throw new IllegalArgumentException("Road anchor must lie on the AB line.");
         }
 
-        final BlockPos start = new BlockPos(minX, a.getY(), minZ);
+        // The road surface comes from the ANCHOR, not from the endpoints: the
+        // anchor block sits on the ground next to the controller, so the
+        // pavement goes one block below it. A/B only mark the two ends, which
+        // keeps selection usable on uneven ground and leaves the vertical
+        // layout to stairs later.
+        final BlockPos start = new BlockPos(minX, anchorPos.getY() - 1, minZ);
         final RoadPlan plan = new RoadPlan(java.util.UUID.randomUUID(), level.dimension(), anchorPos, controllerPos,
                 controllerFacing, false, pack, variant, width,
                 WalkRange.centered(width, walkWidth), widthSide, lampSpacing);

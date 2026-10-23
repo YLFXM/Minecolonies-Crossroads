@@ -6,5 +6,6 @@
   "mcreconstruction.gui.upgrade": "升级",
   "mcreconstruction.gui.repair": "修复",
   "mcreconstruction.gui.remove": "拆除",
+  "mcreconstruction.gui.edit_blueprint": "修改蓝图",
   "itemGroup.mcreconstruction": "模拟殖民地：重构计划"
 }

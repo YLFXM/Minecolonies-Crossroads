@@ -82,6 +82,10 @@ public final class Network {
                 Network::handleCancelWorkOrders);
         registrar.playToServer(RequestRoadPreviewPayload.TYPE, RequestRoadPreviewPayload.CODEC,
                 Network::handlePreviewRequest);
+        registrar.playToServer(EditRoadCellPayload.TYPE, EditRoadCellPayload.CODEC,
+                Network::handleEditCell);
+        registrar.playToServer(ToggleBlueprintEditPayload.TYPE, ToggleBlueprintEditPayload.CODEC,
+                Network::handleToggleBlueprintEdit);
         registrar.playToClient(RoadSyncPayload.TYPE, RoadSyncPayload.CODEC, Network::handleSync);
         registrar.playToClient(OpenRoadPlanPayload.TYPE, OpenRoadPlanPayload.CODEC, Network::handleOpenPlan);
         registrar.playToClient(BindRoadWandPayload.TYPE, BindRoadWandPayload.CODEC, Network::handleBindWand);
@@ -118,7 +122,6 @@ public final class Network {
                 return;
             }
 
-            final Direction facing = directionBetween(payload.a(), payload.b());
             final int width = Math.max(1, payload.width());
             final boolean mirror = payload.mirror();
             final int effectiveWidthSide = mirror ? -1 : 1;
@@ -131,9 +134,16 @@ public final class Network {
             // place. Rebuilding keeps the plan identity, so the file name, the
             // Wand binding and the ownership all survive.
             final RoadPlan existing = findEditableRoad(level, controllerPos);
+            // Click order must not decide which end is A: snap the pair to the
+            // stored orientation before anything reads it.
+            final BlockPos[] ends = orientEndpoints(existing, payload.a(), payload.b());
+            final BlockPos a = ends[0];
+            final BlockPos b = ends[1];
+            final Direction facing = directionBetween(a, b);
+
             RoadPlan plan;
             if (existing != null
-                    && geometryDiffers(existing, payload.a(), payload.b(), mirror,
+                    && geometryDiffers(existing, a, b, mirror,
                             Math.max(0, Math.min(8, payload.lampSpacing())))) {
                 final RoadPlan rebuilt = rebuildPlannedRoad(level, player, payload, existing);
                 if (rebuilt == null) {
@@ -144,7 +154,7 @@ public final class Network {
             } else {
                 try {
                     final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, payload.anchorPos(),
-                            controllerPos, facing, payload.a(), payload.b(),
+                            controllerPos, facing, a, b,
                             com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK, "street",
                             width, Math.min(2, width), effectiveWidthSide,
                             Math.max(0, payload.lampSpacing()));
@@ -186,6 +196,41 @@ public final class Network {
     }
 
     /**
+     * Snaps a re-picked pair to the stored orientation.
+     *
+     * <p>Whichever point sits on the same side of the anchor as the stored A
+     * becomes A, no matter which one the player clicked first. Two things fall
+     * out of that: the travel direction never changes, so the edited-cell frame
+     * is stable and the override table never needs flipping; and the player is
+     * free to click the two ends in any order.</p>
+     *
+     * <p>Roads without stored endpoints, or with an anchor sitting exactly on A,
+     * are returned untouched — there is no side to snap to yet.</p>
+     */
+    private static BlockPos[] orientEndpoints(final RoadPlan old, final BlockPos a, final BlockPos b) {
+        // Only a re-plan has an orientation to preserve. DRAFT is the state a plan
+        // is created in from the controller, before any endpoint was picked.
+        if (old == null || old.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
+            return new BlockPos[]{a, b};
+        }
+        final Direction.Axis axis = old.axis();
+        final int anchor = axis == Direction.Axis.X ? old.anchorPos().getX() : old.anchorPos().getZ();
+        // Where the stored A end sits, derived from travelDir + segments. Working
+        // it out from the geometry instead of the stored endpoints means saves
+        // that predate those fields still snap correctly.
+        final int storedSide = Integer.signum(old.alongOfA() - anchor);
+        if (storedSide == 0) {
+            return new BlockPos[]{a, b};
+        }
+        final int sideA = Integer.signum((axis == Direction.Axis.X ? a.getX() : a.getZ()) - anchor);
+        final int sideB = Integer.signum((axis == Direction.Axis.X ? b.getX() : b.getZ()) - anchor);
+        if (sideA != storedSide && sideB == storedSide) {
+            return new BlockPos[]{b, a};
+        }
+        return new BlockPos[]{a, b};
+    }
+
+    /**
      * The road attached to this controller while it can still be re-planned, or
      * null. Built roads are locked: their controller is placed and their
      * temporary blueprint is gone, so a new selection means a new road.
@@ -195,8 +240,22 @@ public final class Network {
             if (!candidate.controllerPos().equals(controllerPos)) {
                 continue;
             }
-            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT
-                    || candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.PLANNED) {
+            // DRAFT is the loose planning phase: the plan exists (created from the
+            // controller) but no blueprint was committed yet. A preview request
+            // must NOT rebuild it — doing so promoted it to PLANNED on the first
+            // A/B pick and locked the axis before the player had finished
+            // planning. Only clicking "Create Blueprint" leaves DRAFT.
+            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
+                return null;
+            }
+            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.PLANNED) {
+                return candidate;
+            }
+            // A finished road becomes re-plannable once the controller panel's
+            // edit switch is on — that is the same condition under which the
+            // client keeps its ghost preview alive.
+            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT
+                    && candidate.allowBlueprintEdit()) {
                 return candidate;
             }
             return null;
@@ -228,7 +287,10 @@ public final class Network {
     private static RoadPlan rebuildPlannedRoad(final ServerLevel level, final ServerPlayer player,
                                                final RequestRoadPreviewPayload payload,
                                                final RoadPlan old) {
-        final Direction facing = directionBetween(payload.a(), payload.b());
+        // Same snap as the configure path: a rebuilt road keeps its stored
+        // orientation, so the edited-cell frame does not flip.
+        final BlockPos[] ends = orientEndpoints(old, payload.a(), payload.b());
+        final Direction facing = directionBetween(ends[0], ends[1]);
         final int width = Math.max(1, old.width());
         final int lampSpacing = Math.max(0, Math.min(8, payload.lampSpacing()));
         final boolean mirror = payload.mirror();
@@ -237,7 +299,7 @@ public final class Network {
         final RoadPlan plan;
         try {
             plan = RoadPlanBuilder.build(level, old.anchorPos(), payload.controllerPos(), facing,
-                    payload.a(), payload.b(), old.pack(), old.variant(),
+                    ends[0], ends[1], old.pack(), old.variant(),
                     width, Math.min(2, width), effectiveWidthSide, lampSpacing).plan();
         } catch (final IllegalArgumentException ex) {
             return null;
@@ -246,7 +308,27 @@ public final class Network {
         plan.setCreator(old.creator() != null ? old.creator() : player.getUUID());
         plan.setDisplayName(old.displayName());
         plan.setRoadName(old.roadName());
+        // The switch belongs to the plan, not to one build: dropping it here
+        // would silently re-lock the road after a single re-pick.
+        plan.setAllowBlueprintEdit(old.allowBlueprintEdit());
         plan.setMirror(mirror);
+        // A re-picked road is by definition not applied yet.
+        plan.setState(com.YLFXM.mcreconstruction.road.RoadState.PLANNED);
+
+        // Both tables travel with the rebuilt plan. The committed one is the base
+        // every proposal is measured against, and the proposal holds edits Repair
+        // has not applied yet — losing it here silently reverted them.
+        plan.adoptCommittedRows(old.rowOverrides());
+        plan.adoptPendingRows(old.pendingRows());
+        if (old.confirmedRowCount() > 0) {
+            final Direction.Axis oldAxis = old.axis();
+            final int alongA = oldAxis == Direction.Axis.X ? ends[0].getX() : ends[0].getZ();
+            final int alongB = oldAxis == Direction.Axis.X ? ends[1].getX() : ends[1].getZ();
+            final int dropped = plan.stageRemap(alongA, alongB);
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    "Re-plan: " + plan.editedRowCount() + " row(s) edited, " + dropped
+                            + " dropped. Repair applies it."), false);
+        }
 
         final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
                 Config.defaultLampReserveHeight());
@@ -259,10 +341,128 @@ public final class Network {
         RoadManager.get(level).remove(old.id());
         RoadManager.get(level).add(plan);
         com.YLFXM.mcreconstruction.road.RoadBlueprintStore.save(level, plan, blueprint);
-        // The watch caches the blueprint it loaded, so re-arm it with the rebuilt
-        // one or completion would keep being checked against the old geometry.
-        com.YLFXM.mcreconstruction.road.RoadBuildWatcher.watch(level, plan);
+        // No completion watch: nothing is being built right now. Repair arms one
+        // when it actually applies the blueprint.
         return plan;
+    }
+
+    /**
+     * Cycles one road cell's unit type: {@code FLAT → STAIR_UP → STAIR_DOWN → FLAT}.
+     *
+     * <p>The client only sends the block it is aiming at; the server resolves it
+     * against the plan, so a cell outside the paved body (or on somebody else's
+     * road) is rejected instead of silently written.</p>
+     *
+     * <p>The edited table is stored on the plan and the temporary blueprint is
+     * regenerated immediately, so the ghost preview and the file the native tool
+     * opens stay in sync. Editing a BUILT road also drops it back to PLANNED:
+     * the world still holds the old pavement, so it has to be rebuilt — Repair
+     * applies the new shape.</p>
+     */
+    private static void handleEditCell(final EditRoadCellPayload payload, final IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            final ServerLevel level = player.serverLevel();
+            final BlockPos controllerPos = payload.controllerPos();
+            final IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, controllerPos);
+            if (!com.YLFXM.mcreconstruction.RoadPermissions.canManage(player, colony)) {
+                MCReconstruction.LOGGER.info("Road cell edit denied for {} at {} (no manage-huts)",
+                        player.getName().getString(), controllerPos);
+                return;
+            }
+            if (findBoundWand(player, controllerPos) == null) {
+                MCReconstruction.LOGGER.info("Road cell edit ignored: wand not bound to {} (player {})",
+                        controllerPos, player.getName().getString());
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "Road Wand is not bound to this controller."), false);
+                return;
+            }
+            final RoadPlan plan = RoadManager.get(level).findByController(controllerPos);
+            if (plan == null || plan.segments().isEmpty()) {
+                MCReconstruction.LOGGER.info("Road cell edit ignored: no plan at {}", controllerPos);
+                return;
+            }
+            if (plan.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT
+                    && !plan.allowBlueprintEdit()) {
+                MCReconstruction.LOGGER.info("Road cell edit refused: built road {} has edit off", plan.id());
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "Turn on \"Edit Blueprint\" in the controller panel to change a built road."), false);
+                return;
+            }
+            final Integer row = plan.rowAt(payload.cellPos());
+            if (row == null) {
+                MCReconstruction.LOGGER.info(
+                        "Road row edit refused: {} is outside plan {} (anchor {} width {} side {} along {}..{})",
+                        payload.cellPos(), plan.id(), plan.anchorPos(), plan.width(), plan.widthSide(),
+                        plan.minAlong(), plan.maxAlong());
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "That block is not part of this road."), false);
+                return;
+            }
+            final com.YLFXM.mcreconstruction.road.CellType current = plan.cellType(row);
+            final com.YLFXM.mcreconstruction.road.CellType next = switch (current) {
+                case FLAT -> com.YLFXM.mcreconstruction.road.CellType.STAIR_UP;
+                case STAIR_UP -> com.YLFXM.mcreconstruction.road.CellType.STAIR_DOWN;
+                case STAIR_DOWN -> com.YLFXM.mcreconstruction.road.CellType.FLAT;
+            };
+            plan.setRowType(row, next);
+
+            final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
+                    Config.defaultLampReserveHeight());
+            if (blueprint == null) {
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "Road blueprint generation failed."), false);
+                return;
+            }
+            // The blueprint no longer matches the world, so the road is back to
+            // "planned": PLANNED means "there is a shape waiting to be applied",
+            // and only applying it (Repair / build tool / builder) makes it BUILT
+            // again. No completion watch is armed here, because nothing is being
+            // placed — that is what used to make the state flip back on its own.
+            plan.setState(com.YLFXM.mcreconstruction.road.RoadState.PLANNED);
+            com.YLFXM.mcreconstruction.road.RoadTemporaryPack.replace(level, plan, plan, blueprint);
+            com.YLFXM.mcreconstruction.road.RoadBlueprintStore.save(level, plan, blueprint);
+            RoadManager.get(level).add(plan);
+            sendRoads(player, colony);
+            MCReconstruction.LOGGER.info("Road {} row {} edited by {}: -> {}",
+                    plan.id(), row, player.getName().getString(), next);
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    "Row " + row + ": " + next), true);
+        });
+    }
+
+    /**
+     * Flips the per-plan "edit blueprint" switch shown in the controller panel.
+     *
+     * <p>It does not touch the world: it only changes what the plan accepts
+     * afterwards (cell edits and A/B re-selection on a built road).</p>
+     */
+    private static void handleToggleBlueprintEdit(final ToggleBlueprintEditPayload payload,
+                                                  final IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            final ServerLevel level = player.serverLevel();
+            final BlockPos controllerPos = payload.controllerPos();
+            final IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, controllerPos);
+            if (!com.YLFXM.mcreconstruction.RoadPermissions.canManage(player, colony)) {
+                return;
+            }
+            final RoadPlan plan = RoadManager.get(level).findByController(controllerPos);
+            if (plan == null) {
+                return;
+            }
+            plan.setAllowBlueprintEdit(payload.allow());
+            RoadManager.get(level).add(plan);
+            sendRoads(player, colony);
+            MCReconstruction.LOGGER.info("Road {} edit switch -> {} (by {})",
+                    plan.id(), payload.allow(), player.getName().getString());
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    payload.allow() ? "Blueprint editing enabled." : "Blueprint editing locked."), true);
+        });
     }
 
     private static void handleConfigure(final ConfigureRoadPayload payload, final IPayloadContext context) {
@@ -308,7 +508,21 @@ public final class Network {
                         "Road Wand is not bound to this controller."), false);
                 return;
             }
-            if (old.state() != RoadState.DRAFT && old.state() != RoadState.PLANNED) {
+            // A built road is frozen unless the controller panel's edit switch is
+            // on. Then it may be re-planned, which drops it back to PLANNED so the
+            // new shape can be laid over the old pavement.
+            final boolean editingBuilt = old.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT
+                    && old.allowBlueprintEdit();
+            if (mode == RoadPlacementMode.PLAN
+                    && old.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT) {
+                // Creating a blueprint is a first-time action. A built road is
+                // rebuilt through Repair only, so it must not come back through
+                // this door (the Wand button is disabled for the same reason).
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "A built road is rebuilt with Repair, not by creating a blueprint again."), false);
+                return;
+            }
+            if (old.state() != RoadState.DRAFT && old.state() != RoadState.PLANNED && !editingBuilt) {
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "This road is already built; construction options are locked."), false);
                 return;
@@ -320,13 +534,53 @@ public final class Network {
             // Wand panel, so it comes from the payload rather than the old plan.
             final int lampSpacing = Math.max(0, Math.min(8, payload.lampSpacing()));
 
+            // Click order must not decide which end is A: snap the pair to the
+            // stored orientation so travelDir — and with it the edited-cell
+            // frame — stays put.
+            final BlockPos[] ends = orientEndpoints(old, payload.a(), payload.b());
+            final BlockPos a = ends[0];
+            final BlockPos b = ends[1];
+
             final Direction facing = old != null ? old.controllerFacing()
-                    : (payload.hasEndpoints() ? directionBetween(payload.a(), payload.b()) : Direction.NORTH);
+                    : (payload.hasEndpoints() ? directionBetween(a, b) : Direction.NORTH);
             final BlockPos anchorPos = old != null ? old.anchorPos() : controllerPos;
             final String pack = old != null ? old.pack() : com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK;
             final String variant = old != null ? old.variant() : "street";
             final int widthSide = old != null ? old.widthSide() : 1;
             final boolean mirror = payload.mirror();
+
+            // A re-pick has to stay on the stored axis and the stored lateral
+            // origin. Deliberately NOT gated on the road state beyond "has been
+            // planned before": the state flips between BUILT and PLANNED while
+            // editing, and gating on BUILT let a later re-pick change axis or
+            // slide the road sideways. DRAFT is the only state where the road has
+            // no orientation yet (a plan created from the controller).
+            if (old.state() != com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
+                if (!payload.hasEndpoints()) {
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                            "An existing road can only be re-planned from two endpoints."), false);
+                    return;
+                }
+                final Direction.Axis oldAxis = old.axis();
+                final boolean newSharesZ = a.getZ() == b.getZ();
+                final boolean newSharesX = a.getX() == b.getX();
+                if (newSharesZ == newSharesX || (oldAxis == Direction.Axis.X) != newSharesZ) {
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                            "This road cannot change axis; keep the same x or z as before."), false);
+                    return;
+                }
+                final int oldLateral = oldAxis == Direction.Axis.X
+                        ? old.anchorPos().getZ() : old.anchorPos().getX();
+                final int newLateral = oldAxis == Direction.Axis.X
+                        ? a.getZ() : a.getX();
+                if (oldLateral != newLateral) {
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                            "This road cannot move sideways; the shared coordinate must stay at "
+                                    + (oldAxis == Direction.Axis.X ? "z=" : "x=") + oldLateral + "."), false);
+                    return;
+                }
+            }
+
             final int effectiveWidthSide = mirror ? -Math.abs(widthSide) : Math.abs(widthSide);
 
             final RoadPlan plan;
@@ -334,7 +588,7 @@ public final class Network {
             try {
                 if (payload.hasEndpoints()) {
                     final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, anchorPos,
-                            payload.controllerPos(), facing, payload.a(), payload.b(), pack, variant,
+                            payload.controllerPos(), facing, a, b, pack, variant,
                             width, Math.min(2, width), effectiveWidthSide, lampSpacing);
                     plan = result.plan();
                     plan.setMirror(mirror);
@@ -346,7 +600,9 @@ public final class Network {
                             payload.controllerPos(), facing, mirror, pack, variant,
                             width, com.YLFXM.mcreconstruction.road.WalkRange.centered(width, Math.min(2, width)),
                             effectiveWidthSide, lampSpacing);
-                    plan.addSegment(new RoadSegment(payload.controllerPos(), length, axis, 0, SegmentKind.ROAD));
+                    // Surface is the anchor's block minus one, same as the
+                    // A/B path: endpoints never decide the height.
+                    plan.addSegment(new RoadSegment(anchorPos.below(), length, axis, 0, SegmentKind.ROAD));
                     plan.setTravelDir(facing.getAxisDirection().getStep());
                     plan.setState(RoadState.PLANNED);
                     intersections = 0;
@@ -363,6 +619,46 @@ public final class Network {
             // Ownership must survive re-planning: re-selecting A/B on a road
             // somebody else planned must not transfer it to the current player.
             plan.setCreator(old.creator() != null ? old.creator() : player.getUUID());
+            // Re-planning rebuilds the plan from scratch: carry the switch (and
+            // everything else that identifies it) across, or a single re-pick
+            // would re-lock the road.
+            plan.setAllowBlueprintEdit(old.allowBlueprintEdit());
+            // Re-planning always lands in PLANNED: the blueprint changed, the
+            // world did not. Applying it (Repair / build tool / builder) is what
+            // turns the road BUILT again.
+            plan.setState(com.YLFXM.mcreconstruction.road.RoadState.PLANNED);
+
+            // Rows are keyed by world coordinate, so a re-pick only has to filter
+            // out the ones that fell outside — and only as a proposal. Repair is
+            // what commits it, so re-picking to try a shape can be undone by
+            // picking the old endpoints again.
+            //
+            // An empty committed table needs no proposal at all: there is nothing
+            // to filter, nothing to drop and nothing to report, and the new plan
+            // simply has no staged table (Repair then reuses the cached blueprint).
+            plan.adoptCommittedRows(old.rowOverrides());
+            plan.adoptPendingRows(old.pendingRows());
+            if (old.confirmedRowCount() > 0) {
+                final Direction.Axis oldAxis = old.axis();
+                final int alongA = oldAxis == Direction.Axis.X ? a.getX() : a.getZ();
+                final int alongB = oldAxis == Direction.Axis.X ? b.getX() : b.getZ();
+                final boolean sameRange = old.state()
+                        != com.YLFXM.mcreconstruction.road.RoadState.DRAFT
+                        && old.minAlong() == Math.min(alongA, alongB)
+                        && old.maxAlong() == Math.max(alongA, alongB);
+                // Same range means this call came from the lamp spacing button (or
+                // an unchanged re-pick): re-stage silently to carry a proposal that
+                // is already waiting across to the rebuilt plan — dropping it here
+                // would lose it without a word, since the plan is replaced wholesale.
+                if (!sameRange || old.hasPendingRows()) {
+                    final int dropped = plan.stageRemap(alongA, alongB);
+                    if (!sameRange) {
+                        player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                                "Re-plan: " + plan.editedRowCount() + " row(s) edited, " + dropped
+                                        + " dropped. Repair applies it."), false);
+                    }
+                }
+            }
             if (!old.displayName().isBlank()) {
                 plan.setDisplayName(old.displayName());
             }
@@ -400,6 +696,8 @@ public final class Network {
                 // client re-requests the preview as soon as the synced plan
                 // arrives, so the ghost redraws with the new spacing.
                 RoadBlueprintStore.save(level, plan, blueprint);
+                // No completion watch here: the world is untouched, so there is
+                // nothing to wait for. Repair arms one when it applies the shape.
                 RoadManager.get(level).add(plan);
                 sendRoads(player, colony);
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
@@ -410,6 +708,12 @@ public final class Network {
             if (mode == RoadPlacementMode.PLAN) {
                 RoadBlueprintStore.save(level, plan, blueprint);
                 RoadManager.get(level).add(plan);
+                if (old.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
+                    // This is the road's first (and only) commit. If the tool is
+                    // closed without building, the watcher puts it back in DRAFT so
+                    // the button that opened the tool is usable again.
+                    RoadBuildWatcher.noteOpenedFromDraft(plan);
+                }
                 RoadBuildWatcher.watch(level, plan);
                 PacketDistributor.sendToPlayer(player, new OpenBuildToolPayload(
                         plan.id(), RoadTemporaryPack.pathFor(plan),

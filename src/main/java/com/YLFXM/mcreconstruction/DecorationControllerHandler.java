@@ -142,6 +142,15 @@ public final class DecorationControllerHandler {
 
         // Plain right-click opens the controller management panel, even while a
         // Wand is in the inventory. Binding uses the explicit shift gesture.
+        //
+        // Only players who may manage the road get a window: the synced plan
+        // list is filtered by that permission, so a view-only player would be
+        // handed an empty panel with every button greyed out.
+        if (!com.YLFXM.mcreconstruction.RoadPermissions.canManage(player,
+                com.minecolonies.api.colony.IColonyManager.getInstance()
+                        .getColonyByPosFromWorld(level, plan.controllerPos()))) {
+            return;
+        }
         Network.sendRoads(player, com.minecolonies.api.colony.IColonyManager.getInstance()
                 .getColonyByPosFromWorld(level, plan.controllerPos()));
         PacketDistributor.sendToPlayer(player, new OpenRoadPlanPayload(plan.controllerPos()));

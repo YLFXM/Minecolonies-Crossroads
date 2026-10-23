@@ -3,7 +3,8 @@
 > [!WARNING]
 > **本项目仍在开发中（in development），尚未完成测试，请勿下载安装到正式存档或正式服务器。**
 >
-> 当前版本 `0.1.0-beta.1` 只在开发者的单人测试环境里验证过部分流程，**已知存在未修复的问题**，
+> 当前版本 `0.1.4` 只在开发者的单人测试环境里验证过流程，**仍有未实现的部分**（台阶生成、交叉口、
+> Repair 改走原生工具），
 > 存档格式与内部数据结构**仍可能变动**。如果你不是打算参与开发或帮忙测试，请等正式发布。
 >
 > 仓库以 GPL-3.0 开源，**原作者可能不再维护**。愿意接手迁移到更新版本的开发者，
@@ -16,7 +17,7 @@ MineColonies 的功能扩展 mod：用 Road Wand 划出**轴向直路**，生成
 |---|---|
 | Mod ID | `mcreconstruction` |
 | 包名 | `com.YLFXM.mcreconstruction` |
-| 版本 | `0.1.0-beta.1`（开发中） |
+| 版本 | `0.1.4`（开发中） |
 | 定位 | MineColonies 附属扩展，**不是** Pause Research 的更新，不复用其 mod id / 包名 / 配置路径 / 合成 path 前缀 |
 
 ## 它解决什么问题
@@ -145,14 +146,33 @@ BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行�
 1. 放置原生 `minecolonies:decorationcontroller`，让它的 `FACING` 贴着作为锚点的方块（默认 `minecraft:stone_bricks`）。
 2. 右键控制器（不潜行）→ 打开控制器面板；此时 `DecorationControllerHandler` 已经为该控制器建立了 `RoadPlan`，并按 `<归属前缀>-<道路名>` 生成唯一名称。前缀取自控制器所在位置：落在殖民地境内是殖民地名，落在野外是 **`野外`**（英文客户端 `Wilderness`）。
 3. 手持 Road Wand：
-   - **左键**选点 A；
-   - **Shift + 左键**选点 B；
-   - A/B 必须共享 x 或 z 之一，Y 取 A 的 Y（平路）。
+   - **左键**或 **Shift + 左键**选点，点在哪一端就记哪一端（按锚点分侧归位，见[端点归位](#端点归位点击顺序无关)）；
+   - A/B 必须共享 x 或 z 之一；
+   - **高度只由锚点决定**：路面 = 锚点方块下一格。A/B 的 Y 完全不参与计算。
 4. 选点后立即出现**白色 AABB** 预览，范围就是严格道路宽度。
 5. **右键空气** → 打开 Wand 面板：`Create Blueprint / Open Build Tool`、`Mirror`、`Lamp spacing -/+`、`Clear`。宽度不可编辑（来自风格包），Mirror 绕锚点列翻转路面并实时重算预览，灯距 1-8 点一下即生效。
+   `Create Blueprint` **只在 `DRAFT` 可用**：确认过规划之后，重新应用形状的唯一途径是 Repair。
 6. 点 `Create Blueprint` 后服务端：校验 A/B → 构造 `RoadPlan` → 生成严格宽度蓝图 → 写入结构包 → 切包并打开原生 `WindowExtendedBuildTool`（列表定位到 `generated/`，蓝图由玩家手动点选）。
 7. 在原生工具里选 **Complete / Pretty / Survival**（或 **Paste**）。
 8. `RoadBuildWatcher` 检测到全部道路方块就位后：迁移控制器到锚点内侧、状态置 `BUILT`、Wand 自动重绑、蓝图保留。
+
+> 打开过原生工具却没有建造就关掉窗口时，路会退回 `DRAFT`，`Create Blueprint` 重新可用——
+> 否则这条路唯一的一次确认机会就被一个空窗口用掉了。
+
+### 逐格编辑与重规划（0.1.4）
+
+建成或规划好的路可以逐行改单元类型（平地 / 上坡 / 下坡），改完用 Repair 应用：
+
+1. 右键控制器 → 面板里打开 **`Edit Blueprint: ON`**（开关按道路保存，随存档持久化）；
+2. **Shift + 右键路面**任意一格 → 该**行**在 `FLAT → STAIR_UP → STAIR_DOWN → FLAT` 之间循环，动作栏报 `Row <along>: <type>`；
+   - 台阶作用在**整条可走宽度**上，所以点这一行的任何一列都等价；
+3. 重新选 A/B（沿轴伸缩）时，面板第二行会显示 `N edited`（未应用的改动行数）与 `M dropped`（被缩掉的行数），
+   聊天栏同步报 `Re-plan: N row(s) edited, M dropped. Repair applies it.`；
+4. 点控制器面板的 **Repair** → 改动才真正写进覆盖表、按新表重新生成蓝图并铺到世界；
+   完成后开关自动关闭，面板回到 `0 edited`。
+
+> 只缩不动：`0 edited · 1 dropped` 是正常结果——没有哪一行的类型变了，只是丢了几行。
+> 0.1.4 的覆盖表只存不用（外观仍是平地），台阶外观属于 0.1.6。
 
 ### 四种建造方式
 
@@ -168,7 +188,8 @@ BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行�
 ### 拆除 / 修复 / 批量
 
 - **控制器的 Remove**：`RoadDataCleaner` 全量清理 —— 删工单、删控制器与锚点、删 `RoadManager` 记录、删快照、删结构包里的生成蓝图、重新注册结构包。
-- **控制器的 Repair**：`RoadRepair` 读快照（没有就重新生成）重放缺失方块，结束时再跑一次迁移把控制器补回。
+- **控制器的 Repair**：`RoadRepair` 先把未应用的逐行改动写入覆盖表（并剪掉越界行），再读快照（没有就重新生成）重放缺失方块，结束时再跑一次迁移把控制器补回；完成后自动关闭「修改蓝图」开关。
+  `blocksolidsubstitution` 按当地地形解析（保留已有实心方块 → 沿用下方地形 → 最后才用 `roadFillBlock`），`blocksubstitution`（"这格别碰"）仍然跳过。
 - **Surveyor**：和工单卷轴一样**必须绑定市政厅**——`Shift + 右键市政厅` 绑定（位置写进物品 NBT），普通右键（方块或空气）打开该殖民地的道路列表；未绑定则打开空列表并提示绑定。列表显示道路名、状态、长度、控制器位置，可多选后 `Release Plans`（清计划/控制器/锚点，保留方块）或 `Remove Roads`（连方块一起清）。**逐行判定权限**：无权管理的道路仍然列出，但勾选框显示 `[-]` 且不可点、行文字变灰；`Select All` 也只选有权限的条目。
 - **WorkOrder Scroll**：仿原版资源卷轴，**必须绑定市政厅**：
   - `Shift + 右键市政厅` 绑定（位置写进物品 NBT，`stacksTo(1)`）；
@@ -286,14 +307,43 @@ return false;
 
 #### 重新选取 A/B
 
-对同一个控制器再次规划时（状态仍是 `DRAFT`/`PLANNED`）：
+对同一个控制器再次规划时：
 
 - `plan.setId(old.id())` 且沿用旧 `displayName`，所以 UUID 与名称都不变；
 - 文件名由 `<短名>-<4位UUID哈希>` 派生 → `generated/<短名>-<hash>.blueprint` 路径不变，**原地覆盖**；
 - 快照 `blueprints/road_<uuid>.blueprint` 同样按 UUID 命名，**原地覆盖**；
 - 覆盖前先清掉这条路遗留的 WorkOrder：换了几何还留着旧订单，建筑工就会拿新蓝图在老锚点施工；
-- 唯一会产生新文件名的情况是旧计划名称为空串（会现生成一个随机名），此时 `RoadTemporaryPack.replace` 会按旧计划先删旧文件，不留孤儿；
-- 已建成（`BUILT`）的道路不允许重新选点，会提示 `already built; construction options are locked`，必须先 Remove 触发全量清理再重建。
+- 唯一会产生新文件名的情况是旧计划名称为空串（会现生成一个随机名），此时 `RoadTemporaryPack.replace` 会按旧计划先删旧文件，不留孤儿。
+
+**硬校验（不看状态，也不依赖端点字段）**：只要不是 `DRAFT`，新 A/B 就必须与**已存几何**同轴、
+同横向原点，否则直接拒绝并提示（换轴 → `cannot change axis`；平移 → `cannot move sideways`）。
+判据取自 `axis()` / `anchorPos()` / `minAlong()`，所以 0.1.3 之前建的老存档同样生效。
+
+**建成后的重规划**：`BUILT` 的路需要先在控制器面板打开 `Edit Blueprint`，之后 A/B 选点与逐格编辑才被接受
+（默认 `BUILT` 路的左键选点会被拦下并提示去开开关）。重规划只改蓝图、不动世界，
+应用新形状的唯一途径是 **Repair**；`Create Blueprint` 按钮对已确认过的路永久置灰，避免第二条应用路径
+绕过 Repair 的覆盖表迁移。
+
+#### 端点归位（点击顺序无关）
+
+重选 A/B 时先把两个点**按锚点分侧归位**：与已存 A 落在锚点同一侧的点成为 A，另一个成为 B，与玩家先点谁无关。
+`travelDir` 因此恒定，覆盖表的 along 参照系不翻转，台阶方向也不会莫名反向。
+归位发生在**选点当下**（客户端），服务端保留同一套校验兜底。
+
+#### 覆盖表：编辑写 diff，Repair 才落表
+
+`RoadPlan` 里有两张表：
+
+| 字段 | 含义 | 谁写 |
+|---|---|---|
+| `rowOverrides` | 已确认的表，世界按它建 | 只有 Repair |
+| `pendingRows` | 未应用的改动（**逐行 diff**，`FLAT` 条目表示"清掉这行"） | 逐格编辑；重选只做过滤 |
+
+- 逐格编辑只写 diff，所以面板的 `N edited` 就是"还没应用的改动行数"；把一行改回原值会让它移出 diff。
+- 重选时 diff 里越界的条目被丢弃，`dropped` 则**每次从已确认表重新数**，所以反复重选不会累积。
+- **越界行在 Repair 之前不删**：缩短后再拉长，那几行原样回来；真删除发生在 Repair。
+- 重建计划（重选、改灯距）时两张表都要搬过去，否则未应用的编辑会静默退回旧值。
+- 两张表都随存档持久化并同步到客户端；面板显示的是 diff 大小。
 
 Structurize 侧没有蓝图内容缓存（`StructurePacks.getBlueprint` 每次从磁盘读文件），所以覆盖后重新打开原生工具拿到的就是新几何。
 
@@ -357,6 +407,7 @@ src/main/java/com/YLFXM/mcreconstruction/
     ConfigureRoadPayload / OpenRoadPlanPayload / RequestRoadsPayload / RoadSyncPayload
     RoadBulkActionPayload / RoadControllerActionPayload / BindRoadWandPayload
     OpenBuildToolPayload / NativeBuildClosedPayload / WorkOrderListPayload / ClientRoadCache
+    EditRoadCellPayload / ToggleBlueprintEditPayload   （0.1.4：逐格编辑与修改蓝图开关）
   road/
     RoadPlan.java                  核心计划（NBT 持久化）
     RoadSegment.java               轴向直段 / 台阶
@@ -373,16 +424,17 @@ src/main/java/com/YLFXM/mcreconstruction/
     RoadControllerMigration.java   控制器迁移
     RoadQuickBuilder.java          创意即时建造
     RoadRemover.java               按快照删方块
-    RoadRepair.java                即时修复
+    RoadRepair.java                Repair：应用未应用的逐行改动 → 重放快照 → 迁移控制器 → 关开关
     RoadDataCleaner.java           全量清理
     RoadNames.java                 命名、短名、唯一性
     RoadWandBinding.java           Wand 绑定（物品 NBT）
     RoadWorkOrderService.java      A 管线工单创建
-    RoadPlacementMode.java         PLAN/COMPLETE/PRETTY/SURVIVAL
+    RoadPlacementMode.java         PLAN/CONFIGURE/COMPLETE/PRETTY/SURVIVAL
+    CellType.java                  FLAT / STAIR_UP / STAIR_DOWN（覆盖表的取值）
     RoadWorkOrderService / RoadManager ...
   client/
-    WindowRoadWand.java            Wand 面板（Plan/Mirror/Clear）
-    WindowRoadController.java      控制器面板（Upgrade/Repair/Remove）
+    WindowRoadWand.java            Wand 面板（Plan/Mirror/Lamp/Clear）
+    WindowRoadController.java      控制器面板（Edit Blueprint/Upgrade/Repair/Remove）
     WindowRoadSurveyor.java        Surveyor 多选列表
     WindowWorkOrderList.java       工单卷轴列表
     ClientNativeBuildTracker.java  原生工具预选（反射）与关闭上报
@@ -402,20 +454,27 @@ data/mcreconstruction/recipe/work_order_scroll.json
 
 ## 数据模型
 
-`RoadPlan` 持久化字段：`id`(UUID)、`dimension`、`anchorPos`、`controllerPos`、`controllerFacing`、`mirror`、`pack`、`variant`、`displayName`、`width`、`walkFrom`/`walkTo`、`widthSide`、`lampSpacing`、`endpointA`/`endpointB`(可空)、`travelDir`、`segments`、`cells`、`state`、`workOrderId`、`creator`(UUID，可空)。
+`RoadPlan` 持久化字段：`id`(UUID)、`dimension`、`anchorPos`、`controllerPos`、`controllerFacing`、`mirror`、`pack`、`variant`、`displayName`、`roadName`、`width`、`walkFrom`/`walkTo`、`widthSide`、`lampSpacing`、`allowBlueprintEdit`、`endpointA`/`endpointB`(可空)、`travelDir`、`segments`、`rows`、`pendingRows`(可空)、`lastDroppedRows`、`state`、`workOrderId`、`creator`(UUID，可空)。
 
 三个字段值得单独说明：
 
 - **`walkFrom`/`walkTo`**（`WalkRange`）取代了原来的 `walkWidth`。可行走区是一个**区间**而不是宽度，这样风格包作者可以做不对称道路（例如只有一侧有宽人行道）。原版 streets 单元是 `[1, 2]`：0 是灯侧路沿、1 和 2 是铺装、3 是另一侧路沿。老存档只有 `walkWidth`，加载时居中还原，对称风格包结果完全一致。
 - **`travelDir`**（`+1`/`-1`）记录 A→B 的方向。`RoadSegment.start` 存的是归一化后的最小角，方向信息在那一步就丢了，而台阶的正/反是**相对行进方向**定义的，所以必须单独存。
-- **`cells`** 是逐格覆盖表：键为 `(along, lateral)`，`along` 是道路轴上的世界坐标、`lateral` 是宽度方向的列号，**不含 Y**。不含 Y 是关键——把某一格改成台阶会抬升后面所有格的高度，若用世界坐标做键，整张表会在改一格的瞬间全部失效。
+- **`rows`** 是覆盖表（**按行**）：键为 `along`，即道路轴上的世界坐标，**不含 Y**。不含 Y 是关键——把某一行改成台阶会抬升后面所有行的高度，若用带 Y 的坐标做键，整张表会在改一行的瞬间全部失效。0.1.4 起按行记录：台阶抬高的是整条可走宽度，逐列状态只能描述一条物理上断裂的路；老存档的 `cells`（`along`+`lateral`）仍可读，加载时按 `along` 折叠成行。
+- **`pendingRows`** 是未应用的改动，存成与 `rows` 的**逐行 diff**（`FLAT` 条目表示清掉该行）。只有 Repair 会把 diff 写进 `rows`；面板的 `N edited` 就是 diff 大小，`lastDroppedRows` 是最近一次重选缩掉的行数。
 
 状态机：
 
 ```text
 DRAFT -> PLANNED -> BUILDING -> BUILT
-                         \-> REMOVING -> REMOVED
+  ^         |                      |
+  |         \-- BUILDING 取消 / 工具关闭未建 --/
+  \-- 工具关闭未建且这条路从未确认过（内存标记 FROM_DRAFT）
+所有状态 -> REMOVING -> REMOVED
 ```
+
+`DRAFT` 是"还没确认过规划"的宽松期（可以换轴、随便选点）；`PLANNED` 起轴与横向原点固定。
+工具关闭却没建造、或工单被取消时，从未确认过的路退回 `DRAFT`，让 `Create Blueprint` 重新可用。
 
 `RoadSegment(start, length, axis, rise, kind)`：轴只能是 X 或 Z，`length >= 1`，台阶必须 1 格长。
 
@@ -568,7 +627,9 @@ Structurize 同步结构包时是 `zipPack(pack.getPath())` —— 它**逐个�
 | `RoadControllerActionPayload` | C→S | Upgrade / Repair / Remove |
 | `BindRoadWandPayload` | S→C | 迁移后通知客户端重绑 |
 | `OpenBuildToolPayload` | S→C | 切包 + 打开原生工具 + 预选路径，**并携带蓝图 NBT 与包版本** |
-| `NativeBuildClosedPayload` | C→S | 原生工具关闭 |
+| `NativeBuildClosedPayload` | C→S | 原生工具关闭（未建成时按 `FROM_DRAFT` 决定退回 `DRAFT` 还是保持 `PLANNED`） |
+| `EditRoadCellPayload` | C→S | 逐格编辑：只传被点的方块，服务端自己解析归属行 |
+| `ToggleBlueprintEditPayload` | C→S | 切换该道路的「修改蓝图」开关 |
 | `WorkOrderListPayload` | S→C | 工单卷轴数据（含 `bound` 标记，未绑定时客户端显示提示而不是空白） |
 | `CancelWorkOrdersPayload` | C→S | 取消选中的工单（按 colonyId + orderIds） |
 
@@ -603,8 +664,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1
 安装：把 jar 复制进实例 `mods/`。
 
 ```powershell
-Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.0-beta.1.jar' `
-  -Destination '<你的实例>\mods\mcreconstruction-0.1.0-beta.1.jar' -Force
+Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.4.jar' `
+  -Destination '<你的实例>\mods\mcreconstruction-0.1.4.jar' -Force
 ```
 
 ## 本地测试服务器
@@ -661,7 +722,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 ## 开发状态
 
-**当前版本 `0.1.0-beta.1` 是开发中版本，不适合正式使用。**
+**当前版本 `0.1.4` 是开发中版本，不适合正式使用**：台阶外观、交叉口、Repair 走原生工具尚未实现。
 
 已实现并验证过的：
 
