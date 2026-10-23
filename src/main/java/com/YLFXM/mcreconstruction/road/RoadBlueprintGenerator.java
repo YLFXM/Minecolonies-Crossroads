@@ -41,8 +41,8 @@ import net.minecraft.world.level.block.state.properties.Property;
 
 /**
  * Builds an in-memory blueprint from a RoadPlan and a one-block slice template.
- * The blueprint is regenerated after a server restart from the controller's
- * RoadPlan; it is never written to a structure pack.
+ * The caller persists a canonical snapshot and publishes a separate structure-pack copy
+ * while the road is being prepared or built.
  */
 public final class RoadBlueprintGenerator {
     /**

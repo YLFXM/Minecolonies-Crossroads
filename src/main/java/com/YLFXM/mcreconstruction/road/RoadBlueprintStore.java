@@ -34,7 +34,8 @@ import net.minecraft.world.level.storage.LevelResource;
 
 /**
  * Per-save snapshot of a generated road blueprint. RoadPlan can regenerate a
- * blueprint, but the snapshot is the canonical block set used for removal.
+ * blueprint. Proposed snapshots may change during editing; applied snapshots are
+ * saved only after actual completion and are the only basis for world removal.
  */
 public final class RoadBlueprintStore {
     public static Path directory(final ServerLevel level) {
@@ -46,9 +47,30 @@ public final class RoadBlueprintStore {
         return directory(level).resolve("road_" + plan.id() + ".blueprint");
     }
 
+    private static Path appliedFile(final ServerLevel level, final RoadPlan plan) {
+        return directory(level).resolve("applied_" + plan.id() + ".blueprint");
+    }
+
+    public static void saveApplied(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
+        if (blueprint != null) write(appliedFile(level, plan), plan, blueprint);
+    }
+
+    public static Blueprint loadApplied(final ServerLevel level, final RoadPlan plan) {
+        return read(level, plan, appliedFile(level, plan));
+    }
+
+    public static void preserveBuilt(final ServerLevel level, final RoadPlan plan) {
+        if (plan.state() == RoadState.BUILT && !Files.isRegularFile(appliedFile(level, plan))) {
+            saveApplied(level, plan, load(level, plan));
+        }
+    }
+
     public static void save(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
+        write(file(level, plan), plan, blueprint);
+    }
+
+    private static void write(final Path path, final RoadPlan plan, final Blueprint blueprint) {
         try {
-            final Path path = file(level, plan);
             Files.createDirectories(path.getParent());
             final CompoundTag tag = BlueprintUtil.writeBlueprintToNBT(blueprint);
             NbtIo.writeCompressed(tag, path);
@@ -58,7 +80,10 @@ public final class RoadBlueprintStore {
     }
 
     public static Blueprint load(final ServerLevel level, final RoadPlan plan) {
-        final Path path = file(level, plan);
+        return read(level, plan, file(level, plan));
+    }
+
+    private static Blueprint read(final ServerLevel level, final RoadPlan plan, final Path path) {
         if (!Files.isRegularFile(path)) {
             return null;
         }
@@ -74,6 +99,7 @@ public final class RoadBlueprintStore {
     public static void delete(final ServerLevel level, final RoadPlan plan) {
         try {
             Files.deleteIfExists(file(level, plan));
+            Files.deleteIfExists(appliedFile(level, plan));
         } catch (final IOException ex) {
             MCReconstruction.LOGGER.warn("Could not delete road blueprint for {}", plan.id(), ex);
         }

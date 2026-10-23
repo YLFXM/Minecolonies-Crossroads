@@ -35,16 +35,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 
 /**
- * Persistent road plan. The controller block entity owns this data; a
- * WorkOrder only carries the controller position and a synthetic structure
- * path.
- *
- * <p>Cells are addressed by {@code (along, lateral)} rather than by world
- * position: {@code along} is the world coordinate on the road's axis and
- * {@code lateral} is the column index inside the road width, counted in the
- * {@code widthSide} direction. Keeping the vertical coordinate out of the key is
- * what lets a cell be turned into a stair without invalidating every key after
- * it, and it makes re-planning a pure translation along the axis.</p>
+ * Persistent road plan owned by the per-dimension RoadManager SavedData.
+ * Row overrides use the world's along-coordinate, independent of height and lateral column.
  */
 public final class RoadPlan {
     private UUID id;
@@ -286,6 +278,10 @@ public final class RoadPlan {
 
     public WalkRange walkRange() {
         return walkRange;
+    }
+
+    public void setWalkRange(final WalkRange range) {
+        this.walkRange = clampWalkRange(range, width);
     }
 
     public int widthSide() {

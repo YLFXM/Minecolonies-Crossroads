@@ -52,29 +52,19 @@ public final class ClientRoadRenderer {
         if (minecraft.player == null || minecraft.level == null) {
             return;
         }
-        if (!minecraft.player.getMainHandItem().is(ModRegistry.ROAD_SURVEYOR.get())
-                && !minecraft.player.getOffhandItem().is(ModRegistry.ROAD_SURVEYOR.get())
-                && !minecraft.player.getMainHandItem().is(ModRegistry.ROAD_WAND.get())
-                && !minecraft.player.getOffhandItem().is(ModRegistry.ROAD_WAND.get())) {
-            // Not holding a road tool: the ghost preview would otherwise stay on
-            // screen forever, because nothing else asks for it to go away.
-            com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.clear();
-            return;
-        }
-
-        final List<RoadPlan> plans = new ArrayList<>(ClientRoadCache.roads());
-        // Drives the ghost preview: the call recomputes the plan each frame,
-        // sends the blueprint request when the selection changed, and clears
-        // the ghost when the selection is dropped. Its result is rendered by
-        // ClientRoadPreviewRenderer, never as a box here.
         final RoadPlan preview = com.YLFXM.mcreconstruction.client.ClientRoadPreview.plan();
-        if (preview != null) {
-            // A selection is on screen as real ghost blocks. Drawing the synced
-            // road index boxes as well would put stale outlines on top of the
-            // road the player is currently shaping, so they step aside until the
-            // selection goes away.
-            plans.clear();
-        }
+        com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.updateRange();
+        final String mode = com.YLFXM.mcreconstruction.client.ClientRoadPreview.mode();
+        final List<RoadPlan> plans = new ArrayList<>();
+        if ("wand".equals(mode)) {
+            final var controller = com.YLFXM.mcreconstruction.road.RoadWandBinding.heldController(minecraft.player.getInventory());
+            final var bound = ClientRoadCache.findByController(controller);
+            if (bound != null) {
+                if (preview == null) plans.add(bound);
+                else if (!com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.isVisible()) plans.add(preview);
+            }
+        } else if ("surveyor".equals(mode)) plans.addAll(ClientRoadCache.surveyRoads());
+        else return;
 
         final PoseStack pose = event.getPoseStack();
         final Vec3 camera = event.getCamera().getPosition();
@@ -90,7 +80,7 @@ public final class ClientRoadRenderer {
             final RoadBounds bounds = RoadBounds.ofRoadOnly(plan, Config.defaultLampReserveHeight());
             final AABB box = new AABB(bounds.minX(), bounds.minY(), bounds.minZ(),
                     bounds.maxX() + 1.0, bounds.maxY() + 1.0, bounds.maxZ() + 1.0);
-            if (box.getCenter().distanceToSqr(camera) > 256.0 * 256.0) {
+            if (!com.YLFXM.mcreconstruction.road.RoadRenderRange.contains(box, camera)) {
                 continue;
             }
             if (plan.state() == com.YLFXM.mcreconstruction.road.RoadState.PLANNED

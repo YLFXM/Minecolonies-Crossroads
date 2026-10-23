@@ -40,11 +40,12 @@ import net.minecraft.world.level.block.Blocks;
  */
 public final class RoadDataCleaner {
     public static void clear(final ServerLevel level, final RoadPlan plan, final boolean removeBlocks) {
+        removeWorkOrders(plan);
         final int removed = removeBlocks ? RoadRemover.removeBlocks(level, plan) : 0;
 
-        removeWorkOrders(plan);
         removeControllerAndAnchor(level, plan);
 
+        RoadBuildWatcher.stop(plan);
         RoadManager.get(level).remove(plan.id());
         RoadBlueprintStore.delete(level, plan);
         RoadTemporaryPack.delete(level, plan);
@@ -52,6 +53,19 @@ public final class RoadDataCleaner {
 
         plan.setState(RoadState.REMOVED);
         CustomRoadPack.install(level.getServer());
+        for (final var player : java.util.List.copyOf(level.players())) {
+            for (final var stack : RoadWandBinding.wands(player.getInventory())) {
+                if (plan.controllerPos().equals(RoadWandBinding.getBoundController(stack))) RoadWandBinding.unbind(stack);
+            }
+            final String key = "mcreconstruction:road_wand_controller";
+            if (player.getPersistentData().contains(key)
+                    && player.getPersistentData().getLong(key) == plan.controllerPos().asLong()) player.getPersistentData().remove(key);
+            player.getInventory().setChanged();
+            player.containerMenu.broadcastChanges();
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
+                    new com.YLFXM.mcreconstruction.network.RoadRemovedPayload(plan.id(),plan.controllerPos(),plan.dimension().location().toString()));
+            com.YLFXM.mcreconstruction.network.Network.sendRoads(player);
+        }
         MCReconstruction.LOGGER.info("Cleared road data {} ({} blocks removed)", plan.id(), removed);
     }
 
@@ -68,20 +82,16 @@ public final class RoadDataCleaner {
     }
 
     private static int removeWorkOrders(final RoadPlan plan) {
-        final String uuidPath = "mcreconstruction:road/" + plan.id();
-        final String namePath = "mcreconstruction:road/" + plan.displayName();
-        final String fileName = RoadNames.fileName(plan);
         int removed = 0;
         for (final IColony colony : IColonyManager.getInstance().getAllColonies()) {
+            if (!RoadWorkOrders.sameDimension(plan, colony)) continue;
             final List<Integer> matches = new ArrayList<>();
             for (final var entry : colony.getWorkManager().getWorkOrders().entrySet()) {
                 final IServerWorkOrder order = entry.getValue();
                 if (order == null) {
                     continue;
                 }
-                final String path = order.getStructurePath();
-                if (path != null && (path.equals(uuidPath) || path.equals(namePath)
-                        || path.contains(fileName))) {
+                if (RoadWorkOrders.matches(plan, order)) {
                     matches.add(entry.getKey());
                 }
             }

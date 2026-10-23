@@ -54,7 +54,7 @@ public final class RoadRepair {
             return false;
         }
 
-        final BlockPos origin = plan.anchorPos().subtract(blueprint.getPrimaryBlockOffset());
+        final BlockPos origin = RoadBlueprintOps.origin(plan, blueprint);
         // The builder resolves `blocksolidsubstitution` from its own fill settings;
         // this path places real blocks, so it has to resolve it itself. Plain
         // `blocksubstitution` keeps being skipped — it means "leave this cell
@@ -65,10 +65,10 @@ public final class RoadRepair {
         int repaired = 0;
         for (final BlockInfo info : blueprint.getBlockInfoAsList()) {
             final BlockPos world = origin.offset(info.getPos());
-            final BlockState state = isSolidSubstitution(info.getState())
+            final BlockState state = RoadBlueprintOps.isSolidFill(info.getState())
                     ? supportFiller(level, world)
                     : info.getState();
-            if (!RoadRemover.isRemovable(state)) {
+            if (!RoadBlueprintOps.isConcrete(state)) {
                 continue;
             }
             if (!level.getBlockState(world).equals(state)) {
@@ -87,15 +87,8 @@ public final class RoadRepair {
                 }
             }
         }
-        plan.setState(RoadState.BUILT);
-        // Applying the blueprint finishes the edit session, so the road goes back
-        // to being locked. Leaving the switch on meant every later A/B click or
-        // cell edit on a finished road was silently accepted.
         plan.setAllowBlueprintEdit(false);
-        RoadManager.get(level).add(plan);
-        // Re-applying the blueprint resolves the reserved placeholder, which may
-        // sit on the controller cell; put the controller back afterwards.
-        RoadControllerMigration.migrate(level, plan);
+        RoadBuildWatcher.markBuilt(level, plan);
         MCReconstruction.LOGGER.info("Repaired road {} ({} blocks)", plan.id(), repaired);
         return true;
     }
@@ -116,18 +109,11 @@ public final class RoadRepair {
         for (int dy = 1; dy <= 4; dy++) {
             final BlockPos below = pos.below(dy);
             final BlockState state = level.getBlockState(below);
-            if (!state.isAir() && state.isSolid() && RoadRemover.isRemovable(state)) {
+            if (!state.isAir() && state.isSolid() && RoadBlueprintOps.isConcrete(state)) {
                 return state;
             }
         }
         return RoadUnitExtractor.blockState(Config.roadFillBlock());
-    }
-
-    private static boolean isSolidSubstitution(final BlockState state) {
-        final net.minecraft.resources.ResourceLocation id =
-                net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        return id != null && "structurize".equals(id.getNamespace())
-                && "blocksolidsubstitution".equals(id.getPath());
     }
 
     private RoadRepair() {

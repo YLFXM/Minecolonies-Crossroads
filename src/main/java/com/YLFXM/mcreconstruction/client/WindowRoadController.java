@@ -18,6 +18,8 @@
  */
 package com.YLFXM.mcreconstruction.client;
 
+import com.YLFXM.mcreconstruction.road.RoadRules;
+
 import com.ldtteam.blockui.controls.Button;
 import com.ldtteam.blockui.controls.Text;
 import com.minecolonies.core.client.gui.AbstractWindowSkeleton;
@@ -96,9 +98,9 @@ public class WindowRoadController extends AbstractWindowSkeleton {
                                 ? "  ·  " + plan.lastDroppedRows() + " dropped" : "")));
         final boolean canManage = plan != null && ClientRoadCache.canManage(plan.id());
         this.upgradeButton.setEnabled(false);
-        this.repairButton.setEnabled(canManage);
+        this.repairButton.setEnabled(canManage && RoadRules.canRepair(plan));
         this.removeButton.setEnabled(canManage);
-        this.editButton.setEnabled(canManage);
+        this.editButton.setEnabled(canManage && RoadRules.canToggleEdit(plan));
         this.editButton.setText(Component.literal("Edit Blueprint: "
                 + (plan != null && plan.allowBlueprintEdit() ? "ON" : "OFF")));
     }

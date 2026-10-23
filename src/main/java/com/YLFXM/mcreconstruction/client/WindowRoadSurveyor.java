@@ -64,12 +64,12 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
         this.roadList.setDataProvider(new ScrollingList.DataProvider() {
             @Override
             public int getElementCount() {
-                return ClientRoadCache.roads().size();
+                return ClientRoadCache.surveyRoads().size();
             }
 
             @Override
             public void updateElement(final int index, final Pane row) {
-                final List<RoadPlan> roads = ClientRoadCache.roads();
+                final List<RoadPlan> roads = ClientRoadCache.surveyRoads();
                 if (index < 0 || index >= roads.size()) {
                     return;
                 }
@@ -108,7 +108,7 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
     @Override
     public void onUpdate() {
         super.onUpdate();
-        final List<RoadPlan> roads = ClientRoadCache.roads();
+        final List<RoadPlan> roads = ClientRoadCache.surveyRoads();
         final int manageable = (int) roads.stream()
                 .filter(plan -> ClientRoadCache.canManage(plan.id())).count();
         if (roads.size() != this.lastCount || manageable != this.lastManageable
@@ -125,7 +125,7 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
 
     private void selectAll() {
         this.selected.clear();
-        for (final RoadPlan plan : ClientRoadCache.roads()) {
+        for (final RoadPlan plan : ClientRoadCache.surveyRoads()) {
             // Only roads this player may actually manage can be selected.
             if (ClientRoadCache.canManage(plan.id())) {
                 this.selected.add(plan.id());
@@ -140,7 +140,7 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
     }
 
     private void refreshRows() {
-        final List<RoadPlan> roads = ClientRoadCache.roads();
+        final List<RoadPlan> roads = ClientRoadCache.surveyRoads();
         // Drop selections that vanished or that the player may no longer manage.
         this.selected.removeIf(id -> !ClientRoadCache.canManage(id)
                 || roads.stream().noneMatch(plan -> plan.id().equals(id)));

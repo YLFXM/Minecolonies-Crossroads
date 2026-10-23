@@ -24,11 +24,13 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record RequestRoadsPayload() implements CustomPacketPayload {
+public record RequestRoadsPayload(boolean surveyor) implements CustomPacketPayload {
     public static final Type<RequestRoadsPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "request_roads"));
     public static final StreamCodec<RegistryFriendlyByteBuf, RequestRoadsPayload> CODEC =
-            StreamCodec.unit(new RequestRoadsPayload());
+            StreamCodec.of((buf,p) -> buf.writeBoolean(p.surveyor()), buf -> new RequestRoadsPayload(buf.readBoolean()));
+
+    public RequestRoadsPayload() { this(false); }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

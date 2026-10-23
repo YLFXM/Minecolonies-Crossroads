@@ -18,6 +18,8 @@
  */
 package com.YLFXM.mcreconstruction.client;
 
+import com.YLFXM.mcreconstruction.road.RoadRules;
+
 import com.YLFXM.mcreconstruction.ModRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -41,11 +43,10 @@ public final class ClientSelectionEvents {
         // normally means clicking ground outside the old footprint, so testing
         // the clicked cell alone let the player keep re-picking A/B freely.
         final com.YLFXM.mcreconstruction.road.RoadPlan bound = boundPlan(event.getEntity());
-        if (bound != null
-                && bound.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT
-                && !bound.allowBlueprintEdit()) {
+        if (bound != null) RoadSelectionClient.bindTo(bound);
+        if (bound != null && !RoadRules.canEdit(bound)) {
             event.getEntity().displayClientMessage(Component.literal(
-                    "Turn on \"Edit Blueprint\" in the controller panel to change a built road."), true);
+                    "This road is locked or under construction."), true);
             event.setCanceled(true);
             return;
         }
@@ -62,8 +63,7 @@ public final class ClientSelectionEvents {
             // Off-axis points are refused right here, at the click, instead of
             // letting them through and failing later when the blueprint is built.
             final int lateralOrigin = alongX ? bound.anchorPos().getZ() : bound.anchorPos().getX();
-            final int pointLateral = alongX ? pos.getZ() : pos.getX();
-            if (pointLateral != lateralOrigin) {
+            if (!com.YLFXM.mcreconstruction.road.RoadReplanning.pointOnLine(bound, pos)) {
                 event.getEntity().displayClientMessage(Component.literal(
                         "This road runs along " + (alongX ? "X" : "Z")
                                 + "; pick a point on " + (alongX ? "z=" : "x=") + lateralOrigin + "."), true);
@@ -121,7 +121,18 @@ public final class ClientSelectionEvents {
                 instanceof com.minecolonies.core.blocks.BlockDecorationController) {
             return;
         }
-        com.YLFXM.mcreconstruction.road.RoadPlan target = roadAt(pos);
+        com.YLFXM.mcreconstruction.road.RoadPlan target = boundPlan(event.getEntity());
+        if (target != null) RoadSelectionClient.bindTo(target);
+        if (target != null && !RoadRules.canEdit(target)) {
+            event.getEntity().displayClientMessage(Component.literal("This road is locked while built or under construction."), true);
+            event.setCanceled(true);
+            return;
+        }
+        if (target != null && target.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT
+                && !RoadSelectionClient.hasBoth()) {
+            event.getEntity().displayClientMessage(Component.literal("Select endpoints A and B first."), true);
+            event.setCanceled(true); return;
+        }
         if (target == null) {
             com.YLFXM.mcreconstruction.MCReconstruction.LOGGER.info(
                     "Road edit gesture ignored: no road covers {} ({} roads synced)",
@@ -132,7 +143,8 @@ public final class ClientSelectionEvents {
                 "Road edit gesture: {} -> plan {} (state {}, edit {})",
                 pos, target.id(), target.state(), target.allowBlueprintEdit());
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                new com.YLFXM.mcreconstruction.network.EditRoadCellPayload(target.controllerPos(), pos));
+                new com.YLFXM.mcreconstruction.network.EditRoadCellPayload(target.controllerPos(), pos,
+                        RoadSelectionClient.a(), RoadSelectionClient.b(), RoadSelectionClient.mirror(), target.id()));
         event.setUseBlock(net.neoforged.neoforge.common.util.TriState.FALSE);
         event.setUseItem(net.neoforged.neoforge.common.util.TriState.FALSE);
         event.setCanceled(true);
@@ -141,46 +153,11 @@ public final class ClientSelectionEvents {
     /** Road the player's Wand is bound to, or null when it is bound to nothing. */
     private static com.YLFXM.mcreconstruction.road.RoadPlan boundPlan(
             final net.minecraft.world.entity.player.Player player) {
-        final BlockPos controller = boundController(player);
-        if (controller == null) {
-            return null;
-        }
-        for (final com.YLFXM.mcreconstruction.road.RoadPlan plan
-                : com.YLFXM.mcreconstruction.network.ClientRoadCache.roads()) {
-            if (plan.controllerPos().equals(controller)) {
-                return plan;
-            }
-        }
-        return null;
+        return com.YLFXM.mcreconstruction.network.ClientRoadCache.findByController(boundController(player));
     }
 
     private static BlockPos boundController(final net.minecraft.world.entity.player.Player player) {
-        final net.minecraft.world.item.ItemStack main = player.getMainHandItem();
-        if (main.is(ModRegistry.ROAD_WAND.get())) {
-            final BlockPos bound =
-                    com.YLFXM.mcreconstruction.road.RoadWandBinding.getBoundController(main);
-            if (bound != null) {
-                return bound;
-            }
-        }
-        final net.minecraft.world.item.ItemStack off = player.getOffhandItem();
-        if (off.is(ModRegistry.ROAD_WAND.get())) {
-            final BlockPos bound =
-                    com.YLFXM.mcreconstruction.road.RoadWandBinding.getBoundController(off);
-            if (bound != null) {
-                return bound;
-            }
-        }
-        for (final net.minecraft.world.item.ItemStack stack : player.getInventory().items) {
-            if (stack.is(ModRegistry.ROAD_WAND.get())) {
-                final BlockPos bound =
-                        com.YLFXM.mcreconstruction.road.RoadWandBinding.getBoundController(stack);
-                if (bound != null) {
-                    return bound;
-                }
-            }
-        }
-        return null;
+        return com.YLFXM.mcreconstruction.road.RoadWandBinding.heldController(player.getInventory());
     }
 
     /**

@@ -64,60 +64,17 @@ public final class RoadWorkOrderRecovery {
                 if (!(workOrder instanceof AbstractWorkOrder order)) {
                     continue;
                 }
-                final String path = order.getStructurePath();
-                if (path == null) {
-                    continue;
+                final var plan = com.YLFXM.mcreconstruction.road.RoadWorkOrders.find(level, order);
+                if (plan == null) continue;
+                if (order.getBlueprint() == null) {
+                    var blueprint = com.YLFXM.mcreconstruction.road.RoadBlueprintStore.load(level, plan);
+                    if (blueprint == null) blueprint = RoadBlueprintGenerator.generate(plan, level, Config.defaultLampReserveHeight());
+                    if (blueprint != null) order.setBlueprint(blueprint, level);
                 }
-
-                if (path.startsWith("mcreconstruction:road/")) {
-                    if (order.getBlueprint() != null) {
-                        continue;
-                    }
-                    final String key = path.substring("mcreconstruction:road/".length());
-                    RoadPlan plan = RoadManager.get(level).findByName(key);
-                    UUID id = plan == null ? null : plan.id();
-                    if (plan == null) {
-                        try {
-                            id = UUID.fromString(key);
-                            plan = RoadManager.get(level).get(id);
-                        } catch (final IllegalArgumentException ex) {
-                            continue;
-                        }
-                    }
-                    if (plan == null) {
-                        continue;
-                    }
-                    final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
-                            Config.defaultLampReserveHeight());
-                    if (blueprint != null) {
-                        order.setBlueprint(blueprint, level);
-                        MCReconstruction.LOGGER.info("Recovered road blueprint for work order {}", id);
-                    }
-                    continue;
-                }
-
-                // Native Survival work orders point at generated/<road name>.blueprint.
-                if (path.endsWith(".blueprint")) {
-                    final int slash = path.lastIndexOf('/');
-                    final String fileName = path.substring(slash + 1, path.length() - ".blueprint".length());
-                    RoadPlan plan = RoadManager.get(level).findByBlueprintName(fileName);
-                    if (plan == null) {
-                        plan = RoadManager.get(level).findByName(fileName);
-                    }
-                    if (plan == null && fileName.startsWith("road_")) {
-                        try {
-                            plan = RoadManager.get(level).get(
-                                    UUID.fromString(fileName.substring("road_".length())));
-                        } catch (final IllegalArgumentException ignored) {
-                        }
-                    }
-                    if (plan != null) {
-                        plan.setState(com.YLFXM.mcreconstruction.road.RoadState.BUILDING);
-                        RoadManager.get(level).add(plan);
-                        com.YLFXM.mcreconstruction.road.RoadBuildWatcher.watch(level, plan);
-                        MCReconstruction.LOGGER.info("Tracking native road work order {}", plan.id());
-                    }
-                }
+                plan.setState(com.YLFXM.mcreconstruction.road.RoadState.BUILDING);
+                RoadManager.get(level).add(plan);
+                com.YLFXM.mcreconstruction.road.RoadBuildWatcher.watch(level, plan);
+                MCReconstruction.LOGGER.info("Tracking recovered road work order {}", plan.id());
             }
         }
     }

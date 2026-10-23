@@ -160,7 +160,7 @@ public final class RoadControllerMigration {
 
         plan.setControllerPos(target);
         RoadManager.get(level).add(plan);
-        rebindWands(level, target);
+        rebindWands(level, oldPos, target);
 
         MCReconstruction.LOGGER.info("Migrated controller for road {} from {} to {}",
                 plan.id(), oldPos, target);
@@ -236,26 +236,17 @@ public final class RoadControllerMigration {
         return state.getBlock() instanceof BlockDecorationController;
     }
 
-    private static void rebindWands(final ServerLevel level, final BlockPos target) {
-        // Keep existing Wand bindings pointing at the migrated controller.
+    private static void rebindWands(final ServerLevel level, final BlockPos previous, final BlockPos target) {
         for (final ServerPlayer player : List.copyOf(level.players())) {
-            for (final ItemStack stack : player.getInventory().items) {
-                if (stack.is(ModRegistry.ROAD_WAND.get())) {
-                    RoadWandBinding.bind(stack, target);
-                }
-            }
-            if (player.getMainHandItem().is(ModRegistry.ROAD_WAND.get())) {
-                RoadWandBinding.bind(player.getMainHandItem(), target);
-            }
-            if (player.getOffhandItem().is(ModRegistry.ROAD_WAND.get())) {
-                RoadWandBinding.bind(player.getOffhandItem(), target);
-            }
-            player.getPersistentData().putLong("mcreconstruction:road_wand_controller", target.asLong());
+            final boolean changed = RoadWandBinding.rebind(player.getInventory(), previous, target);
+            final String key = "mcreconstruction:road_wand_controller";
+            final boolean fallback = player.getPersistentData().contains(key)
+                    && player.getPersistentData().getLong(key) == previous.asLong();
+            if (fallback) player.getPersistentData().putLong(key, target.asLong());
+            if (!changed && !fallback) continue;
             player.getInventory().setChanged();
-            if (player.containerMenu != null) {
-                player.containerMenu.broadcastChanges();
-            }
-            PacketDistributor.sendToPlayer(player, new BindRoadWandPayload(target));
+            if (player.containerMenu != null) player.containerMenu.broadcastChanges();
+            PacketDistributor.sendToPlayer(player, new BindRoadWandPayload(previous, target));
         }
     }
 

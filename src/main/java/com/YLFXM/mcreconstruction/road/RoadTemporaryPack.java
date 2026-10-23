@@ -132,7 +132,7 @@ public final class RoadTemporaryPack {
         clearGenerated(server);
         for (final ServerLevel level : server.getAllLevels()) {
             for (final RoadPlan plan : RoadManager.get(level).all()) {
-                if (plan.state() == RoadState.BUILT) {
+                if (!RoadRules.canPublish(plan)) {
                     continue;
                 }
                 final Blueprint blueprint = RoadBlueprintStore.load(level, plan);

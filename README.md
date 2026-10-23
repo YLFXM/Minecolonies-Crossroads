@@ -3,7 +3,7 @@
 > [!WARNING]
 > **本项目仍在开发中（in development），尚未完成测试，请勿下载安装到正式存档或正式服务器。**
 >
-> 当前版本 `0.1.4` 只在开发者的单人测试环境里验证过流程，**仍有未实现的部分**（台阶生成、交叉口、
+> 当前版本 `0.1.4-fix.1` 只在开发者的单人测试环境里验证过流程，**仍有未实现的部分**（台阶生成、交叉口、
 > Repair 改走原生工具），
 > 存档格式与内部数据结构**仍可能变动**。如果你不是打算参与开发或帮忙测试，请等正式发布。
 >
@@ -17,7 +17,7 @@ MineColonies 的功能扩展 mod：用 Road Wand 划出**轴向直路**，生成
 |---|---|
 | Mod ID | `mcreconstruction` |
 | 包名 | `com.YLFXM.mcreconstruction` |
-| 版本 | `0.1.4`（开发中） |
+| 版本 | `0.1.4-fix.1`（开发中） |
 | 定位 | MineColonies 附属扩展，**不是** Pause Research 的更新，不复用其 mod id / 包名 / 配置路径 / 合成 path 前缀 |
 
 ## 它解决什么问题
@@ -149,7 +149,7 @@ BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行�
    - **左键**或 **Shift + 左键**选点，点在哪一端就记哪一端（按锚点分侧归位，见[端点归位](#端点归位点击顺序无关)）；
    - A/B 必须共享 x 或 z 之一；
    - **高度只由锚点决定**：路面 = 锚点方块下一格。A/B 的 Y 完全不参与计算。
-4. 选点后立即出现**白色 AABB** 预览，范围就是严格道路宽度。
+4. 选点后出现**真实方块蓝图幽灵预览**，范围就是严格道路宽度；索引 AABB 让位给幽灵。
 5. **右键空气** → 打开 Wand 面板：`Create Blueprint / Open Build Tool`、`Mirror`、`Lamp spacing -/+`、`Clear`。宽度不可编辑（来自风格包），Mirror 绕锚点列翻转路面并实时重算预览，灯距 1-8 点一下即生效。
    `Create Blueprint` **只在 `DRAFT` 可用**：确认过规划之后，重新应用形状的唯一途径是 Repair。
 6. 点 `Create Blueprint` 后服务端：校验 A/B → 构造 `RoadPlan` → 生成严格宽度蓝图 → 写入结构包 → 切包并打开原生 `WindowExtendedBuildTool`（列表定位到 `generated/`，蓝图由玩家手动点选）。
@@ -664,8 +664,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1
 安装：把 jar 复制进实例 `mods/`。
 
 ```powershell
-Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.4.jar' `
-  -Destination '<你的实例>\mods\mcreconstruction-0.1.4.jar' -Force
+Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.4-fix.1.jar' `
+  -Destination '<你的实例>\mods\mcreconstruction-0.1.4-fix.1.jar' -Force
 ```
 
 ## 本地测试服务器
@@ -722,7 +722,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 ## 开发状态
 
-**当前版本 `0.1.4` 是开发中版本，不适合正式使用**：台阶外观、交叉口、Repair 走原生工具尚未实现。
+**当前版本 `0.1.4-fix.1` 是开发中版本，不适合正式使用**：台阶外观、交叉口、Repair 走原生工具尚未实现。
 
 已实现并验证过的：
 
@@ -743,7 +743,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 ## 路线图
 
-**P1 严格原生流程收口**（进行中）：Survival 建单验证、WorkOrder 显示名统一、控制器迁移边界、预选回退提示。
+**P1 严格原生流程收口**：已完成并验收。
 
 **P2 路灯/台阶/交叉口**：~~灯单元提取与按间距覆盖~~、~~预览改为真实蓝图~~（0.1.3 已完成）、台阶单元与逐格编辑、交叉口路沿剔除与路灯避让。
 
@@ -761,3 +761,33 @@ unzip -q minecolonies.zip -d minecolonies
 8. **迁移必须在全部四条建造路径上调用**：原生工具、Survival 工单、创意即时建造、Repair。
 9. 构建后必须复制 jar 到实例 `mods/`；代理环境不启动游戏，游戏内验证由人工完成。
 10. 查 MineColonies / Structurize / BlockUI 的 API 先读上游仓库的源码（见「依赖源码」一节），不要一上来就反编译 jar。
+
+
+## 0.1.4-fix.1 修复与判断合并（已验收）
+
+用户已确认本轮修复全部验收通过，作为 0.1.4-fix.1 修复版本归档；阶段 5（Repair 接原生工具）未开始。
+
+- 首次调整灯距不再提前确认规划；Create Blueprint 在客户端和服务端均只允许 DRAFT。
+- 建成后开 Edit Blueprint 可以直接改灯距；施工中禁止逐行编辑、改参数与重选。
+- 缩路时，即使已确认覆盖表为空，也过滤越界的未应用 diff 并报告；已确认行仍等 Repair 才删除。
+- 迁移控制器只重绑原来指向它的魔杖。协议同步包含原位置和新位置，客户端与服务端需同步更新。
+- 重启仅恢复 BUILDING 或有实际工单的计划，不自动把普通 PLANNED 编辑提案判成建成；无需等待缓存过期。
+- 共享逻辑分别在 RoadRules、RoadReplanning、RoadWandBinding、RoadPermissions、RoadWorkOrders、RoadBlueprintOps 与 RoadBuildWatcher 收口。客户端提示与服务端权威校验仍各自保留。
+- 多人行为按静态检查修复，联机验收按用户约定延后。游戏测试进度见仓库外 ColonyRefactor/重构计划-实现进度.md。
+
+
+## 预览与删除保护修复（0.1.4-fix.1，已验收）
+
+- 魔棒只显示所持魔棒绑定道路；规划仪显示自己的道路范围索引，二者不再共享过滤结果。显示不随玩家站在殖民地/野外自动切换。
+- 初次选好 A/B 即可直接逐行编辑，不必先调灯距，编辑后仍为 DRAFT。草案换轴会清理不兼容行改动并提示。
+- 删除会清除对应选择、幽灵和魔棒绑定；同位置的新道路不继承旧道路。异步请求与回复校验 UUID/维度/请求序号。
+- 未施工道路删除不再按待建图清地形。建成后保存独立 applied_UUID.blueprint；已建后重规划也按最近实际应用图拆旧路。
+- 旧 PLANNED 或部分施工无法证明实际范围时，删除保守取消任务并保留无法证明归属的已铺方块。已替换成不同类型的世界方块也保留。
+- 当前网络协议 3，客户端和服务端必须同一测试 JAR；本轮修复已通过用户验收。
+
+
+规划仪相邻快捷栏直接互切也会按手位/槽位/绑定市政厅切换显示，旧回复不能恢复前一视图。道路索引框和魔棒幽灵（含其白框）共用 64 格最近体积距离限制；远离隐藏并保留缓存，靠近恢复。此补修已通过用户验收。
+
+显示距离默认 64 格；后续计划提供客户端可调整项，目前尚未配置化。
+
+本轮修复已于 2026-10-23 通过用户总体验收；多人专项仍保留先前约定，待本阶段功能完成后集中验证。代码回归 71 条通过，见 `tests/run.ps1`；道路显示距离客户端可配置化仍为待办。

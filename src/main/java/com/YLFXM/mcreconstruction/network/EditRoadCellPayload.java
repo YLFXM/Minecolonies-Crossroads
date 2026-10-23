@@ -25,14 +25,8 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-/**
- * Asks the server to cycle the unit type of one road cell.
- *
- * <p>Only the world position travels; the server resolves it against the plan
- * and decides whether it is on the paved body, so a client cannot mark cells
- * outside the road or on somebody else's plan.</p>
- */
-public record EditRoadCellPayload(BlockPos controllerPos, BlockPos cellPos)
+/** Requests a row edit on an identified bound plan, with draft endpoints for server validation. */
+public record EditRoadCellPayload(BlockPos controllerPos, BlockPos cellPos, BlockPos a, BlockPos b, boolean mirror, java.util.UUID roadId)
         implements CustomPacketPayload {
     public static final Type<EditRoadCellPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "edit_road_cell"));
@@ -40,8 +34,9 @@ public record EditRoadCellPayload(BlockPos controllerPos, BlockPos cellPos)
             (buf, payload) -> {
                 buf.writeBlockPos(payload.controllerPos());
                 buf.writeBlockPos(payload.cellPos());
+                buf.writeBlockPos(payload.a()); buf.writeBlockPos(payload.b()); buf.writeBoolean(payload.mirror()); buf.writeUUID(payload.roadId());
             },
-            buf -> new EditRoadCellPayload(buf.readBlockPos(), buf.readBlockPos()));
+            buf -> new EditRoadCellPayload(buf.readBlockPos(), buf.readBlockPos(), buf.readBlockPos(), buf.readBlockPos(), buf.readBoolean(), buf.readUUID()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

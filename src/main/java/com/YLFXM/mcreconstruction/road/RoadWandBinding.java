@@ -33,6 +33,17 @@ public final class RoadWandBinding {
         CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putLong(KEY, controllerPos.asLong()));
     }
 
+    public static void unbind(final ItemStack stack) {
+        CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.remove(KEY));
+    }
+
+    public static BlockPos heldController(final net.minecraft.world.entity.player.Inventory inventory) {
+        final ItemStack main = inventory.getSelected();
+        if (main.is(com.YLFXM.mcreconstruction.ModRegistry.ROAD_WAND.get())) return getBoundController(main);
+        final ItemStack off = inventory.offhand.get(0);
+        return off.is(com.YLFXM.mcreconstruction.ModRegistry.ROAD_WAND.get()) ? getBoundController(off) : null;
+    }
+
     public static BlockPos getBoundController(final ItemStack stack) {
         final CustomData data = stack.get(DataComponents.CUSTOM_DATA);
         if (data == null || !data.contains(KEY)) {
@@ -40,6 +51,46 @@ public final class RoadWandBinding {
         }
         final long packed = data.copyTag().getLong(KEY);
         return packed == 0L ? null : BlockPos.of(packed);
+    }
+
+    public static java.util.List<ItemStack> wands(final net.minecraft.world.entity.player.Inventory inventory) {
+        final java.util.List<ItemStack> result = new java.util.ArrayList<>();
+        final java.util.Set<ItemStack> seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (final ItemStack stack : java.util.List.of(inventory.getSelected(), inventory.offhand.get(0))) {
+            if (stack.is(com.YLFXM.mcreconstruction.ModRegistry.ROAD_WAND.get()) && seen.add(stack)) result.add(stack);
+        }
+        for (final ItemStack stack : inventory.items) {
+            if (stack.is(com.YLFXM.mcreconstruction.ModRegistry.ROAD_WAND.get()) && seen.add(stack)) result.add(stack);
+        }
+        return result;
+    }
+
+    public static BlockPos findController(final net.minecraft.world.entity.player.Inventory inventory) {
+        for (final ItemStack stack : wands(inventory)) {
+            final BlockPos bound = getBoundController(stack);
+            if (bound != null) return bound;
+        }
+        return null;
+    }
+
+    public static ItemStack findBound(final net.minecraft.world.entity.player.Inventory inventory,
+                                     final BlockPos controller) {
+        for (final ItemStack stack : wands(inventory)) {
+            if (controller.equals(getBoundController(stack))) return stack;
+        }
+        return null;
+    }
+
+    public static boolean rebind(final net.minecraft.world.entity.player.Inventory inventory,
+                                 final BlockPos previous, final BlockPos target) {
+        boolean changed = false;
+        for (final ItemStack stack : wands(inventory)) {
+            if (previous.equals(getBoundController(stack))) {
+                bind(stack, target);
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     private RoadWandBinding() {

@@ -90,16 +90,10 @@ public final class RoadBuildWatcher {
     }
 
     /**
-     * Re-attaches the completion watch to every road that is still in progress.
-     *
-     * <p>{@link #ACTIVE} is in-memory only. Without this, a server restart drops
-     * every watch, and a road being built with the <em>native build tool</em> has
-     * no colony work order for {@code RoadWorkOrderRecovery} to find — so the
-     * completion check never runs again, the plan stays {@code PLANNED}, and its
-     * blueprint stays in the pack forever.</p>
-     *
-     * <p>{@code DRAFT} plans have no geometry yet and {@code BUILT} ones are
-     * finished, so only {@code PLANNED} / {@code BUILDING} are re-armed.</p>
+     * Recover BUILDING sessions and plans with real work orders. PLANNED may be an unapplied edit,
+     * so matching world blocks are not evidence that construction was requested.
+     * Native instant-placement queues are in-memory and do not survive restart.
+     * A BUILDING session whose order disappeared still needs completion/cancellation reconciliation.
      */
     @SubscribeEvent
     public static void onServerStarted(final ServerStartedEvent event) {
@@ -107,9 +101,12 @@ public final class RoadBuildWatcher {
         int restored = 0;
         for (final ServerLevel level : server.getAllLevels()) {
             for (final RoadPlan plan : RoadManager.get(level).all()) {
-                if (plan.state() != RoadState.PLANNED && plan.state() != RoadState.BUILDING) {
+                if (!RoadRules.canPublish(plan)
+                        || (plan.state() != RoadState.BUILDING && !hasWorkOrder(plan))) {
                     continue;
                 }
+                plan.setState(RoadState.BUILDING);
+                RoadManager.get(level).add(plan);
                 watch(level, plan);
                 restored++;
             }
@@ -133,7 +130,15 @@ public final class RoadBuildWatcher {
                 new Watch(watch.level(), System.currentTimeMillis() + CLOSED_WATCH_MS, watch.blueprint()));
     }
 
+    public static void stop(final RoadPlan plan) {
+        ACTIVE.remove(plan.id());
+        CLOSING.remove(plan.id());
+        FROM_DRAFT.remove(plan.id());
+        GUARD.remove(plan.id());
+    }
+
     public static void markBuilt(final ServerLevel level, final RoadPlan plan) {
+        RoadBlueprintStore.saveApplied(level, plan, RoadBlueprintStore.load(level, plan));
         RoadControllerMigration.migrate(level, plan);
         plan.setState(RoadState.BUILT);
         RoadManager.get(level).add(plan);
@@ -303,20 +308,10 @@ public final class RoadBuildWatcher {
     }
 
     private static boolean hasWorkOrder(final RoadPlan plan) {
-        final String id = plan.id().toString();
         for (final var colony : com.minecolonies.api.colony.IColonyManager.getInstance().getAllColonies()) {
+            if (!RoadWorkOrders.sameDimension(plan, colony)) continue;
             for (final var order : colony.getWorkManager().getWorkOrders().values()) {
-                if (order == null) {
-                    continue;
-                }
-                final String path = order.getStructurePath();
-                if (path != null && (path.contains(id) || path.contains(RoadNames.fileName(plan)))) {
-                    return true;
-                }
-                if (plan.anchorPos().equals(order.getLocation())
-                        || plan.controllerPos().equals(order.getLocation())) {
-                    return true;
-                }
+                if (RoadWorkOrders.matches(plan, order)) return true;
             }
         }
         return false;
@@ -327,12 +322,12 @@ public final class RoadBuildWatcher {
         if (blueprint == null) {
             return false;
         }
-        final BlockPos origin = plan.anchorPos().subtract(blueprint.getPrimaryBlockOffset());
+        final BlockPos origin = RoadBlueprintOps.origin(plan, blueprint);
         final List<BlockInfo> sample = new ArrayList<>();
         for (final BlockInfo info : blueprint.getBlockInfoAsList()) {
             final var state = info.getState();
             // Placeholders and air carry no information about build progress.
-            if (state.isAir() || !RoadRemover.isRemovable(state)) {
+            if (state.isAir() || !RoadBlueprintOps.isConcrete(state)) {
                 continue;
             }
             final BlockPos world = origin.offset(info.getPos());

@@ -29,6 +29,24 @@ public final class RoadSelectionClient {
     private static BlockPos b = BlockPos.ZERO;
     private static BlockPos controllerPos = BlockPos.ZERO;
     private static boolean mirror;
+    private static java.util.UUID roadId;
+    private static String dimension = "";
+
+    public static java.util.UUID roadId() { return roadId; }
+
+    public static void bindTo(final com.YLFXM.mcreconstruction.road.RoadPlan plan) {
+        final String dim = plan.dimension().location().toString();
+        if (!plan.id().equals(roadId) || !dim.equals(dimension)) {
+            clearAll();
+            roadId = plan.id(); dimension = dim;
+            controllerPos = plan.controllerPos(); mirror = plan.mirror();
+            ClientRoadPreviewRenderer.clear();
+        }
+    }
+
+    public static void removed(final java.util.UUID id) {
+        if (id.equals(roadId)) { clearAll(); ClientRoadPreviewRenderer.clear(); }
+    }
 
     public static void setA(final BlockPos pos) {
         a = pos.immutable();
@@ -75,6 +93,7 @@ public final class RoadSelectionClient {
         clear();
         controllerPos = BlockPos.ZERO;
         mirror = false;
+        roadId = null; dimension = "";
     }
 
     public static Component summary() {

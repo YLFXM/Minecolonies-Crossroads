@@ -104,7 +104,8 @@ public final class DecorationControllerHandler {
         // Reading a road is colony internals, so both gestures need
         // ACCESS_HUTS: binding leaks the road's name, and the panel shows its
         // geometry. Acting on it still needs MANAGE_HUTS inside the handlers.
-        if (!RoadPermissions.canView(level, player, plan.controllerPos())) {
+        if (!RoadPermissions.canSeeRoad(plan, com.minecolonies.api.colony.IColonyManager.getInstance()
+                .getColonyByPosFromWorld(level, plan.controllerPos()), player)) {
             RoadPermissions.notifyDenied(player);
             return;
         }
@@ -146,9 +147,7 @@ public final class DecorationControllerHandler {
         // Only players who may manage the road get a window: the synced plan
         // list is filtered by that permission, so a view-only player would be
         // handed an empty panel with every button greyed out.
-        if (!com.YLFXM.mcreconstruction.RoadPermissions.canManage(player,
-                com.minecolonies.api.colony.IColonyManager.getInstance()
-                        .getColonyByPosFromWorld(level, plan.controllerPos()))) {
+        if (!RoadPermissions.canManage(level, player, plan)) {
             return;
         }
         Network.sendRoads(player, com.minecolonies.api.colony.IColonyManager.getInstance()

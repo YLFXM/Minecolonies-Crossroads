@@ -38,6 +38,12 @@ public final class ClientRoadCache {
     private static volatile String dimension = "";
     private static volatile boolean bound;
     private static volatile String colonyName = "";
+    private static volatile Set<UUID> surveyIds = Collections.emptySet();
+    private static String expectedSurvey = "";
+
+    public static void expectSurvey(final String context) {
+        if (!context.equals(expectedSurvey)) { clearSurvey(); expectedSurvey = context; }
+    }
 
     public static void set(final CompoundTag tag) {
         final List<RoadPlan> loaded = new ArrayList<>();
@@ -60,8 +66,31 @@ public final class ClientRoadCache {
         }
         manageable = Set.copyOf(ids);
         dimension = tag.getString("dimension");
-        bound = tag.getBoolean("bound");
-        colonyName = tag.getString("colony");
+        if (tag.getBoolean("surveyView") && expectedSurvey.equals(tag.getString("surveyContext"))) {
+            bound = tag.getBoolean("bound");
+            colonyName = tag.getString("colony");
+            final Set<UUID> scope = new HashSet<>();
+            final ListTag idsInView = tag.getList("surveyIds", 8);
+            for (int i = 0; i < idsInView.size(); i++) {
+                try { scope.add(UUID.fromString(idsInView.getString(i))); } catch (IllegalArgumentException ignored) { }
+            }
+            surveyIds = Set.copyOf(scope);
+        }
+    }
+
+    public static RoadPlan findByController(final net.minecraft.core.BlockPos controller) {
+        if (controller == null) return null;
+        return roads.stream().filter(plan -> controller.equals(plan.controllerPos())).findFirst().orElse(null);
+    }
+
+    public static List<RoadPlan> surveyRoads() {
+        return roads.stream().filter(plan -> surveyIds.contains(plan.id())).toList();
+    }
+
+    public static void clearSurvey() { surveyIds = Set.of(); bound = false; colonyName = ""; }
+
+    public static void remove(final UUID id) {
+        roads = roads.stream().filter(plan -> !plan.id().equals(id)).toList();
     }
 
     public static List<RoadPlan> roads() {
@@ -88,6 +117,8 @@ public final class ClientRoadCache {
     }
 
     public static void clear() {
+        clearSurvey();
+        expectedSurvey = "";
         roads = Collections.emptyList();
         manageable = Collections.emptySet();
         dimension = "";

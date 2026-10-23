@@ -55,8 +55,9 @@ public class ItemRoadSurveyor extends Item {
             // No server round trip when unbound: just clear the cache so the
             // panel shows the hint instead of stale roads from an earlier look.
             if (TownHallBinding.get(stack) == null) {
-                ClientRoadCache.clear();
+                ClientRoadCache.clearSurvey();
             }
+            ClientRoadCache.expectSurvey(RoadToolContext.key(player.getInventory()));
             new com.YLFXM.mcreconstruction.client.WindowRoadSurveyor().open();
         } else if (player instanceof ServerPlayer serverPlayer) {
             send(serverPlayer, level, stack);
@@ -76,9 +77,10 @@ public class ItemRoadSurveyor extends Item {
             // right-click on a block behaves like right-clicking air.
             if (!player.isShiftKeyDown()) {
                 if (TownHallBinding.get(stack) == null) {
-                    ClientRoadCache.clear();
+                    ClientRoadCache.clearSurvey();
                 }
-                new com.YLFXM.mcreconstruction.client.WindowRoadSurveyor().open();
+                ClientRoadCache.expectSurvey(RoadToolContext.key(player.getInventory()));
+            new com.YLFXM.mcreconstruction.client.WindowRoadSurveyor().open();
             }
             return InteractionResult.SUCCESS;
         }
@@ -94,7 +96,7 @@ public class ItemRoadSurveyor extends Item {
                         "Road surveyor bound to " + buildingEntity.getColony().getName()
                                 + " town hall."), false);
                 // Refresh immediately so the next open shows the bound colony.
-                Network.sendRoads(serverPlayer, buildingEntity.getColony());
+                Network.sendSurveyorRoads(serverPlayer, buildingEntity.getColony(), false);
             } else {
                 player.displayClientMessage(Component.literal(
                         "Shift + right-click a town hall to bind this surveyor."), false);
@@ -113,7 +115,7 @@ public class ItemRoadSurveyor extends Item {
             // that colony, so it stays out of this view even for a player who
             // could open its huts. Refusing to send anything here meant an owner
             // could not find their own wilderness roads again after unbinding.
-            Network.sendRoads(player, null, true);
+            Network.sendSurveyorRoads(player, null, true);
             return;
         }
         final IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, townHall);
@@ -122,6 +124,6 @@ public class ItemRoadSurveyor extends Item {
                     "The bound town hall no longer belongs to a colony."), false);
             return;
         }
-        Network.sendRoads(player, colony);
+        Network.sendSurveyorRoads(player, colony, false);
     }
 }

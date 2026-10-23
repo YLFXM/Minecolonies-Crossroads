@@ -111,6 +111,24 @@ public final class RoadPermissions {
         return colony == null || colony.getPermissions().hasPermission(player, Action.ACCESS_HUTS);
     }
 
+    public static boolean canManage(final ServerLevel level, final ServerPlayer player,
+                                    final com.YLFXM.mcreconstruction.road.RoadPlan plan) {
+        return canReceiveBlueprint(plan, IColonyManager.getInstance()
+                .getColonyByPosFromWorld(level, plan.controllerPos()), player);
+    }
+
+    public static boolean canReceiveBlueprint(final com.YLFXM.mcreconstruction.road.RoadPlan plan,
+                                              final IColony owner, final ServerPlayer player) {
+        return owner != null ? canManage(player, owner)
+                : plan.creator() == null || plan.isCreatedBy(player.getUUID());
+    }
+
+    public static boolean canSeeRoad(final com.YLFXM.mcreconstruction.road.RoadPlan plan,
+                                    final IColony owner, final ServerPlayer player) {
+        return owner != null ? canView(player, owner)
+                : plan.creator() == null || plan.isCreatedBy(player.getUUID());
+    }
+
     /**
      * Reports a denial the way the original does: the vanilla
      * {@code com.minecolonies.coremod.permission.no} translation sent with

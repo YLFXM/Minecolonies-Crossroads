@@ -18,6 +18,9 @@
  */
 package com.YLFXM.mcreconstruction.network;
 
+import com.YLFXM.mcreconstruction.road.RoadRules;
+import com.YLFXM.mcreconstruction.road.RoadReplanning;
+
 import com.ldtteam.structurize.blueprints.v1.Blueprint;
 import com.minecolonies.api.colony.IColony;
 import com.minecolonies.api.colony.IColonyManager;
@@ -70,7 +73,7 @@ public final class Network {
     private static final String BUILD_TOOL_PREVIEW_KEY = "blueprint";
 
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("1");
+        final var registrar = event.registrar("3");
         registrar.playToServer(RequestRoadsPayload.TYPE, RequestRoadsPayload.CODEC, Network::handleRequest);
         registrar.playToServer(ConfigureRoadPayload.TYPE, ConfigureRoadPayload.CODEC, Network::handleConfigure);
         registrar.playToServer(RoadBulkActionPayload.TYPE, RoadBulkActionPayload.CODEC, Network::handleBulkAction);
@@ -92,6 +95,17 @@ public final class Network {
         registrar.playToClient(OpenBuildToolPayload.TYPE, OpenBuildToolPayload.CODEC, Network::handleOpenBuildTool);
         registrar.playToClient(WorkOrderListPayload.TYPE, WorkOrderListPayload.CODEC, Network::handleWorkOrderList);
         registrar.playToClient(RoadPreviewPayload.TYPE, RoadPreviewPayload.CODEC, Network::handlePreview);
+        registrar.playToClient(RoadRemovedPayload.TYPE, RoadRemovedPayload.CODEC, (payload, context) -> context.enqueueWork(() -> {
+            final var mc = net.minecraft.client.Minecraft.getInstance();
+            if (mc.level == null || !mc.level.dimension().location().toString().equals(payload.dimension())) return;
+            ClientRoadCache.remove(payload.roadId());
+            com.YLFXM.mcreconstruction.client.RoadSelectionClient.removed(payload.roadId());
+            if (mc.player != null) for (final var stack : com.YLFXM.mcreconstruction.road.RoadWandBinding.wands(mc.player.getInventory())) {
+                if (payload.controller().equals(com.YLFXM.mcreconstruction.road.RoadWandBinding.getBoundController(stack))) {
+                    com.YLFXM.mcreconstruction.road.RoadWandBinding.unbind(stack);
+                }
+            }
+        }));
     }
 
     /**
@@ -122,7 +136,20 @@ public final class Network {
                 return;
             }
 
-            final int width = Math.max(1, payload.width());
+            final RoadPlan boundPlan = RoadManager.get(level).findByController(controllerPos);
+            if (boundPlan == null || !boundPlan.id().equals(payload.roadId())) return;
+            if (boundPlan != null && (!canManageRoad(level, player, boundPlan)
+                    || !RoadRules.canEdit(boundPlan) || findBoundWand(player, controllerPos) == null)) {
+                MCReconstruction.LOGGER.info("Road preview refused: bound/state/permission check at {}", controllerPos);
+                return;
+            }
+            try {
+                if (boundPlan != null) RoadReplanning.validate(boundPlan, payload.a(), payload.b());
+            } catch (final IllegalArgumentException ex) {
+                MCReconstruction.LOGGER.info("Road preview refused: {}", ex.getMessage());
+                return;
+            }
+            final int width = boundPlan == null ? Math.max(1, payload.width()) : boundPlan.width();
             final boolean mirror = payload.mirror();
             final int effectiveWidthSide = mirror ? -1 : 1;
 
@@ -151,15 +178,20 @@ public final class Network {
                 }
                 plan = rebuilt;
                 sendRoads(player, colony);
+            } else if (existing != null) {
+                plan = existing;
             } else {
                 try {
-                    final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, payload.anchorPos(),
+                    final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, boundPlan == null ? payload.anchorPos() : boundPlan.anchorPos(),
                             controllerPos, facing, a, b,
                             com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK, "street",
                             width, Math.min(2, width), effectiveWidthSide,
                             Math.max(0, payload.lampSpacing()));
                     plan = result.plan();
                     plan.setMirror(mirror);
+                    if (boundPlan.axis() == plan.axis() || boundPlan.segments().isEmpty()) {
+                        plan.adoptCommittedRows(boundPlan.rowOverrides()); plan.adoptPendingRows(boundPlan.pendingRows());
+                    }
                 } catch (final IllegalArgumentException ex) {
                     // Selection is not a road yet (diagonal, too long, anchor off
                     // the line). The client keeps its last preview; no chat noise.
@@ -191,7 +223,7 @@ public final class Network {
                     blueprint.getSizeZ(), blueprint.getPrimaryBlockOffset());
             PacketDistributor.sendToPlayer(player, new RoadPreviewPayload(
                     com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint),
-                    origin, payload.sequence()));
+                    origin, payload.sequence(), boundPlan.id(), level.dimension().location().toString()));
         });
     }
 
@@ -208,26 +240,7 @@ public final class Network {
      * are returned untouched — there is no side to snap to yet.</p>
      */
     private static BlockPos[] orientEndpoints(final RoadPlan old, final BlockPos a, final BlockPos b) {
-        // Only a re-plan has an orientation to preserve. DRAFT is the state a plan
-        // is created in from the controller, before any endpoint was picked.
-        if (old == null || old.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
-            return new BlockPos[]{a, b};
-        }
-        final Direction.Axis axis = old.axis();
-        final int anchor = axis == Direction.Axis.X ? old.anchorPos().getX() : old.anchorPos().getZ();
-        // Where the stored A end sits, derived from travelDir + segments. Working
-        // it out from the geometry instead of the stored endpoints means saves
-        // that predate those fields still snap correctly.
-        final int storedSide = Integer.signum(old.alongOfA() - anchor);
-        if (storedSide == 0) {
-            return new BlockPos[]{a, b};
-        }
-        final int sideA = Integer.signum((axis == Direction.Axis.X ? a.getX() : a.getZ()) - anchor);
-        final int sideB = Integer.signum((axis == Direction.Axis.X ? b.getX() : b.getZ()) - anchor);
-        if (sideA != storedSide && sideB == storedSide) {
-            return new BlockPos[]{b, a};
-        }
-        return new BlockPos[]{a, b};
+        return RoadReplanning.orient(old, a, b);
     }
 
     /**
@@ -236,31 +249,8 @@ public final class Network {
      * temporary blueprint is gone, so a new selection means a new road.
      */
     private static RoadPlan findEditableRoad(final ServerLevel level, final BlockPos controllerPos) {
-        for (final RoadPlan candidate : RoadManager.get(level).all()) {
-            if (!candidate.controllerPos().equals(controllerPos)) {
-                continue;
-            }
-            // DRAFT is the loose planning phase: the plan exists (created from the
-            // controller) but no blueprint was committed yet. A preview request
-            // must NOT rebuild it — doing so promoted it to PLANNED on the first
-            // A/B pick and locked the axis before the player had finished
-            // planning. Only clicking "Create Blueprint" leaves DRAFT.
-            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
-                return null;
-            }
-            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.PLANNED) {
-                return candidate;
-            }
-            // A finished road becomes re-plannable once the controller panel's
-            // edit switch is on — that is the same condition under which the
-            // client keeps its ghost preview alive.
-            if (candidate.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT
-                    && candidate.allowBlueprintEdit()) {
-                return candidate;
-            }
-            return null;
-        }
-        return null;
+        final RoadPlan plan = RoadManager.get(level).findByController(controllerPos);
+        return RoadRules.canEdit(plan) && !RoadRules.canCreate(plan) ? plan : null;
     }
 
     /** True when the payload describes a different road than the plan holds. */
@@ -290,7 +280,7 @@ public final class Network {
         // Same snap as the configure path: a rebuilt road keeps its stored
         // orientation, so the edited-cell frame does not flip.
         final BlockPos[] ends = orientEndpoints(old, payload.a(), payload.b());
-        final Direction facing = directionBetween(ends[0], ends[1]);
+        final Direction facing = old.controllerFacing();
         final int width = Math.max(1, old.width());
         final int lampSpacing = Math.max(0, Math.min(8, payload.lampSpacing()));
         final boolean mirror = payload.mirror();
@@ -304,31 +294,11 @@ public final class Network {
         } catch (final IllegalArgumentException ex) {
             return null;
         }
-        plan.setId(old.id());
-        plan.setCreator(old.creator() != null ? old.creator() : player.getUUID());
-        plan.setDisplayName(old.displayName());
-        plan.setRoadName(old.roadName());
-        // The switch belongs to the plan, not to one build: dropping it here
-        // would silently re-lock the road after a single re-pick.
-        plan.setAllowBlueprintEdit(old.allowBlueprintEdit());
+        RoadBlueprintStore.preserveBuilt(level, old);
+        RoadBuildWatcher.stop(old);
+        RoadReplanning.inherit(old, plan, player.getUUID(), false);
         plan.setMirror(mirror);
-        // A re-picked road is by definition not applied yet.
-        plan.setState(com.YLFXM.mcreconstruction.road.RoadState.PLANNED);
-
-        // Both tables travel with the rebuilt plan. The committed one is the base
-        // every proposal is measured against, and the proposal holds edits Repair
-        // has not applied yet — losing it here silently reverted them.
-        plan.adoptCommittedRows(old.rowOverrides());
-        plan.adoptPendingRows(old.pendingRows());
-        if (old.confirmedRowCount() > 0) {
-            final Direction.Axis oldAxis = old.axis();
-            final int alongA = oldAxis == Direction.Axis.X ? ends[0].getX() : ends[0].getZ();
-            final int alongB = oldAxis == Direction.Axis.X ? ends[1].getX() : ends[1].getZ();
-            final int dropped = plan.stageRemap(alongA, alongB);
-            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                    "Re-plan: " + plan.editedRowCount() + " row(s) edited, " + dropped
-                            + " dropped. Repair applies it."), false);
-        }
+        reportRemap(player, old, plan);
 
         final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
                 Config.defaultLampReserveHeight());
@@ -379,17 +349,36 @@ public final class Network {
                         "Road Wand is not bound to this controller."), false);
                 return;
             }
-            final RoadPlan plan = RoadManager.get(level).findByController(controllerPos);
-            if (plan == null || plan.segments().isEmpty()) {
+            RoadPlan plan = RoadManager.get(level).findByController(controllerPos);
+            if (plan == null || !plan.id().equals(payload.roadId())) {
                 MCReconstruction.LOGGER.info("Road cell edit ignored: no plan at {}", controllerPos);
                 return;
             }
-            if (plan.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT
-                    && !plan.allowBlueprintEdit()) {
-                MCReconstruction.LOGGER.info("Road cell edit refused: built road {} has edit off", plan.id());
+            if (!canManageRoad(level, player, plan) || !RoadRules.canEdit(plan)) {
+                MCReconstruction.LOGGER.info("Road cell edit refused: road {} is locked or under construction", plan.id());
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                        "Turn on \"Edit Blueprint\" in the controller panel to change a built road."), false);
+                        "This road is locked or under construction."), false);
                 return;
+            }
+            RoadBlueprintStore.preserveBuilt(level, plan);
+            final boolean draft = RoadRules.canCreate(plan);
+            if (draft) {
+                if (payload.a().equals(BlockPos.ZERO) || payload.b().equals(BlockPos.ZERO)) return;
+                try {
+                    final RoadPlan oldDraft = plan;
+                    plan = RoadPlanBuilder.build(level, oldDraft.anchorPos(), controllerPos, oldDraft.controllerFacing(),
+                            payload.a(), payload.b(), oldDraft.pack(), oldDraft.variant(), oldDraft.width(),
+                            oldDraft.walkRange().width(), payload.mirror() ? -1 : 1, oldDraft.lampSpacing()).plan();
+                    RoadReplanning.inherit(oldDraft, plan, player.getUUID(), true);
+                    plan.setMirror(payload.mirror());
+                    if (!oldDraft.segments().isEmpty() && oldDraft.axis() != plan.axis()) {
+                        plan.clearRowOverrides();
+                        player.displayClientMessage(net.minecraft.network.chat.Component.literal("Draft axis changed; row edits cleared."), false);
+                    }
+                } catch (final IllegalArgumentException ex) {
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(ex.getMessage()), true);
+                    return;
+                }
             }
             final Integer row = plan.rowAt(payload.cellPos());
             if (row == null) {
@@ -407,6 +396,7 @@ public final class Network {
                 case STAIR_UP -> com.YLFXM.mcreconstruction.road.CellType.STAIR_DOWN;
                 case STAIR_DOWN -> com.YLFXM.mcreconstruction.road.CellType.FLAT;
             };
+            RoadBuildWatcher.stop(plan);
             plan.setRowType(row, next);
 
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
@@ -421,7 +411,7 @@ public final class Network {
             // and only applying it (Repair / build tool / builder) makes it BUILT
             // again. No completion watch is armed here, because nothing is being
             // placed — that is what used to make the state flip back on its own.
-            plan.setState(com.YLFXM.mcreconstruction.road.RoadState.PLANNED);
+            plan.setState(draft ? RoadState.DRAFT : RoadState.PLANNED);
             com.YLFXM.mcreconstruction.road.RoadTemporaryPack.replace(level, plan, plan, blueprint);
             com.YLFXM.mcreconstruction.road.RoadBlueprintStore.save(level, plan, blueprint);
             RoadManager.get(level).add(plan);
@@ -455,6 +445,7 @@ public final class Network {
             if (plan == null) {
                 return;
             }
+            if (!canManageRoad(level, player, plan) || !RoadRules.canToggleEdit(plan)) return;
             plan.setAllowBlueprintEdit(payload.allow());
             RoadManager.get(level).add(plan);
             sendRoads(player, colony);
@@ -508,23 +499,11 @@ public final class Network {
                         "Road Wand is not bound to this controller."), false);
                 return;
             }
-            // A built road is frozen unless the controller panel's edit switch is
-            // on. Then it may be re-planned, which drops it back to PLANNED so the
-            // new shape can be laid over the old pavement.
-            final boolean editingBuilt = old.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT
-                    && old.allowBlueprintEdit();
-            if (mode == RoadPlacementMode.PLAN
-                    && old.state() == com.YLFXM.mcreconstruction.road.RoadState.BUILT) {
-                // Creating a blueprint is a first-time action. A built road is
-                // rebuilt through Repair only, so it must not come back through
-                // this door (the Wand button is disabled for the same reason).
+            if (!canManageRoad(level, player, old)
+                    || !(mode == RoadPlacementMode.PLAN ? RoadRules.canCreate(old) : RoadRules.canEdit(old))) {
+                MCReconstruction.LOGGER.info("Road configure refused: plan={} state={} mode={}", old.id(), old.state(), mode);
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                        "A built road is rebuilt with Repair, not by creating a blueprint again."), false);
-                return;
-            }
-            if (old.state() != RoadState.DRAFT && old.state() != RoadState.PLANNED && !editingBuilt) {
-                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                        "This road is already built; construction options are locked."), false);
+                        "This road is locked; confirmed roads are applied with Repair."), false);
                 return;
             }
             // Road width is determined by the style-pack blueprint, not by a
@@ -549,36 +528,12 @@ public final class Network {
             final int widthSide = old != null ? old.widthSide() : 1;
             final boolean mirror = payload.mirror();
 
-            // A re-pick has to stay on the stored axis and the stored lateral
-            // origin. Deliberately NOT gated on the road state beyond "has been
-            // planned before": the state flips between BUILT and PLANNED while
-            // editing, and gating on BUILT let a later re-pick change axis or
-            // slide the road sideways. DRAFT is the only state where the road has
-            // no orientation yet (a plan created from the controller).
-            if (old.state() != com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
-                if (!payload.hasEndpoints()) {
-                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                            "An existing road can only be re-planned from two endpoints."), false);
-                    return;
-                }
-                final Direction.Axis oldAxis = old.axis();
-                final boolean newSharesZ = a.getZ() == b.getZ();
-                final boolean newSharesX = a.getX() == b.getX();
-                if (newSharesZ == newSharesX || (oldAxis == Direction.Axis.X) != newSharesZ) {
-                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                            "This road cannot change axis; keep the same x or z as before."), false);
-                    return;
-                }
-                final int oldLateral = oldAxis == Direction.Axis.X
-                        ? old.anchorPos().getZ() : old.anchorPos().getX();
-                final int newLateral = oldAxis == Direction.Axis.X
-                        ? a.getZ() : a.getX();
-                if (oldLateral != newLateral) {
-                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                            "This road cannot move sideways; the shared coordinate must stay at "
-                                    + (oldAxis == Direction.Axis.X ? "z=" : "x=") + oldLateral + "."), false);
-                    return;
-                }
+            try {
+                RoadReplanning.validate(old, payload.hasEndpoints() ? a : null, payload.hasEndpoints() ? b : null);
+            } catch (final IllegalArgumentException ex) {
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal(ex.getMessage()), false);
+                MCReconstruction.LOGGER.info("Road configure refused: {}", ex.getMessage());
+                return;
             }
 
             final int effectiveWidthSide = mirror ? -Math.abs(widthSide) : Math.abs(widthSide);
@@ -613,52 +568,14 @@ public final class Network {
                 return;
             }
 
-            // Keep the road identity stable across planning/building so Wand
-            // bindings and blueprint names do not change after construction.
-            plan.setId(old.id());
-            // Ownership must survive re-planning: re-selecting A/B on a road
-            // somebody else planned must not transfer it to the current player.
-            plan.setCreator(old.creator() != null ? old.creator() : player.getUUID());
-            // Re-planning rebuilds the plan from scratch: carry the switch (and
-            // everything else that identifies it) across, or a single re-pick
-            // would re-lock the road.
-            plan.setAllowBlueprintEdit(old.allowBlueprintEdit());
-            // Re-planning always lands in PLANNED: the blueprint changed, the
-            // world did not. Applying it (Repair / build tool / builder) is what
-            // turns the road BUILT again.
-            plan.setState(com.YLFXM.mcreconstruction.road.RoadState.PLANNED);
-
-            // Rows are keyed by world coordinate, so a re-pick only has to filter
-            // out the ones that fell outside — and only as a proposal. Repair is
-            // what commits it, so re-picking to try a shape can be undone by
-            // picking the old endpoints again.
-            //
-            // An empty committed table needs no proposal at all: there is nothing
-            // to filter, nothing to drop and nothing to report, and the new plan
-            // simply has no staged table (Repair then reuses the cached blueprint).
-            plan.adoptCommittedRows(old.rowOverrides());
-            plan.adoptPendingRows(old.pendingRows());
-            if (old.confirmedRowCount() > 0) {
-                final Direction.Axis oldAxis = old.axis();
-                final int alongA = oldAxis == Direction.Axis.X ? a.getX() : a.getZ();
-                final int alongB = oldAxis == Direction.Axis.X ? b.getX() : b.getZ();
-                final boolean sameRange = old.state()
-                        != com.YLFXM.mcreconstruction.road.RoadState.DRAFT
-                        && old.minAlong() == Math.min(alongA, alongB)
-                        && old.maxAlong() == Math.max(alongA, alongB);
-                // Same range means this call came from the lamp spacing button (or
-                // an unchanged re-pick): re-stage silently to carry a proposal that
-                // is already waiting across to the rebuilt plan — dropping it here
-                // would lose it without a word, since the plan is replaced wholesale.
-                if (!sameRange || old.hasPendingRows()) {
-                    final int dropped = plan.stageRemap(alongA, alongB);
-                    if (!sameRange) {
-                        player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                                "Re-plan: " + plan.editedRowCount() + " row(s) edited, " + dropped
-                                        + " dropped. Repair applies it."), false);
-                    }
-                }
+            RoadBlueprintStore.preserveBuilt(level, old);
+        RoadBuildWatcher.stop(old);
+            RoadReplanning.inherit(old, plan, player.getUUID(), mode == RoadPlacementMode.CONFIGURE);
+            if (RoadRules.canCreate(old) && !old.segments().isEmpty() && old.axis() != plan.axis()) {
+                plan.clearRowOverrides();
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal("Draft axis changed; row edits cleared."), false);
             }
+            reportRemap(player, old, plan);
             if (!old.displayName().isBlank()) {
                 plan.setDisplayName(old.displayName());
             }
@@ -734,10 +651,7 @@ public final class Network {
                 // it on the reserved inner cell with the same migration the
                 // builder path uses. The legacy custom controller is no longer
                 // placed here.
-                com.YLFXM.mcreconstruction.road.RoadControllerMigration.migrate(level, plan);
-                plan.setState(RoadState.BUILT);
-                RoadManager.get(level).add(plan);
-                com.YLFXM.mcreconstruction.road.RoadTemporaryPack.delete(level, plan);
+                RoadBuildWatcher.markBuilt(level, plan);
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "Road " + RoadNames.label(plan) + ": bounds "
                                 + plan.bounds(Config.defaultLampReserveHeight()).sizeX() + "x"
@@ -760,39 +674,27 @@ public final class Network {
         });
     }
 
+    private static void reportRemap(final ServerPlayer player, final RoadPlan old, final RoadPlan plan) {
+        if (RoadRules.canCreate(old)) return;
+        final boolean changedRange = old.minAlong() != plan.minAlong() || old.maxAlong() != plan.maxAlong();
+        final int discarded = Math.max(0, old.editedRowCount() - plan.editedRowCount());
+        if (!changedRange && discarded == 0) return;
+        player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                "Re-plan: " + plan.editedRowCount() + " row(s) edited, " + plan.lastDroppedRows()
+                        + " dropped. Repair applies it."
+                        + (discarded > 0 ? " " + discarded + " pending row(s) outside the road discarded." : "")), false);
+    }
+
     private static net.minecraft.world.item.ItemStack findBoundWand(final ServerPlayer player,
                                                                     final BlockPos controllerPos) {
-        final var main = player.getMainHandItem();
-        if (main.is(ModRegistry.ROAD_WAND.get())
-                && controllerPos.equals(com.YLFXM.mcreconstruction.road.RoadWandBinding.getBoundController(main))) {
-            return main;
-        }
-        final var offhand = player.getOffhandItem();
-        if (offhand.is(ModRegistry.ROAD_WAND.get())
-                && controllerPos.equals(com.YLFXM.mcreconstruction.road.RoadWandBinding.getBoundController(offhand))) {
-            return offhand;
-        }
-        for (final var stack : player.getInventory().items) {
-            if (stack.is(ModRegistry.ROAD_WAND.get())
-                    && controllerPos.equals(com.YLFXM.mcreconstruction.road.RoadWandBinding.getBoundController(stack))) {
-                return stack;
-            }
-        }
-        // Fallback to the server-side player binding. This keeps validation
-        // working even if a client inventory sync lags behind.
-        final long fallback = player.getPersistentData().getLong("mcreconstruction:road_wand_controller");
-        if (fallback == controllerPos.asLong()) {
-            if (main.is(ModRegistry.ROAD_WAND.get())) {
-                return main;
-            }
-            if (offhand.is(ModRegistry.ROAD_WAND.get())) {
-                return offhand;
-            }
-            for (final var stack : player.getInventory().items) {
-                if (stack.is(ModRegistry.ROAD_WAND.get())) {
-                    return stack;
-                }
-            }
+        final var inventory = player.getInventory();
+        final var bound = com.YLFXM.mcreconstruction.road.RoadWandBinding.findBound(inventory, controllerPos);
+        if (bound != null) return bound;
+        final String key = "mcreconstruction:road_wand_controller";
+        if (player.getPersistentData().contains(key)
+                && player.getPersistentData().getLong(key) == controllerPos.asLong()) {
+            final var wands = com.YLFXM.mcreconstruction.road.RoadWandBinding.wands(inventory);
+            if (!wands.isEmpty()) return wands.get(0);
         }
         return null;
     }
@@ -810,7 +712,14 @@ public final class Network {
                 return;
             }
             RoadWorkOrderRecovery.recoverAll(player.server);
-            sendRoads(player);
+            if (payload.surveyor()) {
+                final var main = player.getMainHandItem();
+                final var stack = main.is(ModRegistry.ROAD_SURVEYOR.get()) ? main : player.getOffhandItem();
+                if (!stack.is(ModRegistry.ROAD_SURVEYOR.get())) return;
+                final BlockPos townHall = com.YLFXM.mcreconstruction.TownHallBinding.get(stack);
+                final IColony scope = townHall == null ? null : IColonyManager.getInstance().getColonyByPosFromWorld(player.serverLevel(), townHall);
+                sendSurveyorRoads(player, scope, scope == null);
+            } else sendRoads(player);
             MCReconstruction.LOGGER.debug("Sent road index to {}", player.getName().getString());
         });
     }
@@ -857,7 +766,7 @@ public final class Network {
     /** Permission for destructive road actions: manage-huts in the owning colony. */
     private static boolean canManageRoad(final ServerLevel level, final ServerPlayer player,
                                          final RoadPlan plan) {
-        return com.YLFXM.mcreconstruction.RoadPermissions.canManage(level, player, plan.controllerPos());
+        return com.YLFXM.mcreconstruction.RoadPermissions.canManage(level, player, plan);
     }
 
     private static void handleControllerAction(final RoadControllerActionPayload payload,
@@ -880,7 +789,7 @@ public final class Network {
             }
             switch (payload.action()) {
                 case REMOVE -> com.YLFXM.mcreconstruction.road.RoadRemover.remove(level, plan);
-                case REPAIR -> RoadRepair.repair(level, plan);
+                case REPAIR -> { if (RoadRules.canRepair(plan)) RoadRepair.repair(level, plan); }
                 case UPGRADE -> player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "Road upgrades are not implemented yet."), false);
             }
@@ -907,19 +816,9 @@ public final class Network {
     private static void handleBindWand(final BindRoadWandPayload payload, final IPayloadContext context) {
         context.enqueueWork(() -> {
             final var player = net.minecraft.client.Minecraft.getInstance().player;
-            if (player == null) {
-                return;
-            }
-            if (player.getMainHandItem().is(ModRegistry.ROAD_WAND.get())) {
-                com.YLFXM.mcreconstruction.road.RoadWandBinding.bind(player.getMainHandItem(), payload.controllerPos());
-            }
-            if (player.getOffhandItem().is(ModRegistry.ROAD_WAND.get())) {
-                com.YLFXM.mcreconstruction.road.RoadWandBinding.bind(player.getOffhandItem(), payload.controllerPos());
-            }
-            for (final var stack : player.getInventory().items) {
-                if (stack.is(ModRegistry.ROAD_WAND.get())) {
-                    com.YLFXM.mcreconstruction.road.RoadWandBinding.bind(stack, payload.controllerPos());
-                }
+            if (player != null) {
+                com.YLFXM.mcreconstruction.road.RoadWandBinding.rebind(
+                        player.getInventory(), payload.previousPos(), payload.controllerPos());
             }
         });
     }
@@ -1073,7 +972,7 @@ public final class Network {
                         ? "Unclaimed"
                         : "Claimed" + (stage == null ? "" : " / " + stage.name());
                 String displayName = order.getDisplayName().getString();
-                final RoadPlan road = roadForPath(player.serverLevel(), order.getStructurePath());
+                final RoadPlan road = com.YLFXM.mcreconstruction.road.RoadWorkOrders.find(player.serverLevel(), order);
                 if (road != null) {
                     displayName = RoadNames.label(road);
                 }
@@ -1100,45 +999,6 @@ public final class Network {
     public static void sendUnboundWorkOrders(final ServerPlayer player) {
         PacketDistributor.sendToPlayer(player,
                 new WorkOrderListPayload(-1, "", java.util.List.of(), false, false));
-    }
-
-    private static RoadPlan roadForPath(final ServerLevel level, final String path) {
-        if (path == null) {
-            return null;
-        }
-        if (path.startsWith("mcreconstruction:road/")) {
-            final String key = path.substring("mcreconstruction:road/".length());
-            final RoadPlan byName = RoadManager.get(level).findByName(key);
-            if (byName != null) {
-                return byName;
-            }
-            try {
-                return RoadManager.get(level).get(UUID.fromString(key));
-            } catch (final IllegalArgumentException ex) {
-                return null;
-            }
-        }
-        if (!path.endsWith(".blueprint")) {
-            return null;
-        }
-        final int slash = path.lastIndexOf('/');
-        final String fileName = path.substring(slash + 1, path.length() - ".blueprint".length());
-        final RoadPlan byBlueprint = RoadManager.get(level).findByBlueprintName(fileName);
-        if (byBlueprint != null) {
-            return byBlueprint;
-        }
-        final RoadPlan byName = RoadManager.get(level).findByName(fileName);
-        if (byName != null) {
-            return byName;
-        }
-        if (fileName.startsWith("road_")) {
-            try {
-                return RoadManager.get(level).get(
-                        UUID.fromString(fileName.substring("road_".length())));
-            } catch (final IllegalArgumentException ignored) {
-            }
-        }
-        return null;
     }
 
     private static void handleWorkOrderList(final WorkOrderListPayload payload,
@@ -1256,42 +1116,42 @@ public final class Network {
     public static void sendRoads(final ServerPlayer player,
                                  final com.minecolonies.api.colony.IColony colony,
                                  final boolean wildernessOnly) {
+        sendRoadIndex(player, colony, wildernessOnly, false);
+    }
+
+    public static void sendSurveyorRoads(final ServerPlayer player, final IColony colony, final boolean wildernessOnly) {
+        sendRoadIndex(player, colony, wildernessOnly, true);
+    }
+
+    private static void sendRoadIndex(final ServerPlayer player, final IColony colony,
+                                      final boolean wildernessOnly, final boolean surveyView) {
         final ServerLevel level = player.serverLevel();
         final CompoundTag tag = new CompoundTag();
+        tag.putBoolean("surveyView", surveyView);
+        if (surveyView) tag.putString("surveyContext", com.YLFXM.mcreconstruction.RoadToolContext.key(player.getInventory()));
         tag.putString("dimension", level.dimension().location().toString());
         tag.putBoolean("bound", colony != null);
         tag.putString("colony", colony == null ? "" : colony.getName());
         final ListTag list = new ListTag();
+        final ListTag surveyIds = new ListTag();
         // Which roads this player may act on; the client only uses it to grey out
         // buttons, every action is re-checked server side.
         final ListTag manageable = new ListTag();
         for (final RoadPlan plan : RoadManager.get(level).all()) {
             final com.minecolonies.api.colony.IColony owner = IColonyManager.getInstance()
                     .getColonyByPosFromWorld(level, plan.controllerPos());
-            if (colony != null) {
-                // Bound view: the roads of this colony, plus the player's own
-                // wilderness roads — binding a surveyor to a town hall should not
-                // hide the roads the player built out in the wild. Someone else's
-                // wilderness road never appears here.
-                if (owner != null) {
-                    // Without the visibility check, binding to any town hall would
-                    // bypass the colony-road permission gate.
-                    if (owner.getID() != colony.getID() || !isVisibleTo(plan, owner, player)) {
-                        continue;
-                    }
-                } else if (!isVisibleTo(plan, null, player)) {
-                    continue;
-                }
-            } else if (!isVisibleTo(plan, owner, player)
-                    || (wildernessOnly && owner != null)) {
-                continue;
-            }
+            if (!isVisibleTo(plan, owner, player)) continue;
+            final boolean inScope = colony != null
+                    ? owner == null || owner.getID() == colony.getID()
+                    : !wildernessOnly || owner == null;
+            if (inScope) surveyIds.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
             list.add(plan.save());
-            if (com.YLFXM.mcreconstruction.RoadPermissions.canManage(level, player, plan.controllerPos())) {
+            if (canManageRoad(level, player, plan)) {
                 manageable.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
             }
         }
         tag.put("roads", list);
+        tag.put("surveyIds", surveyIds);
         tag.put("manageable", manageable);
         // Every blueprint file name this player is entitled to, across all
         // dimensions. The client prunes anything else from its local
@@ -1322,7 +1182,7 @@ public final class Network {
                 // from the pack when the road was marked built. Leaving the name
                 // in this list would let the client keep its copy, and the native
                 // build tool would go on listing a road that no longer needs one.
-                if (plan.state() == RoadState.BUILT || plan.state() == RoadState.REMOVED) {
+                if (!RoadRules.canPublish(plan)) {
                     continue;
                 }
                 final com.minecolonies.api.colony.IColony owner = IColonyManager.getInstance()
@@ -1354,10 +1214,7 @@ public final class Network {
     private static boolean isEntitledToBlueprint(final RoadPlan plan,
                                                  final com.minecolonies.api.colony.IColony owner,
                                                  final ServerPlayer player) {
-        if (owner != null) {
-            return com.YLFXM.mcreconstruction.RoadPermissions.canManage(player, owner);
-        }
-        return plan.creator() == null || plan.isCreatedBy(player.getUUID());
+        return com.YLFXM.mcreconstruction.RoadPermissions.canReceiveBlueprint(plan, owner, player);
     }
 
     /**
@@ -1380,12 +1237,7 @@ public final class Network {
     private static boolean isVisibleTo(final RoadPlan plan,
                                        final com.minecolonies.api.colony.IColony owner,
                                        final ServerPlayer player) {
-        if (owner != null) {
-            return com.YLFXM.mcreconstruction.RoadPermissions.canView(player, owner);
-        }
-        // Wilderness: unowned roads (creator == null, i.e. saved before the
-        // field existed) are public; owned ones belong to their creator.
-        return plan.creator() == null || plan.isCreatedBy(player.getUUID());
+        return com.YLFXM.mcreconstruction.RoadPermissions.canSeeRoad(plan, owner, player);
     }
 
     private Network() {

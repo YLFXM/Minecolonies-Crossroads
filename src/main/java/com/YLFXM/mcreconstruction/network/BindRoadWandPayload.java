@@ -25,12 +25,16 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record BindRoadWandPayload(BlockPos controllerPos) implements CustomPacketPayload {
+public record BindRoadWandPayload(BlockPos previousPos, BlockPos controllerPos) implements CustomPacketPayload {
     public static final Type<BindRoadWandPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "bind_road_wand"));
     public static final StreamCodec<RegistryFriendlyByteBuf, BindRoadWandPayload> CODEC = StreamCodec.of(
-            (buf, payload) -> buf.writeBlockPos(payload.controllerPos()),
-            buf -> new BindRoadWandPayload(buf.readBlockPos()));
+            (buf, payload) -> { buf.writeBlockPos(payload.previousPos()); buf.writeBlockPos(payload.controllerPos()); },
+            buf -> new BindRoadWandPayload(buf.readBlockPos(), buf.readBlockPos()));
+
+    public BindRoadWandPayload(final BlockPos controllerPos) {
+        this(controllerPos, controllerPos);
+    }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

@@ -39,7 +39,7 @@ import net.minecraft.world.level.block.state.BlockState;
 public final class RoadQuickBuilder {
     public static void place(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint,
                              final boolean pretty) {
-        final BlockPos origin = plan.anchorPos().subtract(blueprint.getPrimaryBlockOffset());
+        final BlockPos origin = RoadBlueprintOps.origin(plan, blueprint);
         final BlockState filler = RoadUnitExtractor.blockState(Config.roadFillBlock());
 
         // Do NOT clear the whole AABB here. Only explicit air cells in the
@@ -49,16 +49,8 @@ public final class RoadQuickBuilder {
         for (final BlockInfo info : blueprint.getBlockInfoAsList()) {
             BlockState state = info.getState();
             final BlockPos world = origin.offset(info.getPos());
-            final ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-            if (blockId != null && "structurize".equals(blockId.getNamespace())
-                    && ("blocksubstitution".equals(blockId.getPath())
-                    || "blockfluidsubstitution".equals(blockId.getPath())
-                    || "blocktagsubstitution".equals(blockId.getPath()))) {
-                // Leave unspecified/placeholder cells untouched.
-                continue;
-            }
-            if (blockId != null && "structurize".equals(blockId.getNamespace())
-                    && "blocksolidsubstitution".equals(blockId.getPath())) {
+            if (RoadBlueprintOps.isPlaceholder(state) && !RoadBlueprintOps.isSolidFill(state)) continue;
+            if (RoadBlueprintOps.isSolidFill(state)) {
                 // Use Structurize's own substitution choice (worldgen/existing
                 // solid, dirt fallback) instead of hardcoding stone.
                 state = BlockUtils.getSubstitutionBlockAtWorld(level, world,
@@ -83,7 +75,7 @@ public final class RoadQuickBuilder {
             }
         }
 
-        plan.setState(RoadState.BUILT);
+        // The caller performs the shared completion lifecycle after placement.
     }
 
     private RoadQuickBuilder() {

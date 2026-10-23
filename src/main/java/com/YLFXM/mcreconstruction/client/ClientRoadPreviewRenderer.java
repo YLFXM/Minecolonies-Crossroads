@@ -57,6 +57,34 @@ public final class ClientRoadPreviewRenderer {
 
     /** Replies below this belong to a selection the player has already moved on from. */
     private static long staleBelow;
+    private static java.util.UUID expectedRoad;
+    private static long expectedSequence;
+    private static long shownSequence = -1;
+    private static BlueprintPreviewData loadedPreview;
+
+    public static boolean isLoaded() { return loadedPreview != null && shownSequence == expectedSequence; }
+
+    public static void updateRange() {
+        if (!isLoaded()) return;
+        final var mc = Minecraft.getInstance();
+        if (mc.level == null || mc.gameRenderer.getMainCamera() == null) return;
+        final var blueprint = loadedPreview.getBlueprint();
+        final var origin = loadedPreview.getPos().subtract(blueprint.getPrimaryBlockOffset());
+        final var bounds = new net.minecraft.world.phys.AABB(origin.getX(), origin.getY(), origin.getZ(),
+                origin.getX()+blueprint.getSizeX(), origin.getY()+blueprint.getSizeY(), origin.getZ()+blueprint.getSizeZ());
+        if (com.YLFXM.mcreconstruction.road.RoadRenderRange.contains(bounds, mc.gameRenderer.getMainCamera().getPosition())) {
+            RenderingCache.queue(CACHE_KEY, loadedPreview);
+        } else RenderingCache.removeBlueprint(CACHE_KEY);
+    }
+
+    public static void expect(final java.util.UUID road, final long request) {
+        expectedRoad = road; expectedSequence = request; shownSequence = -1; loadedPreview = null;
+        RenderingCache.removeBlueprint(CACHE_KEY);
+    }
+
+    public static boolean isVisible() {
+        return shownSequence == expectedSequence && expectedRoad != null && RenderingCache.hasBlueprint(CACHE_KEY);
+    }
 
     /**
      * Sequence to send with the next preview request. Only ever increases, which
@@ -75,11 +103,13 @@ public final class ClientRoadPreviewRenderer {
         if (payload == null || payload.blueprint() == null) {
             return false;
         }
-        if (payload.sequence() < staleBelow) {
+        if (payload.sequence() < staleBelow || payload.sequence() != expectedSequence
+                || !payload.roadId().equals(expectedRoad)
+                || !"wand".equals(ClientRoadPreview.mode()) || ClientNativeBuildTracker.isActive()) {
             return false;
         }
         final Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level == null) {
+        if (minecraft.level == null || !minecraft.level.dimension().location().toString().equals(payload.dimension())) {
             return false;
         }
         final Blueprint blueprint = BlueprintUtil.readBlueprintFromNBT(
@@ -104,7 +134,9 @@ public final class ClientRoadPreviewRenderer {
         // handed back the PREVIOUS mesh and the ghost only moved instead of
         // changing. Dropping the meshes forces a rebuild from the new blocks.
         com.ldtteam.structurize.client.BlueprintHandler.getInstance().clearCache();
-        RenderingCache.queue(CACHE_KEY, data);
+        loadedPreview = data;
+        shownSequence = payload.sequence();
+        updateRange();
         // Matches the server-side log line: the ghost is drawn from
         // origin - primaryOffset, so these two numbers are all it takes to tell
         // "the blueprint content is wrong" from "it is drawn in the wrong spot".
@@ -112,8 +144,9 @@ public final class ClientRoadPreviewRenderer {
                 "Road preview ghost: pos={} size={}x{}x{} primaryOffset={} start={}",
                 payload.origin(), blueprint.getSizeX(), blueprint.getSizeY(), blueprint.getSizeZ(),
                 blueprint.getPrimaryBlockOffset(),
-                payload.origin().subtract(blueprint.getPrimaryBlockOffset()));
+                com.YLFXM.mcreconstruction.road.RoadBlueprintOps.origin(payload.origin(), blueprint));
         staleBelow = payload.sequence();
+        shownSequence = payload.sequence();
         return true;
     }
 
@@ -122,9 +155,11 @@ public final class ClientRoadPreviewRenderer {
      * native build tool takes over (it draws its own ghost), and on world exit.
      */
     public static void clear() {
+        final boolean hadPreview = RenderingCache.hasBlueprint(CACHE_KEY);
         RenderingCache.removeBlueprint(CACHE_KEY);
         // Anything still in flight answers a request the player has abandoned.
-        staleBelow = sequence;
+        if (expectedRoad != null || hadPreview) staleBelow = ++sequence;
+        expectedRoad = null; shownSequence = -1; loadedPreview = null;
         // The selection has to be re-requested the next time it is shown; the
         // preview is gone, so the de-duplication must not treat it as current.
         ClientRoadPreview.invalidateRequest();

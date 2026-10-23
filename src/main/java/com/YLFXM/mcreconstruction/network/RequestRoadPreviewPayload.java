@@ -30,8 +30,8 @@ import net.minecraft.resources.ResourceLocation;
  * Client asks the server for the blueprint the current A/B selection would
  * produce, so the planning preview can show real blocks instead of a box.
  *
- * <p>Carries the anchor and controller separately: the preview also runs for an
- * unbound wand, where the client synthesises both from endpoint A.</p>
+ * <p>Carries the bound plan UUID; reusing a deleted controller coordinate cannot
+ * make a late preview request mutate a different road.</p>
  */
 public record RequestRoadPreviewPayload(BlockPos controllerPos,
                                         BlockPos anchorPos,
@@ -40,7 +40,7 @@ public record RequestRoadPreviewPayload(BlockPos controllerPos,
                                         boolean mirror,
                                         int width,
                                         int lampSpacing,
-                                        long sequence) implements CustomPacketPayload {
+                                        long sequence, java.util.UUID roadId) implements CustomPacketPayload {
     public static final Type<RequestRoadPreviewPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "request_road_preview"));
 
@@ -54,6 +54,7 @@ public record RequestRoadPreviewPayload(BlockPos controllerPos,
                 buf.writeVarInt(Math.max(1, payload.width()));
                 buf.writeVarInt(Math.max(0, payload.lampSpacing()));
                 buf.writeLong(payload.sequence());
+                buf.writeUUID(payload.roadId());
             },
             buf -> new RequestRoadPreviewPayload(
                     buf.readBlockPos(),
@@ -63,7 +64,7 @@ public record RequestRoadPreviewPayload(BlockPos controllerPos,
                     buf.readBoolean(),
                     buf.readVarInt(),
                     buf.readVarInt(),
-                    buf.readLong()));
+                    buf.readLong(), buf.readUUID()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

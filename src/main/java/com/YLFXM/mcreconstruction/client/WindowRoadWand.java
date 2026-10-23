@@ -18,6 +18,8 @@
  */
 package com.YLFXM.mcreconstruction.client;
 
+import com.YLFXM.mcreconstruction.road.RoadRules;
+
 import com.ldtteam.blockui.controls.Button;
 import com.ldtteam.blockui.controls.Text;
 import com.minecolonies.core.client.gui.AbstractWindowSkeleton;
@@ -105,9 +107,7 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         // BUILT is editable only with the controller panel's switch on; without
         // that the button looked enabled (the panel greys out by state) but the
         // click was silently dropped here.
-        final boolean editable = plan.state() == RoadState.DRAFT
-                || plan.state() == RoadState.PLANNED
-                || (plan.state() == RoadState.BUILT && plan.allowBlueprintEdit());
+        final boolean editable = RoadRules.canEdit(plan);
         if (!editable) {
             return;
         }
@@ -137,10 +137,7 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         // The controller panel's edit switch unlocks a BUILT road: without this
         // the whole panel stays greyed out and the player cannot re-pick A/B at
         // all, even though the server would accept it.
-        final boolean editingBuilt = plan != null
-                && plan.state() == RoadState.BUILT && plan.allowBlueprintEdit();
-        final boolean locked = plan != null && plan.state() != RoadState.DRAFT
-                && plan.state() != RoadState.PLANNED && !editingBuilt;
+        final boolean locked = plan != null && !RoadRules.canEdit(plan);
         // Grey out planning when the server says this player may not manage the
         // bound road; the server re-checks anyway.
         final boolean allowed = plan != null && ClientRoadCache.canManage(plan.id());
@@ -152,7 +149,7 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         // that goes through Repair — replanning a built road included, whose
         // state is PLANNED and would otherwise re-open this door.
         this.planButton.setEnabled(plan != null
-                && plan.state() == RoadState.DRAFT && allowed);
+                && RoadRules.canCreate(plan) && allowed);
         this.mirrorButton.setEnabled(!locked && allowed);
         this.clearButton.setEnabled(!locked);
 
@@ -187,7 +184,7 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
             }
             return;
         }
-        if (plan.state() != RoadState.DRAFT && plan.state() != RoadState.PLANNED) {
+        if (!(mode == RoadPlacementMode.PLAN ? RoadRules.canCreate(plan) : RoadRules.canEdit(plan))) {
             if (this.mc.player != null) {
                 this.mc.player.displayClientMessage(Component.literal(
                         "This road is already built; construction options are locked."), true);
@@ -212,43 +209,10 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
     }
 
     private RoadPlan boundPlan(final BlockPos controller) {
-        if (controller == null) {
-            return null;
-        }
-        for (final RoadPlan plan : ClientRoadCache.roads()) {
-            if (plan.controllerPos().equals(controller)) {
-                return plan;
-            }
-        }
-        return null;
+        return ClientRoadCache.findByController(controller);
     }
 
     private BlockPos boundController() {
-        if (this.mc.player == null) {
-            return null;
-        }
-        final ItemStack main = this.mc.player.getMainHandItem();
-        if (main.is(ModRegistry.ROAD_WAND.get())) {
-            final BlockPos bound = RoadWandBinding.getBoundController(main);
-            if (bound != null) {
-                return bound;
-            }
-        }
-        final ItemStack offhand = this.mc.player.getOffhandItem();
-        if (offhand.is(ModRegistry.ROAD_WAND.get())) {
-            final BlockPos bound = RoadWandBinding.getBoundController(offhand);
-            if (bound != null) {
-                return bound;
-            }
-        }
-        for (final ItemStack stack : this.mc.player.getInventory().items) {
-            if (stack.is(ModRegistry.ROAD_WAND.get())) {
-                final BlockPos bound = RoadWandBinding.getBoundController(stack);
-                if (bound != null) {
-                    return bound;
-                }
-            }
-        }
-        return null;
+        return this.mc.player == null ? null : RoadWandBinding.findController(this.mc.player.getInventory());
     }
 }

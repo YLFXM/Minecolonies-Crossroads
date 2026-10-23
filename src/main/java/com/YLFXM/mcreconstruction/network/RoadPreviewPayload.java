@@ -36,7 +36,7 @@ import net.minecraft.resources.ResourceLocation;
  */
 public record RoadPreviewPayload(CompoundTag blueprint,
                                  BlockPos origin,
-                                 long sequence) implements CustomPacketPayload {
+                                 long sequence, java.util.UUID roadId, String dimension) implements CustomPacketPayload {
     public static final Type<RoadPreviewPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "road_preview"));
 
@@ -45,8 +45,10 @@ public record RoadPreviewPayload(CompoundTag blueprint,
                 buf.writeNbt(payload.blueprint());
                 buf.writeBlockPos(payload.origin());
                 buf.writeLong(payload.sequence());
+                buf.writeUUID(payload.roadId());
+                buf.writeUtf(payload.dimension());
             },
-            buf -> new RoadPreviewPayload(buf.readNbt(), buf.readBlockPos(), buf.readLong()));
+            buf -> new RoadPreviewPayload(buf.readNbt(), buf.readBlockPos(), buf.readLong(), buf.readUUID(), buf.readUtf()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

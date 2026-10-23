@@ -68,6 +68,8 @@ public final class ClientNativeBuildTracker {
     private static boolean folderOpened;
     private static int folderAttempts;
 
+    public static boolean isActive() { return activePlan != null; }
+
     public static void begin(final UUID planId, final String previousPack) {
         activePlan = planId;
         previousPackName = previousPack;

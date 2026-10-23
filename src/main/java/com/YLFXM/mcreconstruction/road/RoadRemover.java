@@ -30,7 +30,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Removes only blocks explicitly specified by the road blueprint. Air and all
+ * Removes matching blocks only from a previously applied blueprint snapshot. Air and all
  * Structurize substitution placeholder families are skipped.
  */
 public final class RoadRemover {
@@ -40,42 +40,29 @@ public final class RoadRemover {
     }
 
     public static int removeBlocks(final ServerLevel level, final RoadPlan plan) {
-        Blueprint blueprint = RoadBlueprintStore.load(level, plan);
+        RoadBlueprintStore.preserveBuilt(level, plan);
+        final Blueprint blueprint = RoadBlueprintStore.loadApplied(level, plan);
         if (blueprint == null) {
-            blueprint = RoadBlueprintGenerator.generate(plan, level, Config.defaultLampReserveHeight());
-        }
-        if (blueprint == null) {
-            MCReconstruction.LOGGER.warn("No blueprint available to remove road {}", plan.id());
+            MCReconstruction.LOGGER.info("Road {} has no applied snapshot; cancelling without world block removal", plan.id());
             return 0;
         }
 
         // Blueprint placement is anchored at the visible anchor block, not the
         // decorative controller (which may be one block to the side).
-        final BlockPos origin = plan.anchorPos().subtract(blueprint.getPrimaryBlockOffset());
+        final BlockPos origin = RoadBlueprintOps.origin(plan, blueprint);
         int removed = 0;
         for (final BlockInfo info : blueprint.getBlockInfoAsList()) {
             final BlockState state = info.getState();
-            if (!isRemovable(state)) {
+            if (!RoadBlueprintOps.isConcrete(state)) {
                 continue;
             }
             final BlockPos world = origin.offset(info.getPos());
-            if (!level.getBlockState(world).isAir()) {
+            if (level.getBlockState(world).getBlock() == state.getBlock()) {
                 level.setBlock(world, Blocks.AIR.defaultBlockState(), 3);
                 removed++;
             }
         }
         return removed;
-    }
-
-    static boolean isRemovable(final BlockState state) {
-        if (state.isAir()) {
-            return false;
-        }
-        final ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        if (id == null) {
-            return false;
-        }
-        return !"structurize".equals(id.getNamespace()) || !id.getPath().contains("substitution");
     }
 
     private RoadRemover() {
