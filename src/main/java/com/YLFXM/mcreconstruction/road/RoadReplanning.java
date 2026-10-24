@@ -61,11 +61,24 @@ public final class RoadReplanning {
         plan.setDisplayName(old.displayName());
         plan.setRoadName(old.roadName());
         plan.setAllowBlueprintEdit(old.allowBlueprintEdit());
+        plan.setAppliedBounds(old.appliedBounds());
         plan.setState(keepDraft && RoadRules.canCreate(old) ? RoadState.DRAFT : RoadState.PLANNED);
         plan.setWalkRange(old.walkRange());
         plan.adoptCommittedRows(old.rowOverrides());
         plan.adoptPendingRows(old.pendingRows());
         if (!plan.segments().isEmpty()) plan.stageRemap(plan.minAlong(), plan.maxAlong());
+    }
+
+    /** Accept only the row filtering of a successfully generated draft preview.
+     * Geometry stays local/unconfirmed; neither state nor the committed table is changed. */
+    public static boolean acceptDraftRows(final RoadPlan draft, final RoadPlan preview) {
+        if (!RoadRules.canCreate(draft) || !RoadRules.canEdit(draft)) return false;
+        preview.stageRemap(preview.minAlong(), preview.maxAlong());
+        if (draft.pendingRows().equals(preview.pendingRows())
+                && draft.lastDroppedRows() == preview.lastDroppedRows()) return false;
+        draft.adoptPendingRows(preview.pendingRows());
+        draft.setLastDroppedRows(preview.lastDroppedRows());
+        return true;
     }
 
     private RoadReplanning() { }

@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "units": {
+    "road": {
+      "file": "street_road.blueprint",
+      "axis": "x",
+      "surfaceY": 1,
+      "width": 4,
+      "walkRange": [
+        1,
+        2
+      ],
+      "writeCells": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          2
+        ],
+        [
+          0,
+          0,
+          3
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          3
+        ],
+        [
+          0,
+          7,
+          0
+        ]
+      ],
+      "skipCells": []
+    },
+    "lamp": {
+      "file": "street_lamp.blueprint",
+      "axis": "x",
+      "surfaceY": 1,
+      "width": 2,
+      "walkRange": null,
+      "writeCells": [
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          2,
+          0
+        ],
+        [
+          0,
+          2,
+          1
+        ],
+        [
+          0,
+          3,
+          0
+        ],
+        [
+          0,
+          4,
+          0
+        ],
+        [
+          0,
+          5,
+          0
+        ],
+        [
+          0,
+          5,
+          1
+        ],
+        [
+          0,
+          6,
+          1
+        ]
+      ],
+      "skipCells": [
+        [
+          0,
+          1,
+          1
+        ]
+      ]
+    },
+    "stair": {
+      "file": "street_stair.blueprint",
+      "axis": "x",
+      "surfaceY": 1,
+      "width": 4,
+      "walkRange": [
+        1,
+        2
+      ],
+      "writeCells": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          2
+        ],
+        [
+          0,
+          0,
+          3
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          3
+        ]
+      ],
+      "skipCells": [],
+      "canonicalFacing": "east"
+    }
+  },
+  "sources": {
+    "blueprints/minecolonies/original/infrastructure/roads/streets/longroad1.blueprint": "9eedcf7dc4bcbd4db5f3b6ff8564e20eb02ddbc1330262667d203b508a904fc8",
+    "blueprints/minecolonies/original/infrastructure/roads/streets/smallstairs1.blueprint": "14af83ff38bef4a8c20cfb95f9cb63f6cb0b7caae03862a6ad8ece68f29d4623"
+  }
+}

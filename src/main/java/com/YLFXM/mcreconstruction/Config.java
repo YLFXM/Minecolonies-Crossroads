@@ -49,6 +49,12 @@ public final class Config {
 
     public static int wildernessWorkerMaxDistance() { return WILDERNESS_WORKER_MAX_DISTANCE.get(); }
 
+    private static final ModConfigSpec.IntValue MAX_GENERATED_BLUEPRINT_VOLUME = BUILDER
+            .comment("Maximum generated road blueprint volume, checked before allocating the native blueprint.")
+            .defineInRange("maxGeneratedBlueprintVolume",1048576,1024,16777216);
+
+    public static int maxGeneratedBlueprintVolume() { return MAX_GENERATED_BLUEPRINT_VOLUME.get(); }
+
     private static final ModConfigSpec.BooleanValue CREATIVE_INSTANT_BUILD = BUILDER
             .comment("In creative mode, Build places the road immediately instead of creating a WorkOrder.")
             .define("creativeInstantBuild", true);

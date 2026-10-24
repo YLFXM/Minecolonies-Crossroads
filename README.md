@@ -1,10 +1,11 @@
 # 模拟殖民地：重构计划 / MineColonies: Reconstruction Plan
 
+> 当前版本0.1.6、网络协议8。阶段6预切单元、真实台阶及补修已通过用户单机/联机验收；P2完成6/7，阶段7交叉口未开始。客户端、服务器及其他联机玩家须同包。
+
 > [!WARNING]
 > **本项目仍在开发中（in development），尚未完成测试，请勿下载安装到正式存档或正式服务器。**
 >
-> 当前版本 `0.1.5` 已收到单机及联机测试反馈，**仍有未实现的部分**（台阶生成、交叉口、
-> 原生施工及拆除已完成本轮单机／联机验收），
+> 当前开发版本 `0.1.6`：原生施工、拆除及阶段6台阶已验收，交叉口尚未实现。
 > 存档格式与内部数据结构**仍可能变动**。如果你不是打算参与开发或帮忙测试，请等正式发布。
 >
 > 仓库以 GPL-3.0 开源，**原作者可能不再维护**。愿意接手迁移到更新版本的开发者，
@@ -17,7 +18,7 @@ MineColonies 的功能扩展 mod：用 Road Wand 划出**轴向直路**，生成
 |---|---|
 | Mod ID | `mcreconstruction` |
 | 包名 | `com.YLFXM.mcreconstruction` |
-| 版本 | `0.1.5`（开发中） |
+| 版本 | `0.1.6`（开发中） |
 | 定位 | MineColonies 附属扩展，**不是** Pause Research 的更新，不复用其 mod id / 包名 / 配置路径 / 合成 path 前缀 |
 
 ## 它解决什么问题
@@ -282,14 +283,14 @@ return false;
 
 ### 完成判定
 
-`RoadBuildWatcher` 每 20 tick 检查一次：把蓝图里所有道路方块（跳过空气与 substitution 占位符、跳过锚点和控制器格）与世界上实际方块**全量比对**，比较的是方块类型而非完整 state。
+`RoadBuildWatcher` 每 20 tick 检查一次：把蓝图里所有道路方块（跳过空气与 substitution 占位符、跳过锚点和控制器格）与世界上实际方块**全量比对**，比较方块类型，并核对楼梯朝向/半部及DOM材质。Repair还会检查被冻结目标要求清空的旧高处格，原生队列或精确工单结束后才收尾。
 
 不能用抽样：Complete/Pretty/Paste 与建筑工都是跨 tick 放置，提前判定会把控制器放进尚未执行完的占位符格里。
 
 判定完成后进入 `GUARD` 守护窗口（400 tick），期间每 20 tick 确认控制器还在，被异步任务覆盖就补回。
 
 **观察器是纯内存的，所以每次服务端启动都要重新挂接**（`RoadBuildWatcher#onServerStarted`）：
-把所有处于 `PLANNED` / `BUILDING` 的道路重新 `watch()` 一遍。少了这一步，重启后只有**带殖民地工单**
+只对 `BUILDING` 或有匹配原生工单的道路恢复观察；普通 `PLANNED` 提案不因世界偶然匹配而自动建成。少了这一步，重启后只有**带殖民地工单**
 的道路会被 `RoadWorkOrderRecovery` 找回来，而**用原生建造工具建的路根本没有工单**——没人盯，
 完成判定永远不跑，状态停在 `PLANNED`，蓝图也永远留在 pack 里。
 
@@ -417,7 +418,8 @@ src/main/java/com/YLFXM/mcreconstruction/
     RoadManager.java               每维度 SavedData 索引
     RoadPlanBuilder.java           端点校验、长度、交叉检测
     RoadBounds.java                AABB（严格宽度 / 纯铺装体）
-    RoadUnit.java / UnitTemplate.java / RoadUnitExtractor.java  风格包单元切片
+    RoadUnit.java / UnitTemplate.java / RoadUnitExtractor.java  单元描述与开发提取对照
+    RoadUnitLibrary.java / RoadHeightProfile.java  预切资源加载与锚点固定高度计算
     RoadBlueprintGenerator.java    严格宽度蓝图生成
     RoadTemporaryPack.java         蓝图在 pack 中的逻辑路径 + 清理旧 generated/
     RoadBlueprintStore.java        每计划蓝图快照（存档内）
@@ -484,9 +486,9 @@ DRAFT -> PLANNED -> BUILDING -> BUILT
 
 ## 蓝图管线
 
-1. **源单元**：默认 `RoadUnit` = 风格包 `Minecolonies Original` 的 `infrastructure/roads/streets/longroad1.blueprint`，取第 0 片，宽 4、walk 宽 2、`surfaceY` 1。
-2. **切片**：`RoadUnitExtractor` 从源蓝图切出一格厚度的竖向切片，跳过 `minecolonies:decorationcontroller`（控制器由道路系统自己放），保留方块实体数据。
-3. **生成**：`RoadBlueprintGenerator` 按 `RoadBounds.ofRoadOnly` 决定尺寸；道路上方显式写空气（让建筑工清空），路面下方写 `blocksolidsubstitution` 作支撑填充，锚点写入蓝图，控制器格写 `blocksubstitution` 占位符。
+1. **源单元**：经典包路面/灯来自longroad1，单级台阶来自smallstairs1；宽4、walkRange=[1,2]、surfaceY=1，预切产物随JAR发布。
+2. **加载**：开发工具负责导出，运行时RoadUnitLibrary仅读取三份蓝图与稀疏掩码并缓存，不再逐次切源包。明确清空气的控制器格与灯单元不写的路面格分别保留语义，材质TE一并复制。
+3. **生成**：RoadHeightProfile按锚点积分；RoadBlueprintGenerator按逐行新高度和旧applied的有界高度拼装。新路面下填充，上方非新灯格写空气；控制器预留最后写入，锚点作为primaryOffset原点而非额外写一块锚点。超高/超体积先拒绝。
 4. **两处落盘**：
    - **结构包**（给原生工具/建筑工看）
      ```text
@@ -501,7 +503,7 @@ DRAFT -> PLANNED -> BUILDING -> BUILT
      saves/<world>/mcreconstruction/blueprints/road_<uuid>.blueprint
      ```
 
-删除方块时（`RoadRemover`）只删蓝图里明确指定的非空气方块，并跳过全部 `structurize:*substitution*`。
+拆除通过RoadRemover进入原生工单/创造队列，只以实际应用快照的明确目标冻结范围；空气与替代填充不作为铺装拆除目标。
 
 ### 结构包同步（联机必读）
 
@@ -663,11 +665,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1
 - Java 运行时按 `tools\jre` → `%APPDATA%\.minecraft\runtime\java-runtime-delta` → `JAVA_HOME` 顺序探测，取第一个能跑 `java -version` 的；
 - 镜像里没有 `javac.exe` / `jar.exe` 时分别走 `java -m jdk.compiler/...` 与 `java -m jdk.jartool/...`。
 
+代码回归入口为 `tests/run.ps1`。原生蓝图空气检查需要原版客户端JAR的语言/版本资源，默认使用指定测试实例；其他机器可设置 `MCRECONSTRUCTION_TEST_CLIENT_JAR` 指向Minecraft 1.21.1客户端JAR。测试只在独立进程中初始化注册表，不启动游戏。
+
 安装：把 jar 复制进实例 `mods/`。
 
 ```powershell
-Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.5.jar' `
-  -Destination '<你的实例>\mods\mcreconstruction-0.1.5.jar' -Force
+Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.6.jar' `
+  -Destination '<你的实例>\mods\mcreconstruction-0.1.6.jar' -Force
 ```
 
 ## 本地测试服务器
@@ -713,7 +717,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 **整体状态：开发中。** 以下功能未完成或仅有部分实现：
 
-- 台阶 `SegmentKind.STAIR_UP/STAIR_DOWN` 已定义，但生成器只处理 `ROAD`。
+- 当前仅内置经典street预切单元组；其他风格/宽度尚未提供，缺少匹配资源时明确拒绝。
 - 交叉口只做几何检测与覆盖，没有专门铺装和路灯协调。
 - 阶段 5 Repair 与首次施工已走原生工具，并通过本轮验收；Upgrade 按钮禁用。
 - 名称唯一性是**维度内**全局，不是严格"同殖民地内"。
@@ -724,7 +728,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 ## 开发状态
 
-**当前版本 `0.1.5` 是开发中版本，不适合正式使用**：台阶外观、交叉口尚未实现；阶段 5 Repair 已验收。
+**当前版本 `0.1.6` 是开发中版本，不适合正式使用**：阶段6台阶已验收，阶段7交叉口未实现。
 
 已实现并验证过的：
 
@@ -736,7 +740,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 未完成或未充分验证的：
 
-- 台阶、交叉口（见「已知限制」）；
+- 交叉口实现与道路覆盖策略（见「已知限制」）；
 - 完整回归测试，存档格式稳定性；
 - 英文本地化（`en_us.json` 内容仍是中文）；
 - 原生施工、拆除和蓝图授权已完成本轮单机／联机验收；S8/S15/D10/N8仍封存，不等于通过全部极端场景。
@@ -745,7 +749,7 @@ unzip -q minecolonies.zip -d minecolonies
 
 **P1 严格原生流程收口**：已完成并验收。
 
-**P2 路灯/台阶/交叉口**：~~灯单元提取与按间距覆盖~~、~~预览改为真实蓝图~~（0.1.3 已完成）、台阶单元与逐格编辑、交叉口路沿剔除与路灯避让。
+**P2 路灯/台阶/交叉口**：灯、预览、逐行编辑和原生施工/拆除已验收；阶段6预切单元与真实台阶已验收，阶段7交叉口未开始。
 
 **P3 地形/装饰/寻路/联机**：custom dig/fill、装饰控制扩展、Pathfinding Edition 联动、专用服务器结构包同步、Surveyor 过滤/分页/统计、自定义模型、完整本地化、旧代码清理。
 
@@ -808,3 +812,17 @@ unzip -q minecolonies.zip -d minecolonies
 已知观察：施工中重启后建筑工实体可能不可用，MineColonies召回操作会打印AWOL并尝试恢复。本mod恢复逻辑仅跟踪原工单，不删除、复活或传送公民；根因未确定，按用户要求暂不改动。
 
 接手文档不持续维护，仅在用户需要时按对应版本另行编写。当前设计与进度继续正常维护。
+
+## 0.1.6：预切单元与真实台阶（已验收）
+
+运行时改读随JAR提供的普通路面、路灯与单级DOM泥土楼梯单元，保留稀疏跳过格、材质和方块实体；tools/export_road_units.py用于离线导出/核对真实源素材。当前仅内置经典street单元组，旧包名有明确映射，缺资源/依赖/不支持的宽度不静默换材质。
+
+UP/DOWN按A→B累计高度，锚点行固定FLAT，镜像不反转坡向。灯柱随所在行基座升降；作业范围内低于新路面填充、高于新路面且非合法路灯格写空气，覆盖旧高处道路/灯柱。控制器预留最后写入；当前A/B外旧路不自动拆。新增maxGeneratedBlueprintVolume，默认1,048,576格；世界高度和体积超限在生成前拒绝。
+
+首次/Repair仍走原生施工会话，成功才落表/更新applied；完成检查包括楼梯方向/半部、DOM材质及需要清空的旧高处格。旧会话使用原冻结图，缺快照只报警而不按新算法重生成。已建范围从实际应用内容派生，预览去重包含行类型内容。清空检查目标随会话保存，客户端只接收busy及派生范围。
+
+首次规划沿轴缩短后，服务端在预览生成校验成功时直接丢弃越界的未应用行并刷新覆盖表计数；仍保持DRAFT，不提交已确认表。蓝图未写入格显式初始化为真实空气，控制器预留继续单独使用占位符。
+
+魔棒真实幽灵显示时，控制器上方显示金黄色直立实心箭头（各边长为初版的75%），固定指向当前A→B方向。绕控制器移动或转视角不会改变其世界朝向，镜像不反转方向；箭头随幽灵隐藏，自身也受64格距离限制，规划仪不显示此箭头。
+
+构建与590条Java断言、25个有效单元格导出校验通过。2026-10-24用户确认阶段6单机/联机及四项补修全部通过，版本收口0.1.6、协议8；没有素材的旧路/旧冻结图测试子项已删除，原封存项目仍封存。dist、指定客户端和本地服务器已同步0.1.6，SHA256：D0897BF27299630FEB9F780F2F71663F33B2C2AA59E55DF068638FD84CA04798。两端旧包已归档至output/stage6-0.1.6-previous-mods，mods中仅保留当前版本。阶段7未开始，不推送。

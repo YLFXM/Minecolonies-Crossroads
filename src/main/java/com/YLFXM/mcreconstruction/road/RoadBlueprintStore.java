@@ -52,15 +52,38 @@ public final class RoadBlueprintStore {
     }
 
     public static void saveApplied(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
-        if (blueprint != null) write(appliedFile(level, plan), plan, blueprint);
+        saveAppliedChecked(level,plan,blueprint);
     }
 
     public static boolean saveAppliedChecked(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
-        return blueprint != null && write(appliedFile(level,plan),plan,blueprint);
+        if(blueprint==null || !write(appliedFile(level,plan),plan,blueprint)) return false;
+        plan.setAppliedBounds(occupiedBounds(plan,blueprint)); return true;
     }
 
     public static Blueprint loadApplied(final ServerLevel level, final RoadPlan plan) {
-        return read(level, plan, appliedFile(level, plan));
+        final Blueprint blueprint=read(level,plan,appliedFile(level,plan));
+        if(blueprint!=null) plan.setAppliedBounds(occupiedBounds(plan,blueprint));
+        return blueprint;
+    }
+
+    public static void ensureAppliedBounds(final ServerLevel level, final RoadPlan plan) {
+        if(plan.appliedBounds()==null) {
+            preserveBuilt(level,plan);
+            if(plan.appliedBounds()==null) loadApplied(level,plan);
+        }
+    }
+
+    private static RoadBounds occupiedBounds(final RoadPlan plan,final Blueprint blueprint) {
+        final var origin=RoadBlueprintOps.origin(plan,blueprint);
+        int minX=Integer.MAX_VALUE,minY=Integer.MAX_VALUE,minZ=Integer.MAX_VALUE;
+        int maxX=Integer.MIN_VALUE,maxY=Integer.MIN_VALUE,maxZ=Integer.MIN_VALUE;
+        for(final var info:blueprint.getBlockInfoAsList()) {
+            if(!RoadBlueprintOps.isConcrete(info.getState()) && !RoadBlueprintOps.isSolidFill(info.getState())) continue;
+            final var p=origin.offset(info.getPos());
+            minX=Math.min(minX,p.getX());minY=Math.min(minY,p.getY());minZ=Math.min(minZ,p.getZ());
+            maxX=Math.max(maxX,p.getX());maxY=Math.max(maxY,p.getY());maxZ=Math.max(maxZ,p.getZ());
+        }
+        return minX==Integer.MAX_VALUE ? null : new RoadBounds(minX,minY,minZ,maxX,maxY,maxZ);
     }
 
     public static void preserveBuilt(final ServerLevel level, final RoadPlan plan) {

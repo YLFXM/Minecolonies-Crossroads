@@ -82,7 +82,11 @@ public final class ClientRoadPreview {
                 mirror ? -1 : 1, base.lampSpacing());
         preview.addSegment(new RoadSegment(new BlockPos(Math.min(a.getX(),b.getX()),base.anchorPos().getY()-1,
                 Math.min(a.getZ(),b.getZ())),length,axis,0,SegmentKind.ROAD));
-        final String key = base.id()+":"+a+":"+b+":"+mirror+":"+base.lampSpacing()+":"+base.editedRowCount();
+        if(base.segments().isEmpty() || base.axis()==axis) {
+            preview.adoptCommittedRows(base.rowOverrides()); preview.adoptPendingRows(base.pendingRows());
+            preview.setTravelDir(base.state()==RoadState.DRAFT ? (x ? Integer.signum(b.getX()-a.getX()) : Integer.signum(b.getZ()-a.getZ())) : base.travelDir());
+        }
+        final String key = base.id()+":"+a+":"+b+":"+mirror+":"+base.lampSpacing()+":"+RoadHeightProfile.editSignature(preview);
         final long now = mc.level.getGameTime();
         if (!key.equals(lastKey) || (!ClientRoadPreviewRenderer.isLoaded() && now-requestedAt >= 40)) {
             lastKey = key; requestedAt = now;

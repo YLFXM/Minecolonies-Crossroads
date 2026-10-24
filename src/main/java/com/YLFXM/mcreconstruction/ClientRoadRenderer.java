@@ -23,8 +23,11 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.YLFXM.mcreconstruction.network.ClientRoadCache;
 import com.YLFXM.mcreconstruction.road.RoadBounds;
 import com.YLFXM.mcreconstruction.road.RoadPlan;
+import com.YLFXM.mcreconstruction.client.RoadSelectionClient;
+import com.YLFXM.mcreconstruction.road.RoadRenderRange;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.core.Direction;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -37,8 +40,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
- * Blue AABB overlay for roads. When the server road index has been synced it
- * shows all known roads; otherwise it falls back to loaded controllers.
+ * Tool-scoped road bounds and a world-aligned A-to-B arrow for the visible ghost.
  */
 @EventBusSubscriber(modid = MCReconstruction.MODID, value = Dist.CLIENT)
 public final class ClientRoadRenderer {
@@ -72,12 +74,21 @@ public final class ClientRoadRenderer {
         pose.translate(-camera.x, -camera.y, -camera.z);
 
         final MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
+        if ("wand".equals(mode) && preview != null
+                && preview.dimension().equals(minecraft.level.dimension())
+                && com.YLFXM.mcreconstruction.client.ClientRoadPreviewRenderer.isVisible()) {
+            renderDirectionArrow(pose, buffers.getBuffer(RenderType.debugQuads()), preview, camera);
+            buffers.endBatch(RenderType.debugQuads());
+        }
         final VertexConsumer lines = buffers.getBuffer(RenderType.lines());
         for (final RoadPlan plan : plans) {
             if (!plan.dimension().equals(minecraft.level.dimension())) {
                 continue;
             }
-            final RoadBounds bounds = RoadBounds.ofRoadOnly(plan, Config.defaultLampReserveHeight());
+            final boolean showApplied=(plan.state()==com.YLFXM.mcreconstruction.road.RoadState.BUILT && !plan.allowBlueprintEdit())
+                    || plan.state()==com.YLFXM.mcreconstruction.road.RoadState.REMOVING;
+            final RoadBounds bounds = showApplied && plan.appliedBounds()!=null
+                    ? plan.appliedBounds() : RoadBounds.ofRoadOnly(plan, Config.defaultLampReserveHeight());
             final AABB box = new AABB(bounds.minX(), bounds.minY(), bounds.minZ(),
                     bounds.maxX() + 1.0, bounds.maxY() + 1.0, bounds.maxZ() + 1.0);
             if (!com.YLFXM.mcreconstruction.road.RoadRenderRange.contains(box, camera)) {
@@ -92,6 +103,57 @@ public final class ClientRoadRenderer {
         }
         buffers.endBatch(RenderType.lines());
         pose.popPose();
+    }
+
+    // Upright in the road-axis/world-Y plane; the outline and depth are scaled to 75%.
+    private static final float[][] ARROW_OUTLINE = {
+            {-0.8F, -0.12F}, {0.15F, -0.12F}, {0.15F, -0.4F},
+            {0.9F, 0.0F}, {0.15F, 0.4F}, {0.15F, 0.12F}, {-0.8F, 0.12F}
+    };
+    private static final int[][] ARROW_FACES = {{0, 1, 5, 6}, {2, 3, 4, 4}};
+
+    private static void renderDirectionArrow(final PoseStack pose, final VertexConsumer faces,
+                                             final RoadPlan plan, final Vec3 camera) {
+        final var controller = plan.controllerPos();
+        final double x = controller.getX() + 0.5, y = controller.getY() + 1.65, z = controller.getZ() + 0.5;
+        if (!RoadRenderRange.contains(new AABB(x - 0.675, y - 0.3, z - 0.675,
+                x + 0.675, y + 0.3, z + 0.675), camera)) {
+            return;
+        }
+        // Read the current endpoints, including an unconfirmed DRAFT selection; never face the camera.
+        final var aPoint = RoadSelectionClient.a();
+        final var bPoint = RoadSelectionClient.b();
+        if (aPoint == null || bPoint == null) return;
+        final Direction forward = plan.axis() == Direction.Axis.X
+                ? (bPoint.getX() > aPoint.getX() ? Direction.EAST : Direction.WEST)
+                : (bPoint.getZ() > aPoint.getZ() ? Direction.SOUTH : Direction.NORTH);
+        final float dx = forward.getStepX(), dz = forward.getStepZ();
+        pose.pushPose();
+        pose.translate(x, y, z);
+        pose.scale(0.75F, 0.75F, 0.75F);
+        // Shaft quad and a triangle (repeated fourth vertex) cover each broad
+        // face without filling the concave gaps behind the arrow head.
+        for (final int[] face : ARROW_FACES) {
+            for (final int index : face) arrowVertex(pose, faces, dx, dz, index, 0.075F, 1.0F);
+            for (int i = face.length - 1; i >= 0; i--)
+                arrowVertex(pose, faces, dx, dz, face[i], -0.075F, 1.0F);
+        }
+        for (int i = 0; i < ARROW_OUTLINE.length; i++) {
+            final int next = (i + 1) % ARROW_OUTLINE.length;
+            arrowVertex(pose, faces, dx, dz, i, -0.075F, 0.8F);
+            arrowVertex(pose, faces, dx, dz, next, -0.075F, 0.8F);
+            arrowVertex(pose, faces, dx, dz, next, 0.075F, 0.8F);
+            arrowVertex(pose, faces, dx, dz, i, 0.075F, 0.8F);
+        }
+        pose.popPose();
+    }
+
+    private static void arrowVertex(final PoseStack pose, final VertexConsumer faces,
+                                    final float dx, final float dz, final int index,
+                                    final float depth, final float shade) {
+        final float along = ARROW_OUTLINE[index][0], height = ARROW_OUTLINE[index][1];
+        faces.addVertex(pose.last().pose(), dx * along - dz * depth, height, dz * along + dx * depth)
+                .setColor(shade, 0.8F * shade, 0.15F * shade, 1.0F);
     }
 
     private ClientRoadRenderer() {

@@ -50,6 +50,7 @@ public final class UnitTemplate {
     private final int sizeZ;
     private final int surfaceY;
     private final Direction.Axis axis;
+    private boolean frozen;
 
     public UnitTemplate(final int sizeX, final int sizeY, final int sizeZ,
                         final int surfaceY, final Direction.Axis axis) {
@@ -61,7 +62,8 @@ public final class UnitTemplate {
     }
 
     public void add(final BlockPos pos, final BlockState state, final CompoundTag tileEntity) {
-        entries.add(new Entry(pos, state, tileEntity));
+        if(frozen) throw new IllegalStateException("Immutable unit template");
+        entries.add(new Entry(pos.immutable(), state, tileEntity==null ? null : tileEntity.copy()));
     }
 
     /**
@@ -69,12 +71,15 @@ public final class UnitTemplate {
      * whatever is really there (flat pavement, stair, edited block) survives.
      */
     public void addPlaceholder(final BlockPos pos) {
+        if(frozen) throw new IllegalStateException("Immutable unit template");
         entries.add(new Entry(pos, null, null, true));
     }
 
     public List<Entry> entries() {
-        return entries;
+        return entries.stream().map(e -> new Entry(e.pos(),e.state(),e.tileEntity()==null ? null : e.tileEntity().copy(),e.placeholder())).toList();
     }
+
+    public UnitTemplate freeze() { frozen=true; return this; }
 
     public int sizeX() {
         return sizeX;

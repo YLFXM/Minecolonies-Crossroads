@@ -53,6 +53,21 @@ public class RoadAuditRegression {
         check(small.roadName().equals(old.roadName()) && small.walkRange().equals(old.walkRange()),"name and asymmetric walk interval retained");
         RoadPlan wide=plan(5,11); RoadReplanning.inherit(small,wide,UUID.randomUUID(),false);
         check(wide.editedRowCount()==1 && wide.cellType(14)==CellType.FLAT,"discarded pending edit stays discarded");
+        RoadPlan initial=plan(5,11); initial.setRowType(6,CellType.STAIR_UP); initial.setRowType(14,CellType.STAIR_DOWN);
+        RoadPlan initialPreview=plan(5,6); initialPreview.adoptPendingRows(initial.pendingRows());
+        check(RoadReplanning.acceptDraftRows(initial,initialPreview),"valid initial preview accepts clipped rows");
+        check(initial.state()==RoadState.DRAFT && RoadRules.canCreate(initial),"initial shrinking never consumes Create");
+        check(initial.editedRowCount()==1 && !initial.pendingRows().containsKey(14),"initial shrinking updates the live diff count");
+        check(initial.confirmedRowCount()==0 && initial.maxAlong()==15,"preview filtering commits neither rows nor geometry");
+        RoadPlan expandedPreview=plan(5,11); expandedPreview.adoptPendingRows(initial.pendingRows());
+        check(!RoadReplanning.acceptDraftRows(initial,expandedPreview) && initial.cellType(14)==CellType.FLAT,
+                "discarded initial edits do not return after extending");
+        RoadPlan turnedPreview=plan(5,11);
+        check(RoadReplanning.acceptDraftRows(initial,turnedPreview) && initial.editedRowCount()==0,
+                "accepted draft axis reset can discard incompatible pending edits");
+        RoadPlan committed=plan(5,11); committed.setState(RoadState.PLANNED); committed.setRowType(14,CellType.STAIR_UP);
+        check(!RoadReplanning.acceptDraftRows(committed,initialPreview) && committed.editedRowCount()==1,
+                "draft-only row acceptance cannot mutate planned roads");
         old.clearRowOverrides(); old.adoptCommittedRows(Map.of(14,CellType.STAIR_UP));
         RoadPlan shrink=plan(5,6); RoadReplanning.inherit(old,shrink,owner,false);
         check(shrink.lastDroppedRows()==1 && shrink.confirmedRowCount()==1,"shrink preserves committed row until Repair");

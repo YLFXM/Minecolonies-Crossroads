@@ -20,7 +20,18 @@ $null = New-Item -ItemType Directory -Force -Path $testClasses
 $sources = Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.java' | Select-Object -ExpandProperty FullName
 & $javaExe -m jdk.compiler/com.sun.tools.javac.Main -proc:none -encoding UTF-8 -cp "$classes;$classpath" -d $testClasses $sources
 if ($LASTEXITCODE -ne 0) { throw 'Regression compilation failed.' }
-foreach ($testClass in @('RoadAuditRegression', 'PreviewLifecycleRegression', 'RoadRepairSessionRegression', 'RoadRemovalSessionRegression', 'Round1Regression', 'InitialConstructionRegression')) {
-    & $javaExe -cp "$classes;$testClasses;$classpath" $testClass
+# Native AIR tests bootstrap vanilla registries and need the client's language/version resources.
+# Keep the mapped/dependency classpath first; the vanilla JAR supplies only missing resources.
+$testClientJar = $env:MCRECONSTRUCTION_TEST_CLIENT_JAR
+if ([string]::IsNullOrWhiteSpace($testClientJar)) {
+    $testClientJar = Join-Path $projectRoot '..\..\.minecraft\versions\模拟殖民地1.21\模拟殖民地1.21.jar'
+}
+if (-not (Test-Path -LiteralPath $testClientJar)) {
+    throw 'Set MCRECONSTRUCTION_TEST_CLIENT_JAR to the vanilla Minecraft 1.21.1 client JAR for native blueprint regression resources.'
+}
+foreach ($testClass in @('RoadAuditRegression', 'PreviewLifecycleRegression', 'RoadRepairSessionRegression', 'RoadRemovalSessionRegression', 'Round1Regression', 'InitialConstructionRegression', 'RoadHeightRegression', 'RoadUnitDataRegression', 'com.YLFXM.mcreconstruction.road.RoadStage6FixRegression')) {
+    & $javaExe -cp "$classes;$testClasses;$classpath;$testClientJar" $testClass
     if ($LASTEXITCODE -ne 0) { throw "Regression failed: $testClass" }
 }
+& python (Join-Path $projectRoot 'tools\export_road_units.py') --verify
+if ($LASTEXITCODE -ne 0) { throw 'Bundled unit verification failed.' }

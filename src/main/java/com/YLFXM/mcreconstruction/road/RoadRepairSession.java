@@ -32,6 +32,12 @@ public final class RoadRepairSession {
     private long changedAt;
     private boolean orderObserved;
     private boolean nativeDone;
+    private java.util.List<net.minecraft.core.BlockPos> clearTargets=java.util.List.of();
+    public java.util.List<net.minecraft.core.BlockPos> clearTargets() { return clearTargets; }
+    public void setClearTargets(final java.util.Collection<net.minecraft.core.BlockPos> targets) {
+        if(phase!=Phase.PREPARED) throw new IllegalStateException("Cannot change a confirmed clearing target");
+        clearTargets=targets.stream().map(net.minecraft.core.BlockPos::immutable).distinct().toList();
+    }
 
     private RoadRepairSession(UUID token, UUID owner, RoadState previousState, CompoundTag target,
                               Phase phase, long changedAt, boolean orderObserved) {
@@ -78,10 +84,24 @@ public final class RoadRepairSession {
         final CompoundTag tag=new CompoundTag();
         tag.putUUID("token",token); tag.putUUID("owner",owner); tag.putString("previous",previousState.name());
         tag.put("target",target.copy()); tag.putString("phase",phase.name()); tag.putLong("changedAt",changedAt);
-        tag.putBoolean("orderObserved",orderObserved); return tag;
+        tag.putBoolean("orderObserved",orderObserved);
+        if(!clearTargets.isEmpty()) {
+            final var list=new net.minecraft.nbt.ListTag();
+            for(final var pos:clearTargets) {
+                final var entry=new CompoundTag(); entry.put("pos",net.minecraft.nbt.NbtUtils.writeBlockPos(pos)); list.add(entry);
+            }
+            tag.put("clearTargets",list);
+        }
+        return tag;
     }
     public static RoadRepairSession load(final CompoundTag tag) {
-        return new RoadRepairSession(tag.getUUID("token"),tag.getUUID("owner"),RoadState.valueOf(tag.getString("previous")),
+        final var session=new RoadRepairSession(tag.getUUID("token"),tag.getUUID("owner"),RoadState.valueOf(tag.getString("previous")),
                 tag.getCompound("target"),Phase.valueOf(tag.getString("phase")),tag.getLong("changedAt"),tag.getBoolean("orderObserved"));
+        final var positions=new java.util.ArrayList<net.minecraft.core.BlockPos>();
+        final var list=tag.getList("clearTargets",10);
+        for(int i=0;i<list.size();i++) {
+            net.minecraft.nbt.NbtUtils.readBlockPos(list.getCompound(i),"pos").ifPresent(positions::add);
+        }
+        session.clearTargets=java.util.List.copyOf(positions); return session;
     }
 }

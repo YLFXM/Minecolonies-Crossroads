@@ -86,7 +86,8 @@ public final class RoadBuildWatcher {
         // must not re-read and re-parse the NBT from disk each time.
         Blueprint blueprint = RoadBlueprintStore.load(level, plan);
         if (blueprint == null) {
-            blueprint = RoadBlueprintGenerator.generate(plan, level, Config.defaultLampReserveHeight());
+            MCReconstruction.LOGGER.warn("Cannot watch road {}: frozen blueprint missing; will not regenerate an old build with new geometry",plan.id());
+            return;
         }
         ACTIVE.put(plan.id(), new Watch(level, System.currentTimeMillis() + TIMEOUT_MS, blueprint));
         CLOSING.remove(plan.id());
@@ -348,7 +349,8 @@ public final class RoadBuildWatcher {
         // place the same block with a different waterlogged/axis value.
         for (final BlockInfo info : sample) {
             final BlockPos world = origin.offset(info.getPos());
-            if (level.getBlockState(world).getBlock() != info.getState().getBlock()) {
+            final var actual=level.getBlockState(world);
+            if (!RoadBlueprintOps.requiredStateMatches(info.getState(),actual)) {
                 if (Config.debugLog()) {
                     MCReconstruction.LOGGER.debug(
                             "Road {} not built yet: {} is {} instead of {}",
@@ -356,6 +358,11 @@ public final class RoadBuildWatcher {
                 }
                 return false;
             }
+            // Native comparison checks stable DOM textureData without treating
+            // dynamic block-entity coordinates as a construction mismatch.
+            final var tile=info.getTileEntityData();
+            if(tile!=null && tile.contains("textureData") && !com.ldtteam.structurize.util.BlockUtils.areBlockStatesEqual(
+                    actual,actual,state -> false,true,(first,second) -> false,tile,level.getBlockEntity(world))) return false;
         }
         return true;
     }

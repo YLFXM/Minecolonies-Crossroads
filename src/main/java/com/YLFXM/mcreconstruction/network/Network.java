@@ -73,7 +73,7 @@ public final class Network {
     private static final String BUILD_TOOL_PREVIEW_KEY = "blueprint";
 
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("7");
+        final var registrar = event.registrar("8");
         registrar.playToServer(RequestRoadsPayload.TYPE, RequestRoadsPayload.CODEC, Network::handleRequest);
         registrar.playToServer(ConfigureRoadPayload.TYPE, ConfigureRoadPayload.CODEC, Network::handleConfigure);
         registrar.playToServer(RoadBulkActionPayload.TYPE, RoadBulkActionPayload.CODEC, Network::handleBulkAction);
@@ -205,9 +205,16 @@ public final class Network {
             }
 
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
-                    Config.defaultLampReserveHeight());
+                    Config.defaultLampReserveHeight(),player);
             if (blueprint == null) {
                 return;
+            }
+            // A valid DRAFT re-pick must refresh the pending-row count too.
+            // Accept it only after generation succeeds; the preview geometry is
+            // still temporary and this never consumes Create or commits rows.
+            if (RoadReplanning.acceptDraftRows(boundPlan, plan)) {
+                RoadManager.get(level).add(boundPlan);
+                sendRoads(player, colony);
             }
             // The preview position is the anchor itself, NOT anchor - offset.
             // Structurize's BlueprintPreviewData.setPos takes the world position
@@ -306,7 +313,7 @@ public final class Network {
         reportRemap(player, old, plan);
 
         final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
-                Config.defaultLampReserveHeight());
+                Config.defaultLampReserveHeight(),player);
         if (blueprint == null) {
             return null;
         }
@@ -396,21 +403,29 @@ public final class Network {
                 return;
             }
             final com.YLFXM.mcreconstruction.road.CellType current = plan.cellType(row);
-            final com.YLFXM.mcreconstruction.road.CellType next = switch (current) {
+            final boolean anchorRow=row==com.YLFXM.mcreconstruction.road.RoadHeightProfile.anchorAlong(plan);
+            if(anchorRow && current==com.YLFXM.mcreconstruction.road.CellType.FLAT) {
+                player.displayClientMessage(net.minecraft.network.chat.Component.translatable("mcreconstruction.anchor_flat"),true);
+                return;
+            }
+            final com.YLFXM.mcreconstruction.road.CellType next = anchorRow ? com.YLFXM.mcreconstruction.road.CellType.FLAT : switch (current) {
                 case FLAT -> com.YLFXM.mcreconstruction.road.CellType.STAIR_UP;
                 case STAIR_UP -> com.YLFXM.mcreconstruction.road.CellType.STAIR_DOWN;
                 case STAIR_DOWN -> com.YLFXM.mcreconstruction.road.CellType.FLAT;
             };
-            RoadBuildWatcher.stop(plan);
+            // Validate a proposal copy; a rejected height/volume change must not
+            // mutate the live plan's pending rows or stop its controller guard.
+            plan=RoadPlan.load(plan.save());
             plan.setRowType(row, next);
 
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
-                    Config.defaultLampReserveHeight());
+                    Config.defaultLampReserveHeight(),player);
             if (blueprint == null) {
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "Road blueprint generation failed."), false);
                 return;
             }
+            RoadBuildWatcher.stop(plan);
             // The blueprint no longer matches the world, so the road is back to
             // "planned": PLANNED means "there is a shape waiting to be applied",
             // and only applying it (Repair / build tool / builder) makes it BUILT
@@ -598,7 +613,7 @@ public final class Network {
             }
 
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
-                    Config.defaultLampReserveHeight());
+                    Config.defaultLampReserveHeight(),player);
             if (blueprint == null) {
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "Road blueprint generation failed."), false);
@@ -1169,6 +1184,7 @@ public final class Network {
                     ? owner == null || owner.getID() == colony.getID()
                     : !wildernessOnly || owner == null;
             if (inScope) surveyIds.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
+            RoadBlueprintStore.ensureAppliedBounds(level,plan);
             list.add(plan.saveForSync());
             if (canManageRoad(level, player, plan)) {
                 manageable.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));

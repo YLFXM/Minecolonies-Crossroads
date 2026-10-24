@@ -68,8 +68,11 @@ public final class RoadWorkOrderRecovery {
                 if (plan == null || plan.isRepairBusy() || plan.state()==com.YLFXM.mcreconstruction.road.RoadState.REMOVING) continue;
                 if (order.getBlueprint() == null) {
                     var blueprint = com.YLFXM.mcreconstruction.road.RoadBlueprintStore.load(level, plan);
-                    if (blueprint == null) blueprint = RoadBlueprintGenerator.generate(plan, level, Config.defaultLampReserveHeight());
-                    if (blueprint != null) order.setBlueprint(blueprint, level);
+                    if (blueprint == null) {
+                        MCReconstruction.LOGGER.warn("Cannot recover road {}: frozen blueprint missing; old construction was not regenerated",plan.id());
+                        continue;
+                    }
+                    order.setBlueprint(blueprint, level);
                 }
                 plan.setState(com.YLFXM.mcreconstruction.road.RoadState.BUILDING);
                 RoadManager.get(level).add(plan);

@@ -86,10 +86,11 @@ public final class RoadRepair {
     private static boolean prepareAndOpen(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
                                           final RoadRepairSession session) {
         final RoadPlan target=session.target();
-        final Blueprint blueprint=RoadBlueprintGenerator.generate(target,level,Config.defaultLampReserveHeight());
+        final Blueprint blueprint=RoadBlueprintGenerator.generate(target,level,Config.defaultLampReserveHeight(),player);
         if (blueprint==null || !RoadBlueprintStore.saveChecked(level,plan,blueprint)) {
             tell(player,"Road blueprint could not be generated or saved."); return false;
         }
+        session.setClearTargets(RoadBlueprintOps.clearTargets(plan,RoadBlueprintStore.loadApplied(level,plan),blueprint));
         final long version=RoadTemporaryPack.replace(level,plan,target,blueprint);
         if (version<0) { tell(player,"Road blueprint could not be published."); return false; }
         RoadBuildWatcher.stop(plan);
@@ -202,6 +203,9 @@ public final class RoadRepair {
         final Blueprint blueprint=RoadBlueprintStore.load(level,plan);
         if (!RoadBuildWatcher.isBuilt(level,session.target(),blueprint)) {
             cancel(level,plan,"construction incomplete or cancelled"); return;
+        }
+        if(session.clearTargets().stream().anyMatch(pos -> !level.getBlockState(pos).isAir())) {
+            cancel(level,plan,"old elevated road or lamp targets were not cleared"); return;
         }
         if (blueprint==null || !RoadBlueprintStore.saveAppliedChecked(level,plan,blueprint)) {
             cancel(level,plan,"could not save completed blueprint"); return;

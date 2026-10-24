@@ -110,6 +110,14 @@ public record RoadBounds(int minX, int minY, int minZ, int maxX, int maxY, int m
             maxY = Math.max(maxY, y1);
         }
 
+        try {
+            final RoadHeightProfile profile=RoadHeightProfile.of(plan);
+            minY=profile.minBase(); maxY=profile.maxBase();
+        } catch(final IllegalArgumentException ex) {
+            // A legacy anchor-row override is invalid for NEW construction,
+            // but must not prevent opening the old road to clear that override.
+        }
+
         // The anchor is the placement origin and is always included. The
         // controller is excluded for strict-width preview/blueprints.
         for (final BlockPos extra : includeAnchor
@@ -143,5 +151,16 @@ public record RoadBounds(int minX, int minY, int minZ, int maxX, int maxY, int m
         return minX <= other.maxX && maxX >= other.minX
                 && minY <= other.maxY && maxY >= other.minY
                 && minZ <= other.maxZ && maxZ >= other.minZ;
+    }
+
+    public net.minecraft.nbt.CompoundTag save() {
+        final var tag=new net.minecraft.nbt.CompoundTag();
+        tag.putIntArray("min",new int[]{minX,minY,minZ}); tag.putIntArray("max",new int[]{maxX,maxY,maxZ});
+        return tag;
+    }
+    public static RoadBounds load(final net.minecraft.nbt.CompoundTag tag) {
+        final int[] min=tag.getIntArray("min"),max=tag.getIntArray("max");
+        if(min.length!=3 || max.length!=3 || min[0]>max[0] || min[1]>max[1] || min[2]>max[2]) return null;
+        return new RoadBounds(min[0],min[1],min[2],max[0],max[1],max[2]);
     }
 }

@@ -1,4 +1,6 @@
 {
+  "mcreconstruction.anchor_flat": "The anchor row must stay flat. Place stairs on adjacent rows.",
+  "mcreconstruction.generation_failed": "Road blueprint generation refused: %s",
   "item.mcreconstruction.road_surveyor": "Road Surveyor",
   "item.mcreconstruction.road_wand": "Road Wand",
   "item.mcreconstruction.work_order_scroll": "Colony Work Order Scroll",

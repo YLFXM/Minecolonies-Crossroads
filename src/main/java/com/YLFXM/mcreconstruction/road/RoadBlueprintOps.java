@@ -47,5 +47,32 @@ public final class RoadBlueprintOps {
         return !state.isAir() && !isPlaceholder(state);
     }
 
+    /** Ignore environmental shape/water updates, but never a stair facing/half mismatch. */
+    public static boolean requiredStateMatches(final BlockState expected,final BlockState actual) {
+        if(expected.getBlock()!=actual.getBlock()) return false;
+        final var facing=net.minecraft.world.level.block.state.properties.BlockStateProperties.HORIZONTAL_FACING;
+        final var half=net.minecraft.world.level.block.state.properties.BlockStateProperties.HALF;
+        if(expected.hasProperty(facing) && expected.hasProperty(half))
+            return expected.getValue(facing)==actual.getValue(facing) && expected.getValue(half)==actual.getValue(half);
+        return true;
+    }
+
+    /** Old concrete content the new bounded blueprint explicitly replaces with air. */
+    public static java.util.List<BlockPos> clearTargets(final RoadPlan plan,final Blueprint old,final Blueprint target) {
+        if(old==null) return java.util.List.of();
+        final BlockPos oldOrigin=origin(plan,old),newOrigin=origin(plan,target);
+        final var positions=new java.util.ArrayList<BlockPos>();
+        for(final var info:old.getBlockInfoAsList()) {
+            if(!isConcrete(info.getState())) continue;
+            final var world=oldOrigin.offset(info.getPos());
+            if(world.equals(plan.anchorPos()) || world.equals(plan.controllerPos())) continue;
+            final var local=world.subtract(newOrigin);
+            if(local.getX()<0 || local.getY()<0 || local.getZ()<0 || local.getX()>=target.getSizeX()
+                    || local.getY()>=target.getSizeY() || local.getZ()>=target.getSizeZ()) continue;
+            if(target.getBlockState(local).isAir()) positions.add(world);
+        }
+        return java.util.List.copyOf(positions);
+    }
+
     private RoadBlueprintOps() { }
 }

@@ -119,6 +119,10 @@ public final class RoadPlan {
      * see the road then.
      */
     private UUID creator;
+    /** Derived from the actual applied snapshot, never from unapplied stair rows. */
+    private RoadBounds appliedBounds;
+    public RoadBounds appliedBounds() { return appliedBounds; }
+    public void setAppliedBounds(final RoadBounds bounds) { appliedBounds=bounds; }
     private RoadRemovalSession removalSession;
     public RoadRemovalSession removalSession() { return removalSession; }
     public void setRemovalSession(RoadRemovalSession session) { removalSession=session; }
@@ -724,6 +728,7 @@ public final class RoadPlan {
             tag.put("pendingRows", pending);
         }
         tag.putInt("lastDroppedRows", lastDroppedRows);
+        if(appliedBounds!=null) tag.put("appliedBounds",appliedBounds.save());
         if (removalSession != null) tag.put("removalSession",removalSession.save());
         if (repairSession != null) tag.put("repairSession",repairSession.save());
         return tag;
@@ -808,6 +813,7 @@ public final class RoadPlan {
             }
             plan.pendingRows = staged;
         }
+        if(tag.contains("appliedBounds",10)) plan.appliedBounds=RoadBounds.load(tag.getCompound("appliedBounds"));
         if (tag.contains("removalSession",10)) plan.removalSession=RoadRemovalSession.load(tag.getCompound("removalSession"));
         plan.repairBusy=tag.getBoolean("repairBusy");
         if (tag.contains("repairSession",10)) plan.repairSession=RoadRepairSession.load(tag.getCompound("repairSession"));

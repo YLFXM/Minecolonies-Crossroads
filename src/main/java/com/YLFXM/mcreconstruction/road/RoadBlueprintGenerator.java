@@ -20,7 +20,6 @@ package com.YLFXM.mcreconstruction.road;
 
 import com.ldtteam.structurize.blocks.ModBlocks;
 import com.ldtteam.structurize.blueprints.v1.Blueprint;
-import com.ldtteam.structurize.storage.StructurePacks;
 import com.minecolonies.core.blocks.BlockDecorationController;
 import com.YLFXM.mcreconstruction.Config;
 import com.YLFXM.mcreconstruction.MCReconstruction;
@@ -93,113 +92,81 @@ public final class RoadBlueprintGenerator {
     }
 
     public static Blueprint generate(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight) {
+        return generate(plan,level,lampReserveHeight,null);
+    }
+
+    public static Blueprint generate(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight,
+                                     final net.minecraft.server.level.ServerPlayer player) {
+        try { return generateChecked(plan,level,lampReserveHeight); }
+        catch(final RuntimeException ex) {
+            MCReconstruction.LOGGER.error("Road generation refused: road={} reason={}",plan.id(),ex.getMessage());
+            if(player!=null) player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                    "mcreconstruction.generation_failed",ex.getMessage()),false);
+            return null;
+        }
+    }
+
+    private static Blueprint generateChecked(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight) {
+        if(!RoadUnitLibrary.supports(plan.pack(),plan.variant(),plan.width()))
+            throw new IllegalArgumentException("No bundled road unit matches this plan's style, variant and width.");
         final RoadUnit unit = resolveUnit(plan);
-        final var packMeta = StructurePacks.getStructurePack(unit.pack());
-        final Blueprint source = StructurePacks.getBlueprint(unit.pack(), unit.source(), level.registryAccess());
-        if (source == null) {
-            MCReconstruction.LOGGER.error("Road source blueprint not found: pack='{}' path='{}' packMeta={} packPath={}",
-                    unit.pack(), unit.source(), packMeta != null, packMeta == null ? "null" : packMeta.getPath());
-            return null;
-        }
+        final UnitTemplate template=RoadUnitLibrary.get("road",level.registryAccess());
 
-        final UnitTemplate template = RoadUnitExtractor.extract(source, unit);
-        if (template == null) {
-            return null;
-        }
-
-        final BlockPos anchorPos = resolveAnchor(level, plan);
-        final RoadBounds bounds = RoadBounds.ofRoadOnly(plan, lampReserveHeight);
-        final int sizeX = bounds.sizeX();
-        // The blueprint origin is the road surface minus surfaceY so the
-        // template's foundation is preserved and the visible surface stays at
-        // the road's Y level. The anchor/controller may be one block above it.
-        final int originY = bounds.minY() - template.surfaceY();
-        final int sizeY = bounds.maxY() - originY + 1;
-        final int sizeZ = bounds.sizeZ();
-        if (sizeX <= 0 || sizeY <= 0 || sizeZ <= 0) {
-            return null;
-        }
-
-        final Blueprint out = new Blueprint((short) sizeX, (short) sizeY, (short) sizeZ, level.registryAccess());
-
-        // Keep the Structurize solid-substitution placeholder for support fill.
-        // The native builder/build-tool resolves it using the colony/build-tool
-        // fill settings instead of a hardcoded block.
-        final BlockState filler = ModBlocks.blockSolidSubstitution.get().defaultBlockState();
-
-        // Clear only the reserved volume above the road footprint. Filling the
-        // whole AABB with air would carve holes around an off-road controller.
-        final BlockState air = Blocks.AIR.defaultBlockState();
-        for (final RoadSegment segment : plan.segments()) {
-            final int surfaceY = segment.start().getY();
-            for (int y = surfaceY + 1; y <= bounds.maxY(); y++) {
-                fillSegmentSlice(out, plan, bounds, originY, segment, y, air, anchorPos);
+        if(plan.segments().isEmpty()) throw new IllegalArgumentException("Select road endpoints first.");
+        if(plan.width()!=template.sizeZ() || !"street".equals(plan.variant()))
+            throw new IllegalArgumentException("No matching bundled road unit for this width/variant.");
+        final BlockPos anchorPos=resolveAnchor(level,plan);
+        final RoadHeightProfile profile=RoadHeightProfile.of(plan);
+        final UnitTemplate stair=RoadUnitLibrary.get("stair",level.registryAccess());
+        final UnitTemplate lamp=RoadUnitLibrary.get("lamp",level.registryAccess());
+        final RoadBounds horizontal=RoadBounds.ofRoadOnly(plan,0);
+        int originY=profile.minBase()-template.surfaceY();
+        int maxY=profile.maxBase()+Math.max(lampReserveHeight,
+                plan.lampSpacing()>1 ? lamp.entries().stream().filter(e -> !e.placeholder())
+                        .mapToInt(e -> e.pos().getY()-lamp.surfaceY()).max().orElse(0) : 0);
+        // Expand only vertically, only for old occupied targets inside the NEW
+        // horizontal footprint. Never expand deletion to a shortened-away row.
+        final Blueprint applied=RoadBlueprintStore.loadApplied(level,plan);
+        if(applied!=null) {
+            final BlockPos oldOrigin=RoadBlueprintOps.origin(plan,applied);
+            for(final var info:applied.getBlockInfoAsList()) {
+                if(!RoadBlueprintOps.isConcrete(info.getState()) && !RoadBlueprintOps.isSolidFill(info.getState())) continue;
+                final BlockPos pos=oldOrigin.offset(info.getPos());
+                if(pos.getX()<horizontal.minX() || pos.getX()>horizontal.maxX()
+                        || pos.getZ()<horizontal.minZ() || pos.getZ()>horizontal.maxZ()) continue;
+                originY=Math.min(originY,pos.getY()); maxY=Math.max(maxY,pos.getY());
             }
         }
-
-        // Fill the supporting volume below every higher road cell. Flat roads
-        // have no extra blocks here.
-        for (final RoadSegment segment : plan.segments()) {
-            final int surfaceY = segment.start().getY();
-            for (int y = bounds.minY(); y < surfaceY; y++) {
-                fillSegmentSlice(out, plan, bounds, originY, segment, y, filler, anchorPos);
+        final RoadBounds bounds=new RoadBounds(horizontal.minX(),originY,horizontal.minZ(),horizontal.maxX(),maxY,horizontal.maxZ());
+        final int sizeX=bounds.sizeX(),sizeY=bounds.sizeY(),sizeZ=bounds.sizeZ();
+        if(originY<level.getMinBuildHeight() || maxY>=level.getMaxBuildHeight())
+            throw new IllegalArgumentException("Road foundation, stairs or lamps exceed this world's build height.");
+        if(sizeX<=0 || sizeY<=0 || sizeZ<=0 || sizeX>Short.MAX_VALUE || sizeY>Short.MAX_VALUE || sizeZ>Short.MAX_VALUE
+                || (long)sizeX*sizeY*sizeZ>Config.maxGeneratedBlueprintVolume())
+            throw new IllegalArgumentException("Generated road blueprint exceeds the permitted volume.");
+        final Blueprint out=emptyBlueprint((short)sizeX,(short)sizeY,(short)sizeZ,level.registryAccess());
+        final BlockState filler=ModBlocks.blockSolidSubstitution.get().defaultBlockState();
+        // Explicitly initialized AIR: the native convenience constructor defaults
+        // every unwritten cell to blockSubstitution, which would preserve old blocks.
+        // Above the new road,
+        // old steps and lamps are cleared unless a new unit owns that cell.
+        for(final var row:profile.rows()) {
+            for(int lateral=0;lateral<plan.width();lateral++) for(int y=originY;y<row.baseY();y++)
+                put(out,bounds,originY,RoadHeightProfile.position(plan,row.along(),lateral,y),filler,null);
+            final UnitTemplate tile=row.type().isStair() ? stair : template;
+            for(final var entry:tile.entries()) {
+                if(entry.placeholder()) continue;
+                final int lateral=entry.pos().getZ();
+                BlockState state=entry.state();
+                if(row.type().isStair() && plan.walkRange().contains(lateral)
+                        && state.hasProperty(BlockStateProperties.HORIZONTAL_FACING))
+                    state=state.setValue(BlockStateProperties.HORIZONTAL_FACING,RoadHeightProfile.uphill(plan,row.type()));
+                final BlockPos pos=RoadHeightProfile.position(plan,row.along(),lateral,
+                        row.baseY()+entry.pos().getY()-tile.surfaceY());
+                put(out,bounds,originY,pos,state,entry.tileEntity());
             }
         }
-
-        // Place the actual road template blocks.
-        for (final RoadSegment segment : plan.segments()) {
-            final int length = segment.length();
-            for (int i = 0; i < length; i++) {
-                // Along the road the cell follows the segment; across it the cell
-                // is measured from the anchor column, so a mirrored plan flips
-                // the road around the anchor instead of sliding it.
-                final int baseX = segment.axis() == Direction.Axis.X
-                        ? segment.start().getX() + i : anchorPos.getX();
-                final int baseZ = segment.axis() == Direction.Axis.X
-                        ? anchorPos.getZ() : segment.start().getZ() + i;
-                final int baseY = segment.start().getY();
-
-                for (final UnitTemplate.Entry entry : template.entries()) {
-                    final BlockPos local = entry.pos();
-                    final int worldX;
-                    final int worldZ;
-                    final int side = plan.widthSide() >= 0 ? 1 : -1;
-                    if (segment.axis() == template.axis()) {
-                        if (segment.axis() == Direction.Axis.X) {
-                            worldX = baseX;
-                            worldZ = baseZ + side * local.getZ();
-                        } else {
-                            worldZ = baseZ;
-                            worldX = baseX + side * local.getX();
-                        }
-                    } else if (template.axis() == Direction.Axis.X) {
-                        // Rotate the X-authored slice so its width runs along Z.
-                        worldZ = baseZ;
-                        worldX = baseX + side * local.getZ();
-                    } else {
-                        // Rotate the Z-authored slice so its width runs along X.
-                        worldX = baseX;
-                        worldZ = baseZ + side * local.getX();
-                    }
-                    // The source slice has its road surface at local surfaceY;
-                    // shift it down so the built surface is exactly A's Y.
-                    final int worldY = baseY + local.getY() - template.surfaceY();
-                    put(out, bounds, originY, new BlockPos(worldX, worldY, worldZ),
-                            entry.state(), entry.tileEntity());
-                }
-            }
-        }
-
-        // Overlay the road lamps. The style pack bakes a lamp column into its own
-        // street tile; cutting that column out as a separate unit keeps the
-        // material identical while making the spacing ours to choose.
-        final int spacing = plan.lampSpacing();
-        if (spacing > 1 && !plan.segments().isEmpty()) {
-            final UnitTemplate lamp = RoadUnitExtractor.extract(source, LAMP_UNIT);
-            if (lamp != null) {
-                overlayLamps(out, plan, bounds, originY, lamp, spacing, anchorPos, level);
-            }
-        }
+        if(plan.lampSpacing()>1) overlayLamps(out,plan,bounds,originY,lamp,plan.lampSpacing(),anchorPos,level,profile);
 
         // The anchor block is only a temporary marker: the player places it by
         // hand so the controller has something to sit against, and the road is
@@ -257,7 +224,7 @@ public final class RoadBlueprintGenerator {
     private static void overlayLamps(final Blueprint out, final RoadPlan plan, final RoadBounds bounds,
                                      final int originY, final UnitTemplate lamp,
                                      final int spacing, final BlockPos anchorPos,
-                                     final ServerLevel level) {
+                                     final ServerLevel level, final RoadHeightProfile profile) {
         final Direction.Axis roadAxis = plan.segments().get(0).axis();
         int minAlong = Integer.MAX_VALUE;
         for (final RoadSegment segment : plan.segments()) {
@@ -283,7 +250,7 @@ public final class RoadBlueprintGenerator {
                         ? segment.start().getX() + i : anchorPos.getX();
                 final int baseZ = segment.axis() == Direction.Axis.X
                         ? anchorPos.getZ() : segment.start().getZ() + i;
-                final int baseY = segment.start().getY();
+                final int baseY = profile.row(roadAxis==Direction.Axis.X ? baseX : baseZ).baseY();
                 final int along = (roadAxis == Direction.Axis.X ? baseX : baseZ) - minAlong;
                 // floorMod, not %: the offset to the anchor is negative for the
                 // half of the road before it, and % would return a negative
@@ -325,8 +292,7 @@ public final class RoadBlueprintGenerator {
                     final int lz = worldZ - bounds.minZ();
                     if (lx < 0 || ly < 0 || lz < 0
                             || lx >= out.getSizeX() || ly >= out.getSizeY() || lz >= out.getSizeZ()) {
-                        dropped++;
-                        continue;
+                        throw new IllegalArgumentException("Lamp cell exceeds generated bounds: "+new BlockPos(worldX,worldY,worldZ));
                     }
                     put(out, bounds, originY, new BlockPos(worldX, worldY, worldZ),
                             orient(entry.state(), lamp.axis(), segment.axis() == lamp.axis(), side, level,
@@ -428,10 +394,11 @@ public final class RoadBlueprintGenerator {
         final int y = world.getY() - originY;
         final int z = world.getZ() - bounds.minZ();
         if (x < 0 || y < 0 || z < 0 || x >= out.getSizeX() || y >= out.getSizeY() || z >= out.getSizeZ()) {
-            return;
+            throw new IllegalArgumentException("Road unit cell exceeds generated bounds: "+world);
         }
 
         out.addBlockState(new BlockPos(x, y, z), state);
+        out.getTileEntities()[y][z][x]=null;
         if (tileEntity != null) {
             final CompoundTag te = tileEntity.copy();
             te.putInt("x", x);
@@ -561,9 +528,15 @@ public final class RoadBlueprintGenerator {
         return connectsSideways(neighbour) || neighbour.isSolid();
     }
 
+    static Blueprint emptyBlueprint(final short sizeX, final short sizeY, final short sizeZ,
+                                     final net.minecraft.core.HolderLookup.Provider registries) {
+        return new Blueprint(sizeX, sizeY, sizeZ, (short) 1,
+                new java.util.ArrayList<>(java.util.List.of(Blocks.AIR.defaultBlockState())),
+                new short[sizeY][sizeZ][sizeX], new CompoundTag[0], new java.util.ArrayList<>(), registries);
+    }
+
     private static RoadUnit resolveUnit(final RoadPlan plan) {
-        final RoadUnit registered = RoadUnit.Registry.get(plan.pack() + "/" + plan.variant());
-        return registered == null ? DEFAULT_UNIT : registered;
+        return DEFAULT_UNIT;
     }
 
     private RoadBlueprintGenerator() {
