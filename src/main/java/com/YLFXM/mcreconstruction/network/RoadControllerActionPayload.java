@@ -30,7 +30,8 @@ public record RoadControllerActionPayload(BlockPos controllerPos, Action action)
     public enum Action {
         UPGRADE,
         REPAIR,
-        REMOVE
+        REMOVE,
+        REMOVE_INSTANT
     }
 
     public static final Type<RoadControllerActionPayload> TYPE =
@@ -40,8 +41,12 @@ public record RoadControllerActionPayload(BlockPos controllerPos, Action action)
                 buf.writeBlockPos(payload.controllerPos());
                 buf.writeByte(payload.action().ordinal());
             },
-            buf -> new RoadControllerActionPayload(buf.readBlockPos(),
-                    Action.values()[Math.max(0, Math.min(buf.readUnsignedByte(), Action.values().length - 1))]));
+            buf -> {
+                final BlockPos pos=buf.readBlockPos();
+                final int action=buf.readUnsignedByte();
+                if(action>=Action.values().length) throw new IllegalArgumentException("Unknown road action");
+                return new RoadControllerActionPayload(pos,Action.values()[action]);
+            });
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

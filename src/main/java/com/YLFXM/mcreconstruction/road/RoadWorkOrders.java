@@ -26,6 +26,7 @@ import net.minecraft.server.level.ServerLevel;
 public final class RoadWorkOrders {
     public static boolean matches(final RoadPlan plan, final IWorkOrder order) {
         if (order == null || order.getStructurePath() == null) return false;
+        if (RoadNativeRemoval.matches(plan,order)) return true;
         final String path = order.getStructurePath().replace('\\', '/');
         if (path.startsWith("mcreconstruction:road/")) {
             final String key = path.substring("mcreconstruction:road/".length());

@@ -7,5 +7,15 @@
   "mcreconstruction.gui.repair": "Repair",
   "mcreconstruction.gui.remove": "Remove",
   "mcreconstruction.gui.edit_blueprint": "Edit Blueprint",
-  "itemGroup.mcreconstruction": "MineColonies: Reconstruction Plan"
+  "itemGroup.mcreconstruction": "MineColonies: Reconstruction Plan",
+  "mcreconstruction.gui.remove_builder": "Demolish",
+  "mcreconstruction.gui.remove_instant": "Creative demolition",
+  "mcreconstruction.gui.removal_method": "Choose demolition method",
+  "mcreconstruction.gui.removal_method_hint": "Recover materials with a builder, or demolish without drops.",
+  "mcreconstruction.construction.expired": "This road was removed or the construction window has expired. Close it and reopen from the road.",
+  "mcreconstruction.repair.selection_pack": "Select the structure pack for this road.",
+  "mcreconstruction.repair.selection_path": "Select the blueprint for this road construction.",
+  "mcreconstruction.repair.selection_anchor": "Restore the preview to the original road anchor.",
+  "mcreconstruction.repair.selection_rotation": "Restore the original road rotation before building.",
+  "mcreconstruction.workorders.cancelled_by": "%s cancelled %s work order(s) in %s."
 }

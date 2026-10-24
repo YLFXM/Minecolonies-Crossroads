@@ -31,29 +31,62 @@ public final class RoadSelectionClient {
     private static boolean mirror;
     private static java.util.UUID roadId;
     private static String dimension = "";
+    private record Key(String dimension, java.util.UUID road) { }
+    private record Selection(BlockPos a, BlockPos b, boolean mirror) { }
+    private static final java.util.Map<Key, Selection> saved = new java.util.HashMap<>();
+
+    private static void remember() {
+        if (roadId != null) saved.put(new Key(dimension, roadId), new Selection(a, b, mirror));
+    }
 
     public static java.util.UUID roadId() { return roadId; }
 
     public static void bindTo(final com.YLFXM.mcreconstruction.road.RoadPlan plan) {
         final String dim = plan.dimension().location().toString();
         if (!plan.id().equals(roadId) || !dim.equals(dimension)) {
-            clearAll();
+            remember();
+            a = BlockPos.ZERO; b = BlockPos.ZERO;
             roadId = plan.id(); dimension = dim;
-            controllerPos = plan.controllerPos(); mirror = plan.mirror();
+            mirror = plan.mirror();
+            final Selection previous = saved.get(new Key(dim, roadId));
+            if (previous != null) {
+                a = previous.a(); b = previous.b(); mirror = previous.mirror();
+            } else if (plan.hasEndpoints()) {
+                // DRAFT geometry saved by settings/row edits is just as real as
+                // confirmed geometry. A local partial/cleared selection wins.
+                a = plan.endpointA(); b = plan.endpointB();
+            }
+            remember();
             ClientRoadPreviewRenderer.clear();
         }
+        controllerPos = plan.controllerPos();
     }
 
     public static void removed(final java.util.UUID id) {
-        if (id.equals(roadId)) { clearAll(); ClientRoadPreviewRenderer.clear(); }
+        saved.keySet().removeIf(key -> key.road().equals(id));
+        if (id.equals(roadId)) { resetActive(); ClientRoadPreviewRenderer.clear(); }
+    }
+
+    /** The server sends the complete authorized index, independent of survey scope. */
+    public static void retain(final java.util.Collection<com.YLFXM.mcreconstruction.road.RoadPlan> roads,
+                              final java.util.Set<java.util.UUID> manageable, final String dim) {
+        final java.util.Set<Key> allowed = new java.util.HashSet<>();
+        for (final var plan : roads) if (manageable.contains(plan.id()))
+            allowed.add(new Key(plan.dimension().location().toString(), plan.id()));
+        saved.keySet().retainAll(allowed);
+        if (roadId != null && (!dimension.equals(dim) || !allowed.contains(new Key(dimension, roadId)))) {
+            resetActive(); ClientRoadPreviewRenderer.clear();
+        }
     }
 
     public static void setA(final BlockPos pos) {
         a = pos.immutable();
+        remember();
     }
 
     public static void setB(final BlockPos pos) {
         b = pos.immutable();
+        remember();
     }
 
     public static void setControllerPos(final BlockPos pos) {
@@ -66,6 +99,7 @@ public final class RoadSelectionClient {
 
     public static void setMirror(final boolean mirrored) {
         mirror = mirrored;
+        remember();
     }
 
     public static boolean mirror() {
@@ -87,10 +121,17 @@ public final class RoadSelectionClient {
     public static void clear() {
         a = BlockPos.ZERO;
         b = BlockPos.ZERO;
+        remember();
+        ClientRoadPreviewRenderer.clear();
     }
 
     public static void clearAll() {
-        clear();
+        saved.clear();
+        resetActive();
+    }
+
+    private static void resetActive() {
+        a = BlockPos.ZERO; b = BlockPos.ZERO;
         controllerPos = BlockPos.ZERO;
         mirror = false;
         roadId = null; dimension = "";

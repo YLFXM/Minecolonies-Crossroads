@@ -68,6 +68,8 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         this.planButton = this.findPaneOfTypeByID("plan", Button.class);
         this.clearButton = this.findPaneOfTypeByID("clear", Button.class);
         this.lampValueButton = this.findPaneOfTypeByID("lampValue", Button.class);
+        final RoadPlan bound = this.boundPlan(this.boundController());
+        if (bound != null) RoadSelectionClient.bindTo(bound);
         this.mirror = RoadSelectionClient.mirror();
         this.mirrorButton.setText(Component.literal("Mirror: " + (this.mirror ? "on" : "off")));
         // "color" alone is reused by BlockUI for the disabled state; set an
@@ -128,9 +130,10 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
     @Override
     public void onUpdate() {
         super.onUpdate();
-        this.summaryText.setText(RoadSelectionClient.summary());
         final BlockPos bound = this.boundController();
         final RoadPlan plan = this.boundPlan(bound);
+        if (plan != null) RoadSelectionClient.bindTo(plan);
+        this.summaryText.setText(plan == null ? Component.literal("A=-  B=-") : RoadSelectionClient.summary());
         this.boundText.setText(Component.literal(plan != null
                 ? "Bound: " + RoadNames.label(plan)
                 : bound == null ? "Unbound: right-click a road controller" : "Bound controller (no plan)"));
@@ -168,6 +171,9 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
     }
 
     private void send(final RoadPlacementMode mode, final int lampSpacingOverride) {
+        final BlockPos controller = this.boundController();
+        final RoadPlan plan = this.boundPlan(controller);
+        if (plan != null) RoadSelectionClient.bindTo(plan);
         if (!RoadSelectionClient.hasBoth()) {
             if (this.mc.player != null) {
                 this.mc.player.displayClientMessage(Component.literal(
@@ -175,8 +181,6 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
             }
             return;
         }
-        final BlockPos controller = this.boundController();
-        final RoadPlan plan = this.boundPlan(controller);
         if (controller == null || plan == null) {
             if (this.mc.player != null) {
                 this.mc.player.displayClientMessage(Component.literal(

@@ -25,12 +25,15 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record NativeBuildClosedPayload(UUID planId) implements CustomPacketPayload {
+public record NativeBuildClosedPayload(UUID planId, UUID repairToken) implements CustomPacketPayload {
     public static final Type<NativeBuildClosedPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "native_build_closed"));
     public static final StreamCodec<RegistryFriendlyByteBuf, NativeBuildClosedPayload> CODEC = StreamCodec.of(
-            (buf, payload) -> buf.writeUUID(payload.planId()),
-            buf -> new NativeBuildClosedPayload(buf.readUUID()));
+            (buf, payload) -> { buf.writeUUID(payload.planId()); buf.writeUUID(payload.repairToken()); },
+            buf -> new NativeBuildClosedPayload(buf.readUUID(),buf.readUUID()));
+    public NativeBuildClosedPayload(UUID planId) {
+        this(planId,com.YLFXM.mcreconstruction.road.RoadNativeBuildTool.NO_SESSION);
+    }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

@@ -78,6 +78,13 @@ public final class ClientRoadCache {
         }
     }
 
+    public static void rememberAuthorized(RoadPlan plan) {
+        final List<RoadPlan> updated=new ArrayList<>(roads);
+        updated.removeIf(p -> p.id().equals(plan.id()) || p.controllerPos().equals(plan.controllerPos()));
+        updated.add(plan); roads=List.copyOf(updated);
+        final Set<UUID> allowed=new HashSet<>(manageable);allowed.add(plan.id());manageable=Set.copyOf(allowed);
+    }
+
     public static RoadPlan findByController(final net.minecraft.core.BlockPos controller) {
         if (controller == null) return null;
         return roads.stream().filter(plan -> controller.equals(plan.controllerPos())).findFirst().orElse(null);

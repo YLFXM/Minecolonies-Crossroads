@@ -43,6 +43,12 @@ public final class Config {
             .comment("Maximum road length in road units for one plan.")
             .defineInRange("maxRoadLength", 256, 1, 2048);
 
+    private static final ModConfigSpec.IntValue WILDERNESS_WORKER_MAX_DISTANCE = BUILDER
+            .comment("Maximum distance from the hired builder hut to every wilderness demolition target. No teleportation.")
+            .defineInRange("wildernessWorkerMaxDistance", 256, 16, 2048);
+
+    public static int wildernessWorkerMaxDistance() { return WILDERNESS_WORKER_MAX_DISTANCE.get(); }
+
     private static final ModConfigSpec.BooleanValue CREATIVE_INSTANT_BUILD = BUILDER
             .comment("In creative mode, Build places the road immediately instead of creating a WorkOrder.")
             .define("creativeInstantBuild", true);

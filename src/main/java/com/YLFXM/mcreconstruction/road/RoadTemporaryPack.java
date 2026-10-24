@@ -102,6 +102,7 @@ public final class RoadTemporaryPack {
             NbtIo.writeCompressed(tag, blueprintPath);
         } catch (final IOException ex) {
             MCReconstruction.LOGGER.error("Could not write road blueprint {}", plan.id(), ex);
+            return -1;
         }
         return CustomRoadPack.install(level.getServer());
     }

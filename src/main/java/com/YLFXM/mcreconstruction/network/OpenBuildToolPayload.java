@@ -44,7 +44,7 @@ import net.minecraft.resources.ResourceLocation;
  */
 public record OpenBuildToolPayload(UUID planId, String blueprintPath,
                                    CompoundTag blueprint, double packVersion,
-                                   BlockPos anchorPos)
+                                   BlockPos anchorPos, UUID repairToken)
         implements CustomPacketPayload {
     public static final Type<OpenBuildToolPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "open_build_tool"));
@@ -55,14 +55,19 @@ public record OpenBuildToolPayload(UUID planId, String blueprintPath,
                 buf.writeDouble(payload.packVersion());
                 buf.writeBlockPos(payload.anchorPos());
                 buf.writeNbt(payload.blueprint());
+                buf.writeUUID(payload.repairToken());
             },
             buf -> {
                 final UUID planId = buf.readUUID();
                 final String path = buf.readUtf();
                 final double version = buf.readDouble();
                 final BlockPos anchor = buf.readBlockPos();
-                return new OpenBuildToolPayload(planId, path, buf.readNbt(), version, anchor);
+                return new OpenBuildToolPayload(planId, path, buf.readNbt(), version, anchor, buf.readUUID());
             });
+
+    public OpenBuildToolPayload(UUID planId, String path, CompoundTag blueprint, double version, BlockPos anchor) {
+        this(planId,path,blueprint,version,anchor,com.YLFXM.mcreconstruction.road.RoadNativeBuildTool.NO_SESSION);
+    }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

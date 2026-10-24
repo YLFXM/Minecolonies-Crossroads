@@ -119,6 +119,19 @@ public final class RoadPlan {
      * see the road then.
      */
     private UUID creator;
+    private RoadRemovalSession removalSession;
+    public RoadRemovalSession removalSession() { return removalSession; }
+    public void setRemovalSession(RoadRemovalSession session) { removalSession=session; }
+    private RoadRepairSession repairSession;
+    private boolean repairBusy;
+    public RoadRepairSession repairSession() { return repairSession; }
+    public void setRepairSession(final RoadRepairSession session) { repairSession=session; repairBusy=false; }
+    public boolean isRepairBusy() { return repairSession != null || repairBusy; }
+    public CompoundTag saveForSync() {
+        final CompoundTag tag=save();
+        tag.remove("removalSession"); tag.remove("repairSession"); tag.putBoolean("repairBusy",isRepairBusy());
+        return tag;
+    }
 
     public RoadPlan(final UUID id,
                     final ResourceKey<Level> dimension,
@@ -711,6 +724,8 @@ public final class RoadPlan {
             tag.put("pendingRows", pending);
         }
         tag.putInt("lastDroppedRows", lastDroppedRows);
+        if (removalSession != null) tag.put("removalSession",removalSession.save());
+        if (repairSession != null) tag.put("repairSession",repairSession.save());
         return tag;
     }
 
@@ -793,6 +808,9 @@ public final class RoadPlan {
             }
             plan.pendingRows = staged;
         }
+        if (tag.contains("removalSession",10)) plan.removalSession=RoadRemovalSession.load(tag.getCompound("removalSession"));
+        plan.repairBusy=tag.getBoolean("repairBusy");
+        if (tag.contains("repairSession",10)) plan.repairSession=RoadRepairSession.load(tag.getCompound("repairSession"));
         return plan;
     }
 

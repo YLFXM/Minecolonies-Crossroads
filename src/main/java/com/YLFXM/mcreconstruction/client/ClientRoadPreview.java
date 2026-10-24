@@ -68,10 +68,6 @@ public final class ClientRoadPreview {
             return null;
         }
         RoadSelectionClient.bindTo(base);
-        if (!RoadSelectionClient.hasBoth() && base.hasEndpoints() && base.state() != RoadState.DRAFT) {
-            RoadSelectionClient.setA(base.endpointA()); RoadSelectionClient.setB(base.endpointB());
-            RoadSelectionClient.setMirror(base.mirror());
-        }
         if (!RoadSelectionClient.hasBoth()) {
             preview = null; ClientRoadPreviewRenderer.clear(); return null;
         }

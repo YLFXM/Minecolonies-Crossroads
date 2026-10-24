@@ -170,6 +170,11 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
             }
             return;
         }
-        PacketDistributor.sendToServer(new RoadBulkActionPayload(List.copyOf(this.selected), removeBlocks));
+        final List<UUID> targets=List.copyOf(this.selected);
+        final boolean draftsOnly=targets.stream().allMatch(id -> ClientRoadCache.roads().stream()
+                .anyMatch(p -> p.id().equals(id) && p.state()==com.YLFXM.mcreconstruction.road.RoadState.DRAFT));
+        if(removeBlocks && !draftsOnly) WindowRoadRemovalChoice.choose(this,instant ->
+                PacketDistributor.sendToServer(new RoadBulkActionPayload(targets,true,instant)));
+        else PacketDistributor.sendToServer(new RoadBulkActionPayload(targets,removeBlocks));
     }
 }

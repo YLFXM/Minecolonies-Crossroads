@@ -78,7 +78,10 @@ public final class RoadBuildWatcher {
     private record Guard(ServerLevel level, long untilTick) {
     }
 
+    public static boolean isWatching(final RoadPlan plan) { return ACTIVE.containsKey(plan.id()); }
+
     public static void watch(final ServerLevel level, final RoadPlan plan) {
+        if (plan.isRepairBusy() || plan.state()==RoadState.REMOVING || plan.state()==RoadState.REMOVED) return;
         // Load the blueprint once: the completion check runs every second and
         // must not re-read and re-parse the NBT from disk each time.
         Blueprint blueprint = RoadBlueprintStore.load(level, plan);
@@ -101,7 +104,7 @@ public final class RoadBuildWatcher {
         int restored = 0;
         for (final ServerLevel level : server.getAllLevels()) {
             for (final RoadPlan plan : RoadManager.get(level).all()) {
-                if (!RoadRules.canPublish(plan)
+                if (plan.isRepairBusy() || !RoadRules.canPublish(plan)
                         || (plan.state() != RoadState.BUILDING && !hasWorkOrder(plan))) {
                     continue;
                 }
@@ -204,6 +207,7 @@ public final class RoadBuildWatcher {
                 FROM_DRAFT.remove(id);
                 continue;
             }
+            if (plan.isRepairBusy() || plan.state()==RoadState.REMOVING) { ACTIVE.remove(id); continue; }
             if (plan.state() == RoadState.BUILT) {
                 ACTIVE.remove(id);
                 CLOSING.remove(id);
@@ -307,7 +311,7 @@ public final class RoadBuildWatcher {
         }
     }
 
-    private static boolean hasWorkOrder(final RoadPlan plan) {
+    public static boolean hasWorkOrder(final RoadPlan plan) {
         for (final var colony : com.minecolonies.api.colony.IColonyManager.getInstance().getAllColonies()) {
             if (!RoadWorkOrders.sameDimension(plan, colony)) continue;
             for (final var order : colony.getWorkManager().getWorkOrders().values()) {
@@ -317,7 +321,7 @@ public final class RoadBuildWatcher {
         return false;
     }
 
-    private static boolean isBuilt(final ServerLevel level, final RoadPlan plan, final Blueprint cached) {
+    public static boolean isBuilt(final ServerLevel level, final RoadPlan plan, final Blueprint cached) {
         final Blueprint blueprint = cached;
         if (blueprint == null) {
             return false;

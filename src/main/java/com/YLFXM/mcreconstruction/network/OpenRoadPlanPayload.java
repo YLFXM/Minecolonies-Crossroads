@@ -25,12 +25,13 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record OpenRoadPlanPayload(BlockPos controllerPos) implements CustomPacketPayload {
+public record OpenRoadPlanPayload(BlockPos controllerPos,net.minecraft.nbt.CompoundTag plan,boolean nativeWindow) implements CustomPacketPayload {
+    public OpenRoadPlanPayload(BlockPos pos) { this(pos,new net.minecraft.nbt.CompoundTag(),false); }
     public static final Type<OpenRoadPlanPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "open_road_plan"));
     public static final StreamCodec<RegistryFriendlyByteBuf, OpenRoadPlanPayload> CODEC = StreamCodec.of(
-            (buf, payload) -> buf.writeBlockPos(payload.controllerPos()),
-            buf -> new OpenRoadPlanPayload(buf.readBlockPos()));
+            (buf, payload) -> { buf.writeBlockPos(payload.controllerPos());buf.writeNbt(payload.plan());buf.writeBoolean(payload.nativeWindow()); },
+            buf -> new OpenRoadPlanPayload(buf.readBlockPos(),java.util.Objects.requireNonNull(buf.readNbt()),buf.readBoolean()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

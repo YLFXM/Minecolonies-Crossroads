@@ -52,6 +52,15 @@ public final class DecorationControllerHandler {
                 || !(event.getEntity() instanceof ServerPlayer player)) {
             return;
         }
+        event.setUseBlock(TriState.FALSE);
+        event.setUseItem(TriState.FALSE);
+        event.setCanceled(true);
+        handle(level,player,event.getPos());
+    }
+
+    public static void handle(final ServerLevel level,final ServerPlayer player,final net.minecraft.core.BlockPos pos) {
+        if(!level.hasChunkAt(pos) || !player.canInteractWithBlock(pos,1.0)
+                || !(level.getBlockState(pos).getBlock() instanceof BlockDecorationController)) return;
         // Some interaction paths fire the event twice; suppress the duplicate
         // so binding/open messages are not emitted twice.
         final long now = System.currentTimeMillis();
@@ -60,35 +69,37 @@ public final class DecorationControllerHandler {
             return;
         }
 
-        RoadPlan plan = RoadManager.get(level).findByController(event.getPos());
-        if (plan != null && plan.anchorPos().equals(plan.controllerPos())) {
-            final net.minecraft.core.BlockPos resolved = findAnchor(level, event.getPos());
+        RoadPlan plan = RoadManager.get(level).findByController(pos);
+        if (plan != null && plan.anchorPos().equals(plan.controllerPos()) && RoadPermissions.canManage(level,player,plan)) {
+            final net.minecraft.core.BlockPos resolved = findAnchor(level, pos);
             if (resolved != null) {
                 plan.setAnchorPos(resolved);
                 RoadManager.get(level).add(plan);
             }
         }
         if (plan == null) {
-            final net.minecraft.core.BlockPos anchorPos = findAnchor(level, event.getPos());
+            final net.minecraft.core.BlockPos anchorPos = findAnchor(level, pos);
             if (anchorPos == null) {
+                if(RoadPermissions.canManage(level,player,pos)) PacketDistributor.sendToPlayer(player,
+                        new OpenRoadPlanPayload(pos,new net.minecraft.nbt.CompoundTag(),true));
+                else RoadPermissions.notifyDenied(player);
                 return;
             }
-            // Creating a road plan is a build request: outsiders must not be able
-            // to register one inside someone else's colony. No message here on
-            // purpose -- leaving the event uncancelled lets MineColonies run its
-            // own decoration controller handler, which reports the permission
-            // denial to the player in the native way.
-            if (!RoadPermissions.canManage(level, player, event.getPos())) {
+            // This request can create a plan, so it needs the same management
+            // permission as every other road mutation. The client never opens
+            // a native window before this server decision.
+            if (!RoadPermissions.canManage(level, player, pos)) {
                 MCReconstruction.LOGGER.debug("Denied road plan creation for {} at {} (no manage-huts)",
-                        player.getName().getString(), event.getPos());
+                        player.getName().getString(), pos);
+                RoadPermissions.notifyDenied(player);
                 return;
             }
-            plan = new RoadPlan(java.util.UUID.randomUUID(), level.dimension(), anchorPos, event.getPos(),
+            plan = new RoadPlan(java.util.UUID.randomUUID(), level.dimension(), anchorPos, pos,
                     Direction.NORTH, false, CustomRoadPack.PACK_NAME, "street",
                     4, com.YLFXM.mcreconstruction.road.WalkRange.centered(4, 2), 1, Config.lampSpacing());
             plan.setState(com.YLFXM.mcreconstruction.road.RoadState.DRAFT);
             final com.YLFXM.mcreconstruction.road.RoadNames.Name roadName =
-                    com.YLFXM.mcreconstruction.road.RoadNames.generate(level, event.getPos(), player);
+                    com.YLFXM.mcreconstruction.road.RoadNames.generate(level, pos, player);
             plan.setRoadName(roadName.base());
             plan.setDisplayName(roadName.display());
             // Ownership decides who may see a wilderness road, so it is recorded
@@ -96,10 +107,6 @@ public final class DecorationControllerHandler {
             plan.setCreator(player.getUUID());
             RoadManager.get(level).add(plan);
         }
-
-        event.setUseBlock(TriState.FALSE);
-        event.setUseItem(TriState.FALSE);
-        event.setCanceled(true);
 
         // Reading a road is colony internals, so both gestures need
         // ACCESS_HUTS: binding leaks the road's name, and the panel shows its
@@ -148,11 +155,11 @@ public final class DecorationControllerHandler {
         // list is filtered by that permission, so a view-only player would be
         // handed an empty panel with every button greyed out.
         if (!RoadPermissions.canManage(level, player, plan)) {
-            return;
+            RoadPermissions.notifyDenied(player); return;
         }
         Network.sendRoads(player, com.minecolonies.api.colony.IColonyManager.getInstance()
                 .getColonyByPosFromWorld(level, plan.controllerPos()));
-        PacketDistributor.sendToPlayer(player, new OpenRoadPlanPayload(plan.controllerPos()));
+        PacketDistributor.sendToPlayer(player, new OpenRoadPlanPayload(plan.controllerPos(),plan.saveForSync(),false));
         player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                 "Road plan " + com.YLFXM.mcreconstruction.road.RoadNames.label(plan)
                         + " opened."), false);

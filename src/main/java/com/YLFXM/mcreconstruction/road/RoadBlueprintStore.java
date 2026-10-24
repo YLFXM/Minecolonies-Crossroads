@@ -55,6 +55,10 @@ public final class RoadBlueprintStore {
         if (blueprint != null) write(appliedFile(level, plan), plan, blueprint);
     }
 
+    public static boolean saveAppliedChecked(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
+        return blueprint != null && write(appliedFile(level,plan),plan,blueprint);
+    }
+
     public static Blueprint loadApplied(final ServerLevel level, final RoadPlan plan) {
         return read(level, plan, appliedFile(level, plan));
     }
@@ -69,13 +73,19 @@ public final class RoadBlueprintStore {
         write(file(level, plan), plan, blueprint);
     }
 
-    private static void write(final Path path, final RoadPlan plan, final Blueprint blueprint) {
+    public static boolean saveChecked(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
+        return write(file(level,plan),plan,blueprint);
+    }
+
+    private static boolean write(final Path path, final RoadPlan plan, final Blueprint blueprint) {
         try {
             Files.createDirectories(path.getParent());
             final CompoundTag tag = BlueprintUtil.writeBlueprintToNBT(blueprint);
             NbtIo.writeCompressed(tag, path);
+            return true;
         } catch (final IOException ex) {
             MCReconstruction.LOGGER.error("Could not save road blueprint for {}", plan.id(), ex);
+            return false;
         }
     }
 
@@ -96,6 +106,26 @@ public final class RoadBlueprintStore {
         }
     }
 
+    private static Path removalFile(ServerLevel level,RoadPlan plan,RoadRemovalSession session) {
+        return directory(level).resolve("removal_"+plan.id()+"_"+session.token()+".blueprint");
+    }
+    public static boolean saveRemoval(ServerLevel level,RoadPlan plan,RoadRemovalSession session,Blueprint blueprint) {
+        return write(removalFile(level,plan,session),plan,blueprint);
+    }
+    public static Blueprint loadRemoval(ServerLevel level,RoadPlan plan,RoadRemovalSession session) {
+        return read(level,plan,removalFile(level,plan,session));
+    }
+    public static boolean publishRemoval(ServerLevel level,RoadPlan plan,RoadRemovalSession session,Blueprint blueprint) {
+        Path path=com.YLFXM.mcreconstruction.CustomRoadPack.packRoot(level.getServer()).resolve(session.path(plan.id()));
+        if (!write(path,plan,blueprint)) return false;
+        com.YLFXM.mcreconstruction.CustomRoadPack.install(level.getServer()); return true;
+    }
+    public static void deleteRemoval(ServerLevel level,RoadPlan plan,RoadRemovalSession session) {
+        try {
+            Files.deleteIfExists(removalFile(level,plan,session));
+            Files.deleteIfExists(com.YLFXM.mcreconstruction.CustomRoadPack.packRoot(level.getServer()).resolve(session.path(plan.id())));
+        } catch(IOException ex) { MCReconstruction.LOGGER.warn("Could not delete removal snapshot {}",plan.id(),ex); }
+    }
     public static void delete(final ServerLevel level, final RoadPlan plan) {
         try {
             Files.deleteIfExists(file(level, plan));

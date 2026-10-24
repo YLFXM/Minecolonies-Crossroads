@@ -7,5 +7,15 @@
   "mcreconstruction.gui.repair": "修复",
   "mcreconstruction.gui.remove": "拆除",
   "mcreconstruction.gui.edit_blueprint": "修改蓝图",
-  "itemGroup.mcreconstruction": "模拟殖民地：重构计划"
+  "itemGroup.mcreconstruction": "模拟殖民地：重构计划",
+  "mcreconstruction.gui.remove_builder": "建筑工拆除",
+  "mcreconstruction.gui.remove_instant": "创造快速拆除",
+  "mcreconstruction.gui.removal_method": "选择拆除方式",
+  "mcreconstruction.gui.removal_method_hint": "由建筑工回收，或使用创造模式快速拆除。",
+  "mcreconstruction.construction.expired": "道路已移除或本次施工窗口已失效，请关闭后重新打开。",
+  "mcreconstruction.repair.selection_pack": "请选择本次道路所在的建筑包。",
+  "mcreconstruction.repair.selection_path": "请选择本次施工的道路蓝图。",
+  "mcreconstruction.repair.selection_anchor": "请将蓝图恢复到道路原锚点位置。",
+  "mcreconstruction.repair.selection_rotation": "请恢复道路原朝向后再施工。",
+  "mcreconstruction.workorders.cancelled_by": "%s 取消了 %s 个工单（%s）。"
 }

@@ -73,14 +73,19 @@ public final class Network {
     private static final String BUILD_TOOL_PREVIEW_KEY = "blueprint";
 
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("3");
+        final var registrar = event.registrar("7");
         registrar.playToServer(RequestRoadsPayload.TYPE, RequestRoadsPayload.CODEC, Network::handleRequest);
         registrar.playToServer(ConfigureRoadPayload.TYPE, ConfigureRoadPayload.CODEC, Network::handleConfigure);
         registrar.playToServer(RoadBulkActionPayload.TYPE, RoadBulkActionPayload.CODEC, Network::handleBulkAction);
         registrar.playToServer(RoadControllerActionPayload.TYPE, RoadControllerActionPayload.CODEC,
                 Network::handleControllerAction);
+        registrar.playToServer(ConfirmRoadRepairPayload.TYPE,ConfirmRoadRepairPayload.CODEC,(payload,context) ->
+                context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player) RoadRepair.confirm(player,payload); }));
         registrar.playToServer(NativeBuildClosedPayload.TYPE, NativeBuildClosedPayload.CODEC,
                 Network::handleNativeBuildClosed);
+        registrar.playToServer(RequestControllerWindowPayload.TYPE,RequestControllerWindowPayload.CODEC,(payload,context) ->
+                context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
+                    com.YLFXM.mcreconstruction.DecorationControllerHandler.handle(player.serverLevel(),player,payload.controllerPos()); }));
         registrar.playToServer(CancelWorkOrdersPayload.TYPE, CancelWorkOrdersPayload.CODEC,
                 Network::handleCancelWorkOrders);
         registrar.playToServer(RequestRoadPreviewPayload.TYPE, RequestRoadPreviewPayload.CODEC,
@@ -585,6 +590,13 @@ public final class Network {
                 plan.setDisplayName(generated.display());
             }
 
+            if (mode == RoadPlacementMode.PLAN) {
+                // First construction uses the same token, exact selection
+                // checks, frozen target and completion snapshot as Repair.
+                RoadRepair.beginInitial(level, player, plan);
+                return;
+            }
+
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
                     Config.defaultLampReserveHeight());
             if (blueprint == null) {
@@ -619,27 +631,6 @@ public final class Network {
                 sendRoads(player, colony);
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "Lamp spacing set to " + plan.lampSpacing()), false);
-                return;
-            }
-
-            if (mode == RoadPlacementMode.PLAN) {
-                RoadBlueprintStore.save(level, plan, blueprint);
-                RoadManager.get(level).add(plan);
-                if (old.state() == com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
-                    // This is the road's first (and only) commit. If the tool is
-                    // closed without building, the watcher puts it back in DRAFT so
-                    // the button that opened the tool is usable again.
-                    RoadBuildWatcher.noteOpenedFromDraft(plan);
-                }
-                RoadBuildWatcher.watch(level, plan);
-                PacketDistributor.sendToPlayer(player, new OpenBuildToolPayload(
-                        plan.id(), RoadTemporaryPack.pathFor(plan),
-                        com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint),
-                        packVersion, plan.anchorPos()));
-                sendRoads(player, colony);
-                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                        "Road " + RoadNames.label(plan)
-                                + " planned. Choose Complete/Pretty/Survival in the native build tool."), false);
                 return;
             }
 
@@ -747,8 +738,9 @@ public final class Network {
                     scope = IColonyManager.getInstance()
                             .getColonyByPosFromWorld(level, plan.controllerPos());
                 }
-                RoadDataCleaner.clear(level, plan, payload.removeBlocks());
-                cleared++;
+                if (payload.removeBlocks()) {
+                    if (com.YLFXM.mcreconstruction.road.RoadRemover.remove(level,player,plan,payload.instant())) cleared++;
+                } else { RoadDataCleaner.clear(level,plan); cleared++; }
             }
             sendRoads(player, scope);
             final int count = cleared;
@@ -788,8 +780,9 @@ public final class Network {
                 return;
             }
             switch (payload.action()) {
-                case REMOVE -> com.YLFXM.mcreconstruction.road.RoadRemover.remove(level, plan);
-                case REPAIR -> { if (RoadRules.canRepair(plan)) RoadRepair.repair(level, plan); }
+                case REMOVE -> com.YLFXM.mcreconstruction.road.RoadRemover.remove(level,player,plan,false);
+                case REMOVE_INSTANT -> com.YLFXM.mcreconstruction.road.RoadRemover.remove(level,player,plan,true);
+                case REPAIR -> RoadRepair.begin(level,player,plan);
                 case UPGRADE -> player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "Road upgrades are not implemented yet."), false);
             }
@@ -801,6 +794,9 @@ public final class Network {
     private static void handleSync(final RoadSyncPayload payload, final IPayloadContext context) {
         context.enqueueWork(() -> {
             ClientRoadCache.set(payload.data());
+            final java.util.Set<UUID> manageable = new java.util.HashSet<>();
+            for (final RoadPlan road : ClientRoadCache.roads()) if (ClientRoadCache.canManage(road.id())) manageable.add(road.id());
+            com.YLFXM.mcreconstruction.client.RoadSelectionClient.retain(ClientRoadCache.roads(), manageable, ClientRoadCache.dimension());
             // Drop local blueprint copies the server no longer vouches for. This
             // only ever removes files under generated/ that this client is not
             // supposed to see, never anything the player is entitled to.
@@ -836,6 +832,7 @@ public final class Network {
             if (findBuildToolSlot(minecraft.player.getInventory()) < 0) {
                 minecraft.player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "No build tool in your inventory."), false);
+                com.YLFXM.mcreconstruction.client.ClientNativeBuildTracker.abort(payload.planId(),payload.repairToken());
                 return;
             }
             // The server pushes the blueprint with the payload: packs are only
@@ -851,7 +848,7 @@ public final class Network {
             final com.ldtteam.structurize.storage.StructurePackMeta previous =
                     com.ldtteam.structurize.storage.StructurePacks.getSelectedPack();
             com.YLFXM.mcreconstruction.client.ClientNativeBuildTracker.begin(
-                    payload.planId(), previous == null ? null : previous.getName());
+                    payload.planId(), previous == null ? com.YLFXM.mcreconstruction.CustomRoadPack.STYLE_PACK : previous.getName(), payload.repairToken());
             com.ldtteam.structurize.storage.StructurePacks.switchSelectedPack(
                     com.YLFXM.mcreconstruction.CustomRoadPack.PACK_NAME);
             // The native window draws its own ghost for the same blueprint, so
@@ -875,10 +872,15 @@ public final class Network {
             // support block). Passing null here makes Structurize fall back to
             // "ten blocks in front of the player", which is why the box used to
             // drift off in whatever direction the player was facing.
-            new com.ldtteam.structurize.client.gui.WindowExtendedBuildTool(
-                    payload.anchorPos(),
-                    com.ldtteam.structurize.api.constants.Constants.GROUNDSTYLE_RELATIVE,
-                    minecraft.level.registryAccess()).open();
+            try {
+                if (payload.repairToken().equals(com.YLFXM.mcreconstruction.road.RoadNativeBuildTool.NO_SESSION))
+                    throw new IllegalArgumentException("Road build tool requires an authorized construction session");
+                new com.YLFXM.mcreconstruction.client.WindowRoadRepairBuildTool(payload,minecraft.level.registryAccess()).open();
+            } catch (final RuntimeException ex) {
+                MCReconstruction.LOGGER.error("Could not open native road build tool",ex);
+                com.YLFXM.mcreconstruction.client.ClientNativeBuildTracker.abort(payload.planId(),payload.repairToken());
+                return;
+            }
             // Hand the player the tool they are about to build with. This is
             // presentation only: the placement path never checks the held item.
             selectBuildTool(minecraft);
@@ -899,12 +901,7 @@ public final class Network {
      * reachable at all.</p>
      */
     private static int findBuildToolSlot(final net.minecraft.world.entity.player.Inventory inventory) {
-        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
-            if (inventory.getItem(slot).is(BUILD_TOOL)) {
-                return slot;
-            }
-        }
-        return -1;
+        return com.YLFXM.mcreconstruction.road.RoadNativeBuildTool.findToolSlot(inventory);
     }
 
     /**
@@ -1036,9 +1033,19 @@ public final class Network {
                 return;
             }
             int cancelled = 0;
+            final java.util.Set<java.util.UUID> affected=new java.util.HashSet<>();
             for (final int orderId : payload.orderIds()) {
                 try {
-                    if (colony.getWorkManager().getWorkOrders().containsKey(orderId)) {
+                    final var order=colony.getWorkManager().getWorkOrders().get(orderId);
+                    if (order!=null) {
+                        if(colony.getWorld() instanceof ServerLevel roadLevel) {
+                            final var road=com.YLFXM.mcreconstruction.road.RoadWorkOrders.find(roadLevel,order);
+                            if(road!=null) {
+                                if(road.creator()!=null) affected.add(road.creator());
+                                if(road.repairSession()!=null) affected.add(road.repairSession().owner());
+                                if(road.removalSession()!=null) affected.add(road.removalSession().owner());
+                            }
+                        }
                         colony.getWorkManager().removeWorkOrder(orderId);
                         cancelled++;
                     }
@@ -1050,6 +1057,13 @@ public final class Network {
             final int count = cancelled;
             player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                     "Cancelled " + count + " work order(s)."), false);
+            if(count>0) for(final var recipient:player.server.getPlayerList().getPlayers()) {
+                if(!recipient.getUUID().equals(player.getUUID()) && (affected.contains(recipient.getUUID())
+                        || com.YLFXM.mcreconstruction.RoadPermissions.canView(recipient,colony)
+                        || com.YLFXM.mcreconstruction.RoadPermissions.canManage(recipient,colony)))
+                    recipient.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                            "mcreconstruction.workorders.cancelled_by",player.getDisplayName(),count,colony.getName()),false);
+            }
             // Already authorised by canManage above; refresh unconditionally.
             sendWorkOrders(player, colony, false);
         });
@@ -1063,7 +1077,10 @@ public final class Network {
             }
             final ServerLevel level = player.serverLevel();
             final RoadPlan plan = RoadManager.get(level).get(payload.planId());
-            if (plan != null) {
+            if (plan != null && plan.repairSession()!=null) {
+                RoadRepair.closed(player,plan,payload.repairToken());
+            } else if (plan != null && payload.repairToken().equals(com.YLFXM.mcreconstruction.road.RoadNativeBuildTool.NO_SESSION)
+                    && canManageRoad(level,player,plan)) {
                 RoadBuildWatcher.requestClose(level, plan);
             }
         });
@@ -1071,6 +1088,13 @@ public final class Network {
 
     private static void handleOpenPlan(final OpenRoadPlanPayload payload, final IPayloadContext context) {
         context.enqueueWork(() -> {
+            final var minecraft=net.minecraft.client.Minecraft.getInstance();
+            if(minecraft.level==null) return;
+            if(payload.nativeWindow()) { new com.minecolonies.core.client.gui.WindowDecorationController(payload.controllerPos()).open(); return; }
+            if(!payload.plan().hasUUID("id")) return;
+            final RoadPlan approved=RoadPlan.load(payload.plan());
+            if(!payload.controllerPos().equals(approved.controllerPos()) || !minecraft.level.dimension().equals(approved.dimension())) return;
+            ClientRoadCache.rememberAuthorized(approved);
             com.YLFXM.mcreconstruction.client.RoadSelectionClient.setControllerPos(payload.controllerPos());
             new com.YLFXM.mcreconstruction.client.WindowRoadController(payload.controllerPos()).open();
         });
@@ -1145,7 +1169,7 @@ public final class Network {
                     ? owner == null || owner.getID() == colony.getID()
                     : !wildernessOnly || owner == null;
             if (inScope) surveyIds.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
-            list.add(plan.save());
+            list.add(plan.saveForSync());
             if (canManageRoad(level, player, plan)) {
                 manageable.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
             }

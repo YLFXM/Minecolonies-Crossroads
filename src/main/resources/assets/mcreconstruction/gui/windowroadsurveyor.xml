@@ -32,5 +32,5 @@
             label="Release Plans" color="black"/>
     <button id="remove" size="136 17" pos="152 190"
             source="minecolonies:textures/gui/builderhut/builder_button_large.png"
-            label="Remove Roads" color="black"/>
+            label="$(mcreconstruction.gui.remove)" color="black"/>
 </window>

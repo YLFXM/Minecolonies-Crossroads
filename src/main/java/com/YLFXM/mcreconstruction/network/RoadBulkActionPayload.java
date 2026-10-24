@@ -27,8 +27,9 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks)
+public record RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks, boolean instant)
         implements CustomPacketPayload {
+    public RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks) { this(roadIds,removeBlocks,false); }
     public static final Type<RoadBulkActionPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "road_bulk_action"));
     public static final StreamCodec<RegistryFriendlyByteBuf, RoadBulkActionPayload> CODEC = StreamCodec.of(
@@ -38,14 +39,16 @@ public record RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks)
                     buf.writeUUID(id);
                 }
                 buf.writeBoolean(payload.removeBlocks());
+                buf.writeBoolean(payload.instant());
             },
             buf -> {
-                final int count = Math.min(buf.readVarInt(), 256);
+                final int count = buf.readVarInt();
+                if (count<0 || count>256) throw new IllegalArgumentException("Invalid road action count");
                 final List<UUID> ids = new ArrayList<>(count);
                 for (int i = 0; i < count; i++) {
                     ids.add(buf.readUUID());
                 }
-                return new RoadBulkActionPayload(ids, buf.readBoolean());
+                return new RoadBulkActionPayload(ids, buf.readBoolean(),buf.readBoolean());
             });
 
     @Override

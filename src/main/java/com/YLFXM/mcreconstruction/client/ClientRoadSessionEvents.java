@@ -26,6 +26,7 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 @EventBusSubscriber(modid="mcreconstruction", value=Dist.CLIENT)
 public final class ClientRoadSessionEvents {
     @SubscribeEvent public static void logout(final ClientPlayerNetworkEvent.LoggingOut event) {
+        ClientNativeBuildTracker.reset();
         RoadSelectionClient.clearAll(); ClientRoadPreviewRenderer.clear(); ClientRoadPreview.reset();
         com.YLFXM.mcreconstruction.network.ClientRoadCache.clear();
     }

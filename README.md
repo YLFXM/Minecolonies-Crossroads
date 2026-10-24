@@ -3,8 +3,8 @@
 > [!WARNING]
 > **本项目仍在开发中（in development），尚未完成测试，请勿下载安装到正式存档或正式服务器。**
 >
-> 当前版本 `0.1.4-fix.1` 只在开发者的单人测试环境里验证过流程，**仍有未实现的部分**（台阶生成、交叉口、
-> Repair 改走原生工具），
+> 当前版本 `0.1.5` 已收到单机及联机测试反馈，**仍有未实现的部分**（台阶生成、交叉口、
+> 原生施工及拆除已完成本轮单机／联机验收），
 > 存档格式与内部数据结构**仍可能变动**。如果你不是打算参与开发或帮忙测试，请等正式发布。
 >
 > 仓库以 GPL-3.0 开源，**原作者可能不再维护**。愿意接手迁移到更新版本的开发者，
@@ -17,7 +17,7 @@ MineColonies 的功能扩展 mod：用 Road Wand 划出**轴向直路**，生成
 |---|---|
 | Mod ID | `mcreconstruction` |
 | 包名 | `com.YLFXM.mcreconstruction` |
-| 版本 | `0.1.4-fix.1`（开发中） |
+| 版本 | `0.1.5`（开发中） |
 | 定位 | MineColonies 附属扩展，**不是** Pause Research 的更新，不复用其 mod id / 包名 / 配置路径 / 合成 path 前缀 |
 
 ## 它解决什么问题
@@ -26,7 +26,7 @@ MineColonies 擅长造房子，但不擅长造**路**——而路恰恰是殖民
 并且**不替换** MineColonies 已有的任何东西。
 
 用 **Road Wand** 选两个点 A、B，mod 算出两点之间严格宽度的道路，生成一份真正的 Structurize 蓝图，
-然后打开**原版**建造工具（Complete / Pretty / Survival / Paste）。等道路真的在世界里立起来之后，
+然后打开使用原生布局的建造工具（Complete / Pretty / Survival）。等道路真的在世界里立起来之后，
 mod 把装饰控制器搬到车行道内侧，把道路绑定到殖民地，并从此持续看管它。
 
 玩家接触到的每一个环节都是 MineColonies 的居民、MineColonies 的工单、原生的 Structurize 蓝图。
@@ -40,7 +40,7 @@ mod 把装饰控制器搬到车行道内侧，把道路绑定到殖民地，并�
 | Road Surveyor | `mcreconstruction:road_surveyor` | 绑定市政厅后查看该殖民地道路，逐行权限判定，多选批量释放/拆除 |
 | Work Order Scroll | `mcreconstruction:work_order_scroll` | 绑定市政厅后查看该殖民地工单，多选取消；道路工单显示道路名 |
 
-**四种原生建造方式全部可用**：Complete / Pretty / Paste 由 Structurize 执行；**Survival** 会把道路
+**三种受控原生建造方式**：Complete / Pretty 由 Structurize 执行；**Survival** 会把道路
 变成殖民地工作管理器里一张**真正的工单**，由你自己的建筑工承接，用的是和原版同一套
 `WorkOrderDecoration` API 与同一套 `MANAGE_HUTS` 权限校验。
 
@@ -168,7 +168,7 @@ BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行�
    - 台阶作用在**整条可走宽度**上，所以点这一行的任何一列都等价；
 3. 重新选 A/B（沿轴伸缩）时，面板第二行会显示 `N edited`（未应用的改动行数）与 `M dropped`（被缩掉的行数），
    聊天栏同步报 `Re-plan: N row(s) edited, M dropped. Repair applies it.`；
-4. 点控制器面板的 **Repair** → 改动才真正写进覆盖表、按新表重新生成蓝图并铺到世界；
+4. 点控制器面板的 **Repair** → 打开原生工具；确认施工并建成后，冻结改动才真正写进覆盖表；
    完成后开关自动关闭，面板回到 `0 edited`。
 
 > 只缩不动：`0 edited · 1 dropped` 是正常结果——没有哪一行的类型变了，只是丢了几行。
@@ -187,9 +187,10 @@ BlockUI 的 `Window` → `BOWindow` 改名、`AbstractTextElement` 的颜色行�
 
 ### 拆除 / 修复 / 批量
 
-- **控制器的 Remove**：`RoadDataCleaner` 全量清理 —— 删工单、删控制器与锚点、删 `RoadManager` 记录、删快照、删结构包里的生成蓝图、重新注册结构包。
-- **控制器的 Repair**：`RoadRepair` 先把未应用的逐行改动写入覆盖表（并剪掉越界行），再读快照（没有就重新生成）重放缺失方块，结束时再跑一次迁移把控制器补回；完成后自动关闭「修改蓝图」开关。
-  `blocksolidsubstitution` 按当地地形解析（保留已有实心方块 → 沿用下方地形 → 最后才用 `roadFillBlock`），`blocksubstitution`（"这格别碰"）仍然跳过。
+- **控制器的建筑工拆除**：按最近实际应用蓝图发原生 REMOVE 工单；建筑工逐块挖掘和回收，实际完成后才清控制器、锚点和道路记录。拆除过程中不能编辑或 Repair，取消保留记录与暂存编辑；普通替换方块也可能被原生建筑工拆掉。
+- **创造快速拆除**：主面板只保留拆除按钮，创造玩家点击后在二级窗口选择建筑工或 Structurize 原生扫描工具删除队列；后者无掉落、分批执行。生存直接派建筑工工单；规划仪采用相同交互，取消选择不会拆除。
+- **野外建筑工拆除**：派往同维度最近殖民地，需管理权限及已配居民的1级以上建筑工；小屋到全部目标的距离默认不超过256格，可用 wildernessWorkerMaxDistance 调整。无付费雇佣和瞬移；超限/无权限时保留道路。
+- **控制器的 Repair（0.1.5，已验收）**：DRAFT 禁用；PLANNED/BUILT 无其他会话时，点击后准备冻结蓝图并打开原生建筑工具，需背包中有建筑工具，无需额外绑定 Wand。选择当前道路、原锚点和原朝向，按 Complete / Pretty / Survival 执行；成功后才提交覆盖表、清 edited/dropped、关闭编辑开关并更新实际应用快照。未确认关窗或失败保留未应用编辑；已确认放置在关窗后继续。施工中禁止编辑或重复 Repair。填充与材料交原生系统。
 - **Surveyor**：和工单卷轴一样**必须绑定市政厅**——`Shift + 右键市政厅` 绑定（位置写进物品 NBT），普通右键（方块或空气）打开该殖民地的道路列表；未绑定则打开空列表并提示绑定。列表显示道路名、状态、长度、控制器位置，可多选后 `Release Plans`（清计划/控制器/锚点，保留方块）或 `Remove Roads`（连方块一起清）。**逐行判定权限**：无权管理的道路仍然列出，但勾选框显示 `[-]` 且不可点、行文字变灰；`Select All` 也只选有权限的条目。
 - **WorkOrder Scroll**：仿原版资源卷轴，**必须绑定市政厅**：
   - `Shift + 右键市政厅` 绑定（位置写进物品 NBT，`stacksTo(1)`）；
@@ -424,7 +425,8 @@ src/main/java/com/YLFXM/mcreconstruction/
     RoadControllerMigration.java   控制器迁移
     RoadQuickBuilder.java          创意即时建造
     RoadRemover.java               按快照删方块
-    RoadRepair.java                Repair：应用未应用的逐行改动 → 重放快照 → 迁移控制器 → 关开关
+    RoadRepair.java                原生 Repair 会话，实际成功后提交逐行改动
+    RoadNativeRemoval.java / RoadRemovalSession.java  原生拆除工单/创造队列与恢复
     RoadDataCleaner.java           全量清理
     RoadNames.java                 命名、短名、唯一性
     RoadWandBinding.java           Wand 绑定（物品 NBT）
@@ -664,8 +666,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1
 安装：把 jar 复制进实例 `mods/`。
 
 ```powershell
-Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.4-fix.1.jar' `
-  -Destination '<你的实例>\mods\mcreconstruction-0.1.4-fix.1.jar' -Force
+Copy-Item -LiteralPath 'dist\mcreconstruction-0.1.5.jar' `
+  -Destination '<你的实例>\mods\mcreconstruction-0.1.5.jar' -Force
 ```
 
 ## 本地测试服务器
@@ -713,16 +715,16 @@ unzip -q minecolonies.zip -d minecolonies
 
 - 台阶 `SegmentKind.STAIR_UP/STAIR_DOWN` 已定义，但生成器只处理 `ROAD`。
 - 交叉口只做几何检测与覆盖，没有专门铺装和路灯协调。
-- Repair 是服务端即时修复，不是建筑工任务；Upgrade 按钮禁用。
+- 阶段 5 Repair 与首次施工已走原生工具，并通过本轮验收；Upgrade 按钮禁用。
 - 名称唯一性是**维度内**全局，不是严格"同殖民地内"。
 - 宽度 1 的道路几何上无法把控制器放进铺装体，会退化为相邻格。
 - 专用服务器：结构包本体在服务端存档目录，客户端不下载整包；蓝图改为随 `OpenBuildToolPayload` 点对点下发（见「结构包同步」）。
 - README 之外没有正式 wiki；英文文案仍有中英混杂。
-- 游戏内验证由人工完成，**尚未做完整的回归测试**；存档格式仍可能变动。
+- 游戏内验证由人工完成，已通过本轮单机／联机清单；封存项目仍未验证；存档格式仍可能变动。
 
 ## 开发状态
 
-**当前版本 `0.1.4-fix.1` 是开发中版本，不适合正式使用**：台阶外观、交叉口、Repair 走原生工具尚未实现。
+**当前版本 `0.1.5` 是开发中版本，不适合正式使用**：台阶外观、交叉口尚未实现；阶段 5 Repair 已验收。
 
 已实现并验证过的：
 
@@ -737,9 +739,7 @@ unzip -q minecolonies.zip -d minecolonies
 - 台阶、交叉口（见「已知限制」）；
 - 完整回归测试，存档格式稳定性；
 - 英文本地化（`en_us.json` 内容仍是中文）；
-- **蓝图归属模型（`RoadPlan.creator` + 客户端蓝图清理）刚落地，尚未做多人联机实测**。
-  已验证的是编译通过与服务端逻辑，未验证的是：两名玩家在同一服务器上互相看不到对方
-  的野外道路、失权后客户端蓝图确实被清掉、旧存档的 `generated/` 确实被清除。
+- 原生施工、拆除和蓝图授权已完成本轮单机／联机验收；S8/S15/D10/N8仍封存，不等于通过全部极端场景。
 
 ## 路线图
 
@@ -783,7 +783,7 @@ unzip -q minecolonies.zip -d minecolonies
 - 删除会清除对应选择、幽灵和魔棒绑定；同位置的新道路不继承旧道路。异步请求与回复校验 UUID/维度/请求序号。
 - 未施工道路删除不再按待建图清地形。建成后保存独立 applied_UUID.blueprint；已建后重规划也按最近实际应用图拆旧路。
 - 旧 PLANNED 或部分施工无法证明实际范围时，删除保守取消任务并保留无法证明归属的已铺方块。已替换成不同类型的世界方块也保留。
-- 当前网络协议 3，客户端和服务端必须同一测试 JAR；本轮修复已通过用户验收。
+- 当轮网络协议 3，客户端和服务端必须同一测试 JAR；本轮修复已通过用户验收。
 
 
 规划仪相邻快捷栏直接互切也会按手位/槽位/绑定市政厅切换显示，旧回复不能恢复前一视图。道路索引框和魔棒幽灵（含其白框）共用 64 格最近体积距离限制；远离隐藏并保留缓存，靠近恢复。此补修已通过用户验收。
@@ -791,3 +791,20 @@ unzip -q minecolonies.zip -d minecolonies
 显示距离默认 64 格；后续计划提供客户端可调整项，目前尚未配置化。
 
 本轮修复已于 2026-10-23 通过用户总体验收；多人专项仍保留先前约定，待本阶段功能完成后集中验证。代码回归 71 条通过，见 `tests/run.ps1`；道路显示距离客户端可配置化仍为待办。
+
+
+## 0.1.5：原生施工与拆除（已验收）
+
+2026-10-24用户确认本轮R1–R5全部通过，阶段5完成，收口至main；网络协议7，客户端、服务器和其他联机玩家须同版。P2完成前不推送，台阶和交叉口尚未开始。
+
+- 首次Create与Repair共用原生布局及受控确认；仅接受本路蓝图、原锚点及原朝向。Complete/Pretty使用Structurize队列，Survival使用MineColonies工单，不新增放置循环。
+- 持久会话冻结目标，确认前关闭退回原状态，首次施工退回DRAFT；确认后不因关窗/断线取消工单。完成且保存实际应用快照后才提交编辑、关闭编辑开关并迁移控制器。
+- 建筑工拆除走原生REMOVE工单；创造模式单击拆除再选建筑工/快速拆除。DRAFT只清计划、控制器与锚点，保留原地形。野外要求最近殖民地的管理权限、建筑工及距离限制。
+- 草案按维度与UUID保留本地A/B和镜像，重绑恢复，Clear保持清空；删除/失权/退出清理对应记录。覆盖表和未应用提案维持原有语义。
+- 控制器先经服务端授权才开窗；取消工单通知相关在线玩家。道路被删或施工会话过期后，旧窗口确认会明确提示。此前错误图施工无可信实际应用快照时，不猜测扩大拆除范围。
+
+构建与208条代码断言通过；本轮已通过项详见仓库外ColonyRefactor/重构计划-实现进度.md。S8、S15、D10、N8按用户要求封存；最后失效窗口提示用户明确免除游戏复测，不额外要求重测。0.1.5测试包SHA256：C24072FEFF186EA9DFE1B0826EBC10E961AF14A345CFEF3BAA75BB932D99FC00，指定客户端与服务器已同步。
+
+已知观察：施工中重启后建筑工实体可能不可用，MineColonies召回操作会打印AWOL并尝试恢复。本mod恢复逻辑仅跟踪原工单，不删除、复活或传送公民；根因未确定，按用户要求暂不改动。
+
+接手文档不持续维护，仅在用户需要时按对应版本另行编写。当前设计与进度继续正常维护。

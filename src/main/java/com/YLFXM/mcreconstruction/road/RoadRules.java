@@ -21,22 +21,26 @@ package com.YLFXM.mcreconstruction.road;
 /** Pure road-state policy shared by the UI and authoritative server handlers. */
 public final class RoadRules {
     public static boolean canEdit(final RoadPlan plan) {
-        return plan != null && (plan.state() == RoadState.DRAFT
+        return plan != null && !plan.isRepairBusy() && (plan.state() == RoadState.DRAFT
                 || plan.state() == RoadState.PLANNED
                 || (plan.state() == RoadState.BUILT && plan.allowBlueprintEdit()));
     }
 
     public static boolean canCreate(final RoadPlan plan) {
-        return plan != null && plan.state() == RoadState.DRAFT;
+        return plan != null && !plan.isRepairBusy() && plan.state() == RoadState.DRAFT;
     }
 
     public static boolean canToggleEdit(final RoadPlan plan) {
-        return plan != null && (plan.state() == RoadState.DRAFT
+        return plan != null && !plan.isRepairBusy() && (plan.state() == RoadState.DRAFT
                 || plan.state() == RoadState.PLANNED || plan.state() == RoadState.BUILT);
     }
 
     public static boolean canRepair(final RoadPlan plan) {
-        return canToggleEdit(plan) && !plan.segments().isEmpty();
+        return canToggleEdit(plan) && plan.state() != RoadState.DRAFT && !plan.segments().isEmpty();
+    }
+
+    public static boolean canRemove(final RoadPlan plan) {
+        return plan != null && plan.state()!=RoadState.REMOVING && plan.state()!=RoadState.REMOVED;
     }
 
     public static boolean canPublish(final RoadPlan plan) {

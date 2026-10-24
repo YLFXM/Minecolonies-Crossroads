@@ -20,7 +20,7 @@ $null = New-Item -ItemType Directory -Force -Path $testClasses
 $sources = Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.java' | Select-Object -ExpandProperty FullName
 & $javaExe -m jdk.compiler/com.sun.tools.javac.Main -proc:none -encoding UTF-8 -cp "$classes;$classpath" -d $testClasses $sources
 if ($LASTEXITCODE -ne 0) { throw 'Regression compilation failed.' }
-foreach ($testClass in @('RoadAuditRegression', 'PreviewLifecycleRegression')) {
+foreach ($testClass in @('RoadAuditRegression', 'PreviewLifecycleRegression', 'RoadRepairSessionRegression', 'RoadRemovalSessionRegression', 'Round1Regression', 'InitialConstructionRegression')) {
     & $javaExe -cp "$classes;$testClasses;$classpath" $testClass
     if ($LASTEXITCODE -ne 0) { throw "Regression failed: $testClass" }
 }

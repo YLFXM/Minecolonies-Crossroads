@@ -65,7 +65,7 @@ public final class RoadWorkOrderRecovery {
                     continue;
                 }
                 final var plan = com.YLFXM.mcreconstruction.road.RoadWorkOrders.find(level, order);
-                if (plan == null) continue;
+                if (plan == null || plan.isRepairBusy() || plan.state()==com.YLFXM.mcreconstruction.road.RoadState.REMOVING) continue;
                 if (order.getBlueprint() == null) {
                     var blueprint = com.YLFXM.mcreconstruction.road.RoadBlueprintStore.load(level, plan);
                     if (blueprint == null) blueprint = RoadBlueprintGenerator.generate(plan, level, Config.defaultLampReserveHeight());

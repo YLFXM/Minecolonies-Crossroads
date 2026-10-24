@@ -61,6 +61,8 @@ public final class ClientNativeBuildTracker {
     private static final int FOLDER_ATTEMPTS = 40;
 
     private static UUID activePlan;
+    private static UUID activeRepair=com.YLFXM.mcreconstruction.road.RoadNativeBuildTool.NO_SESSION;
+    private static int openingAttempts;
     /** Pack that was selected before the road pack took over; restored on close. */
     private static String previousPackName;
     private static boolean nativeWindowSeen;
@@ -70,7 +72,8 @@ public final class ClientNativeBuildTracker {
 
     public static boolean isActive() { return activePlan != null; }
 
-    public static void begin(final UUID planId, final String previousPack) {
+    public static void begin(final UUID planId, final String previousPack, final UUID repairToken) {
+        activeRepair=repairToken; openingAttempts=0;
         activePlan = planId;
         previousPackName = previousPack;
         nativeWindowSeen = false;
@@ -105,8 +108,8 @@ public final class ClientNativeBuildTracker {
         final Minecraft minecraft = Minecraft.getInstance();
         if (!(minecraft.screen instanceof BOScreen screen)
                 || !(screen.getWindow() instanceof WindowExtendedBuildTool window)) {
-            if (nativeWindowSeen) {
-                PacketDistributor.sendToServer(new NativeBuildClosedPayload(activePlan));
+            if (nativeWindowSeen || ++openingAttempts > 40) {
+                PacketDistributor.sendToServer(new NativeBuildClosedPayload(activePlan,activeRepair));
                 activePlan = null;
                 nativeWindowSeen = false;
                 folderOpened = false;
@@ -134,6 +137,12 @@ public final class ClientNativeBuildTracker {
         window.updateBlueprints(generated, GENERATED);
         folderOpened = true;
     }
+
+    public static void abort(final UUID plan, final UUID token) {
+        PacketDistributor.sendToServer(new NativeBuildClosedPayload(plan,token));
+        activePlan=null; nativeWindowSeen=false; restorePack();
+    }
+    public static void reset() { activePlan=null; nativeWindowSeen=false; previousPackName=null; }
 
     private ClientNativeBuildTracker() {
     }

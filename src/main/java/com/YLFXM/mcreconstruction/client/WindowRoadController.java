@@ -67,7 +67,7 @@ public class WindowRoadController extends AbstractWindowSkeleton {
 
         this.registerButton("upgrade", button -> this.send(RoadControllerActionPayload.Action.UPGRADE));
         this.registerButton("repair", button -> this.send(RoadControllerActionPayload.Action.REPAIR));
-        this.registerButton("remove", button -> this.send(RoadControllerActionPayload.Action.REMOVE));
+        this.registerButton("remove", button -> this.chooseRemoval());
         // Deliberately not closing the window: the player usually flips it to
         // edit a few cells right after, and the panel is where they came from.
         this.registerButton("edit", button -> {
@@ -92,17 +92,31 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         // shortens the road changes no row's type, so it reports 0 edited and
         // counts the lost rows as dropped instead.
         this.detailText.setText(Component.literal(plan == null ? ""
-                : "edit " + (plan.allowBlueprintEdit() ? "ON" : "OFF")
+                : (plan.isRepairBusy() ? "repair in progress  ·  " : "") + "edit " + (plan.allowBlueprintEdit() ? "ON" : "OFF")
                         + "  ·  " + plan.editedRowCount() + " edited"
                         + (plan.lastDroppedRows() > 0
                                 ? "  ·  " + plan.lastDroppedRows() + " dropped" : "")));
         final boolean canManage = plan != null && ClientRoadCache.canManage(plan.id());
         this.upgradeButton.setEnabled(false);
         this.repairButton.setEnabled(canManage && RoadRules.canRepair(plan));
-        this.removeButton.setEnabled(canManage);
+        this.removeButton.setEnabled(canManage && RoadRules.canRemove(plan));
         this.editButton.setEnabled(canManage && RoadRules.canToggleEdit(plan));
         this.editButton.setText(Component.literal("Edit Blueprint: "
                 + (plan != null && plan.allowBlueprintEdit() ? "ON" : "OFF")));
+    }
+
+    private void chooseRemoval() {
+        final RoadPlan original=this.plan();
+        if(original==null || !ClientRoadCache.canManage(original.id()) || !RoadRules.canRemove(original)) return;
+        if(original.state()==com.YLFXM.mcreconstruction.road.RoadState.DRAFT) {
+            this.send(RoadControllerActionPayload.Action.REMOVE); return;
+        }
+        final var id=original.id();
+        WindowRoadRemovalChoice.choose(this,instant -> {
+            final RoadPlan current=this.plan();
+            if(current!=null && current.id().equals(id) && ClientRoadCache.canManage(id) && RoadRules.canRemove(current))
+                this.send(instant ? RoadControllerActionPayload.Action.REMOVE_INSTANT : RoadControllerActionPayload.Action.REMOVE);
+        });
     }
 
     private void send(final RoadControllerActionPayload.Action action) {
