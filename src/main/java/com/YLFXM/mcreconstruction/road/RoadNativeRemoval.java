@@ -62,8 +62,10 @@ public final class RoadNativeRemoval {
     public static boolean begin(ServerLevel level, ServerPlayer player, RoadPlan plan, boolean instant) {
         if (!RoadPermissions.canManage(level,player,plan) || !RoadRules.canRemove(plan)
                 || (instant && !player.isCreative())) return false;
-        if(plan.state()==RoadState.DRAFT) {
-            RoadDataCleaner.clear(level,plan);
+        if(RoadCrossings.inUse(level,plan)) {tell(player,"A related road is busy; finish its operation first.");return false;}
+        if(plan.state()==RoadState.DRAFT && plan.appliedGeometry()==null && RoadBlueprintStore.loadApplied(level,plan)==null && plan.interruptedConstruction()==null) {
+            MCReconstruction.LOGGER.info("Road demolition management-only: road={} reason=unbuilt_draft",plan.id());
+            if(!RoadDataCleaner.clear(level,plan)) return false;
             tell(player,"Draft plan, controller and anchor removed; terrain was kept."); return true;
         }
         // A still-running generic native build queue has no cancellation handle.
@@ -71,9 +73,14 @@ public final class RoadNativeRemoval {
             tell(player,"Close or finish the current build session before demolition."); return false;
         }
         RoadBlueprintStore.preserveBuilt(level,plan);
-        Blueprint applied=RoadBlueprintStore.loadApplied(level,plan);
+        Blueprint sourceApplied=RoadJointWork.interruptedRemoval(level,plan,RoadBlueprintStore.loadApplied(level,plan));
+        final Blueprint applied=sourceApplied==null ? null : RoadCrossings.removalMask(level,plan,sourceApplied);
+        MCReconstruction.LOGGER.info("Road demolition targets: road={} source={} protected={} appliedModel={}",plan.id(),
+                sourceApplied==null ? -1:sourceApplied.getBlockInfoAsList().stream().filter(i -> target(i.getState())).count(),
+                applied==null ? -1:applied.getBlockInfoAsList().stream().filter(i -> target(i.getState())).count(),plan.appliedGeometry()!=null);
         if (applied==null) {
-            RoadDataCleaner.clear(level,plan);
+            MCReconstruction.LOGGER.warn("Road demolition management-only: road={} reason=no_proven_applied_snapshot state={}",plan.id(),plan.state());
+            if(!RoadDataCleaner.clear(level,plan)) return false;
             tell(player,"Road management removed; no proven applied snapshot, terrain was kept."); return true;
         }
         if (!loaded(level,plan,applied)) { tell(player,"Load the entire road before starting demolition."); return false; }

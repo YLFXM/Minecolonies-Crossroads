@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿﻿$ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $classes = Join-Path $projectRoot 'build\classes'
 if (-not (Test-Path -LiteralPath $classes)) { throw 'Run build.ps1 first.' }
@@ -29,7 +29,7 @@ if ([string]::IsNullOrWhiteSpace($testClientJar)) {
 if (-not (Test-Path -LiteralPath $testClientJar)) {
     throw 'Set MCRECONSTRUCTION_TEST_CLIENT_JAR to the vanilla Minecraft 1.21.1 client JAR for native blueprint regression resources.'
 }
-foreach ($testClass in @('RoadAuditRegression', 'PreviewLifecycleRegression', 'RoadRepairSessionRegression', 'RoadRemovalSessionRegression', 'Round1Regression', 'InitialConstructionRegression', 'RoadHeightRegression', 'RoadUnitDataRegression', 'com.YLFXM.mcreconstruction.road.RoadStage6FixRegression')) {
+foreach ($testClass in @('RoadPlanningRegression', 'RoadJointRegression', 'RoadStage7Round1Regression', 'com.YLFXM.mcreconstruction.road.RoadStage7Round2Regression', 'com.YLFXM.mcreconstruction.road.RoadStage7Round3Regression', 'com.YLFXM.mcreconstruction.road.RoadStage7Round4Regression', 'com.YLFXM.mcreconstruction.road.RoadStage7Round5Regression', 'com.YLFXM.mcreconstruction.road.RoadStage7Round6Regression', 'RoadAuditRegression', 'PreviewLifecycleRegression', 'RoadRepairSessionRegression', 'RoadRemovalSessionRegression', 'Round1Regression', 'InitialConstructionRegression', 'RoadHeightRegression', 'RoadUnitDataRegression', 'com.YLFXM.mcreconstruction.road.RoadStage6FixRegression')) {
     & $javaExe -cp "$classes;$testClasses;$classpath;$testClientJar" $testClass
     if ($LASTEXITCODE -ne 0) { throw "Regression failed: $testClass" }
 }

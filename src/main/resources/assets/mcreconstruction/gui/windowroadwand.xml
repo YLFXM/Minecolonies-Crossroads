@@ -1,4 +1,4 @@
-<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="300 160"
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="300 208"
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
     <image source="minecolonies:textures/gui/builderhut/builder_paper_sketch.png" size="100% 100%"/>
 
@@ -30,4 +30,7 @@
     <button id="lampUp" size="20 17" pos="180 130"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="+" color="black"/>
+    <button id="autoPlan" size="136 17" pos="8 153" source="minecolonies:textures/gui/builderhut/builder_button_large.png" label="$(mcreconstruction.gui.auto_plan)" color="black"/>
+    <button id="crossings" size="136 17" pos="152 153" source="minecolonies:textures/gui/builderhut/builder_button_large.png" label="$(mcreconstruction.gui.crossings)" color="black"/>
+    <text id="planning" size="280 26" pos="10 176" color="red" textscale="0.8"/>
 </window>

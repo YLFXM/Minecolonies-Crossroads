@@ -38,6 +38,7 @@ import net.minecraft.world.level.storage.LevelResource;
  * saved only after actual completion and are the only basis for world removal.
  */
 public final class RoadBlueprintStore {
+    private static final java.util.Set<java.util.UUID> WARNED=java.util.concurrent.ConcurrentHashMap.newKeySet();
     public static Path directory(final ServerLevel level) {
         final MinecraftServer server = level.getServer();
         return server.getWorldPath(LevelResource.ROOT).resolve("mcreconstruction").resolve("blueprints");
@@ -56,14 +57,32 @@ public final class RoadBlueprintStore {
     }
 
     public static boolean saveAppliedChecked(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
-        if(blueprint==null || !write(appliedFile(level,plan),plan,blueprint)) return false;
-        plan.setAppliedBounds(occupiedBounds(plan,blueprint)); return true;
+        return saveAppliedChecked(level,plan,blueprint,plan.repairSession()==null ? plan : plan.repairSession().target());
+    }
+    public static boolean saveAppliedChecked(final ServerLevel level,final RoadPlan live,final Blueprint blueprint,final RoadPlan actual) {
+        if(blueprint==null || !write(appliedFile(level,live),live,blueprint))return false;
+        live.setAppliedBounds(occupiedBounds(actual,blueprint));live.setAppliedGeometry(actual.geometrySnapshot());return true;
     }
 
     public static Blueprint loadApplied(final ServerLevel level, final RoadPlan plan) {
         final Blueprint blueprint=read(level,plan,appliedFile(level,plan));
         if(blueprint!=null) plan.setAppliedBounds(occupiedBounds(plan,blueprint));
         return blueprint;
+    }
+
+    /** Geometry of actual applied content, never a neighbor's pending proposal. */
+    public static RoadPlan appliedPlan(final ServerLevel level,final RoadPlan plan) {
+        if(loadApplied(level,plan)==null) return null;
+        if(plan.appliedGeometry()!=null) return RoadPlan.load(plan.appliedGeometry());
+        if(plan.state()!=RoadState.BUILT) {
+            // No verifiable actual geometry (legacy snapshot, or state lost after an edit).
+            // Treat it as unavailable so this road can still be repaired; callers stay conservative.
+            if(WARNED.add(plan.id()))MCReconstruction.LOGGER.warn("Actual geometry unavailable for {} (state {}); treating it as unbuilt until a successful commit captures it.",plan.displayName(),plan.state());
+            return null;
+        }
+        RoadPlan actual=RoadPlan.load(plan.geometrySnapshot()); actual.adoptPendingRows(java.util.Map.of());
+        plan.setAppliedGeometry(actual.geometrySnapshot());RoadManager.get(level).add(plan);
+        return actual;
     }
 
     public static void ensureAppliedBounds(final ServerLevel level, final RoadPlan plan) {
@@ -90,6 +109,10 @@ public final class RoadBlueprintStore {
         if (plan.state() == RoadState.BUILT && !Files.isRegularFile(appliedFile(level, plan))) {
             saveApplied(level, plan, load(level, plan));
         }
+        if(plan.state()==RoadState.BUILT && plan.appliedGeometry()==null && loadApplied(level,plan)!=null) {
+            RoadPlan actual=RoadPlan.load(plan.geometrySnapshot());actual.adoptPendingRows(java.util.Map.of());
+            plan.setAppliedGeometry(actual.geometrySnapshot());RoadManager.get(level).add(plan);
+        }
     }
 
     public static void save(final ServerLevel level, final RoadPlan plan, final Blueprint blueprint) {
@@ -104,7 +127,7 @@ public final class RoadBlueprintStore {
         try {
             Files.createDirectories(path.getParent());
             final CompoundTag tag = BlueprintUtil.writeBlueprintToNBT(blueprint);
-            NbtIo.writeCompressed(tag, path);
+            RoadAtomicNbt.write(path,tag);
             return true;
         } catch (final IOException ex) {
             MCReconstruction.LOGGER.error("Could not save road blueprint for {}", plan.id(), ex);

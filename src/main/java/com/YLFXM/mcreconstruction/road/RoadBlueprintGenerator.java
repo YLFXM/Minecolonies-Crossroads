@@ -97,16 +97,32 @@ public final class RoadBlueprintGenerator {
 
     public static Blueprint generate(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight,
                                      final net.minecraft.server.level.ServerPlayer player) {
-        try { return generateChecked(plan,level,lampReserveHeight); }
+        return generate(plan,level,lampReserveHeight,player,true);
+    }
+
+    /** Ghost refreshes rebuild the image constantly; a persistent failure must not chat or log on every tick. */
+    public static Blueprint generateQuiet(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight,
+                                          final net.minecraft.server.level.ServerPlayer player) {
+        return generate(plan,level,lampReserveHeight,player,false);
+    }
+
+    private static Blueprint generate(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight,
+                                      final net.minecraft.server.level.ServerPlayer player, final boolean notify) {
+        try { if(player!=null)plan.planning().planner(player.getUUID());return generateChecked(plan,level,lampReserveHeight); }
         catch(final RuntimeException ex) {
-            MCReconstruction.LOGGER.error("Road generation refused: road={} reason={}",plan.id(),ex.getMessage());
-            if(player!=null) player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
-                    "mcreconstruction.generation_failed",ex.getMessage()),false);
+            if(notify)MCReconstruction.LOGGER.error("Road generation refused: road={} reason={}",plan.id(),ex.getMessage());
+            else MCReconstruction.LOGGER.debug("Road generation deferred: road={} reason={}",plan.id(),ex.getMessage());
+            if(notify && player!=null) RoadNotices.send(player,plan.id(),"generation:"+ex.getMessage(),
+                    net.minecraft.network.chat.Component.translatable("mcreconstruction.generation_failed",ex.getMessage()));
             return null;
         }
     }
 
     private static Blueprint generateChecked(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight) {
+        if(!RoadCrossings.hasScope())return RoadJointWork.singlePreview(level,plan,lampReserveHeight);
+        Blueprint result=raw(plan,level,lampReserveHeight); RoadCrossings.decorate(level,plan,result); return result;
+    }
+    public static Blueprint raw(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight) {
         if(!RoadUnitLibrary.supports(plan.pack(),plan.variant(),plan.width()))
             throw new IllegalArgumentException("No bundled road unit matches this plan's style, variant and width.");
         final RoadUnit unit = resolveUnit(plan);
@@ -225,8 +241,10 @@ public final class RoadBlueprintGenerator {
                                      final int originY, final UnitTemplate lamp,
                                      final int spacing, final BlockPos anchorPos,
                                      final ServerLevel level, final RoadHeightProfile profile) {
+        final var suppressed=RoadCrossings.suppressedLamps(level,plan,lamp,profile);
         final Direction.Axis roadAxis = plan.segments().get(0).axis();
         int minAlong = Integer.MAX_VALUE;
+        final var forced=RoadCrossings.forcedLamps(level,plan);
         for (final RoadSegment segment : plan.segments()) {
             final int along = roadAxis == Direction.Axis.X
                     ? segment.start().getX() : segment.start().getZ();
@@ -240,6 +258,7 @@ public final class RoadBlueprintGenerator {
         final int side = plan.widthSide() >= 0 ? 1 : -1;
         int dropped = 0;
         BlockPos firstLamp = null;
+        final java.util.Map<Integer,Boolean> lampRows = new java.util.TreeMap<>();
 
         for (final RoadSegment segment : plan.segments()) {
             final int length = segment.length();
@@ -255,9 +274,12 @@ public final class RoadBlueprintGenerator {
                 // floorMod, not %: the offset to the anchor is negative for the
                 // half of the road before it, and % would return a negative
                 // remainder and silently skip every lamp there.
-                if (Math.floorMod(along - anchorAlong, spacing) != 0) {
+                if (!forced.contains(roadAxis==Direction.Axis.X ? baseX : baseZ) && Math.floorMod(along - anchorAlong, spacing) != 0) {
                     continue;
                 }
+                if(suppressed.contains(roadAxis==Direction.Axis.X ? baseX : baseZ)) {lampRows.put(roadAxis==Direction.Axis.X ? baseX : baseZ,false);plan.planning().lamps(lampRows);continue;}
+                lampRows.put(roadAxis==Direction.Axis.X ? baseX : baseZ,true);
+                plan.planning().lamps(lampRows);
                 if (firstLamp == null) {
                     firstLamp = new BlockPos(baseX, baseY, baseZ);
                 }

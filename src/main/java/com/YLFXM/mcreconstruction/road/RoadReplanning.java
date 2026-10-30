@@ -24,6 +24,12 @@ import net.minecraft.core.Direction;
 
 /** Shared geometry validation and identity/diff transfer; performs no world writes. */
 public final class RoadReplanning {
+    /** A preview is the same owned draft, not a new anonymous road. */
+    public static RoadPlan draftPreview(RoadPlan old,RoadPlan candidate,UUID actor,boolean mirror) {
+        inherit(old,candidate,actor,true);candidate.setMirror(mirror);
+        if(!old.segments().isEmpty() && old.axis()!=candidate.axis())candidate.clearRowOverrides();
+        return candidate;
+    }
     public static BlockPos[] orient(final RoadPlan old, final BlockPos a, final BlockPos b) {
         if (old == null || RoadRules.canCreate(old)) return new BlockPos[]{a, b};
         final boolean x = old.axis() == Direction.Axis.X;
@@ -62,6 +68,9 @@ public final class RoadReplanning {
         plan.setRoadName(old.roadName());
         plan.setAllowBlueprintEdit(old.allowBlueprintEdit());
         plan.setAppliedBounds(old.appliedBounds());
+        plan.setAppliedGeometry(old.appliedGeometry());
+        plan.setInterruptedConstruction(old.interruptedConstruction());
+        plan.adoptPlanning(old.planning());
         plan.setState(keepDraft && RoadRules.canCreate(old) ? RoadState.DRAFT : RoadState.PLANNED);
         plan.setWalkRange(old.walkRange());
         plan.adoptCommittedRows(old.rowOverrides());
@@ -69,14 +78,19 @@ public final class RoadReplanning {
         if (!plan.segments().isEmpty()) plan.stageRemap(plan.minAlong(), plan.maxAlong());
     }
 
-    /** Accept only the row filtering of a successfully generated draft preview.
-     * Geometry stays local/unconfirmed; neither state nor the committed table is changed. */
+    /** Save referenceable candidate geometry; it remains DRAFT and never commits rows/world blocks. */
     public static boolean acceptDraftRows(final RoadPlan draft, final RoadPlan preview) {
         if (!RoadRules.canCreate(draft) || !RoadRules.canEdit(draft)) return false;
         preview.stageRemap(preview.minAlong(), preview.maxAlong());
         if (draft.pendingRows().equals(preview.pendingRows())
+                && draft.planning().save().equals(preview.planning().save())
+                && draft.segments().equals(preview.segments()) && draft.mirror()==preview.mirror()
+                && java.util.Objects.equals(draft.endpointA(),preview.endpointA()) && java.util.Objects.equals(draft.endpointB(),preview.endpointB())
                 && draft.lastDroppedRows() == preview.lastDroppedRows()) return false;
+        draft.clearSegments();preview.segments().forEach(draft::addSegment);
+        draft.setEndpoints(preview.endpointA(),preview.endpointB());draft.setTravelDir(preview.travelDir());draft.setMirror(preview.mirror());
         draft.adoptPendingRows(preview.pendingRows());
+        draft.adoptPlanning(preview.planning());
         draft.setLastDroppedRows(preview.lastDroppedRows());
         return true;
     }

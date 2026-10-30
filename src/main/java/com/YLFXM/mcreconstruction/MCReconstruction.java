@@ -43,6 +43,7 @@ public final class MCReconstruction {
         ModRegistry.register(modEventBus);
         modEventBus.addListener(Network::register);
         RoadAnchorSurvivalHandler.register();
+        com.YLFXM.mcreconstruction.road.RoadProtectedIterator.register();
         container.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
     }
 }

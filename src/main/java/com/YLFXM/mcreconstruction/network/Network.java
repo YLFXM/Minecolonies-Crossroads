@@ -73,7 +73,10 @@ public final class Network {
     private static final String BUILD_TOOL_PREVIEW_KEY = "blueprint";
 
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("8");
+        final var registrar = event.registrar("10");
+        registrar.playToServer(RoadPlanningPayload.TYPE,RoadPlanningPayload.CODEC,(payload,context) ->
+                context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
+                    com.YLFXM.mcreconstruction.road.RoadPlanningActions.handle(player,payload); }));
         registrar.playToServer(RequestRoadsPayload.TYPE, RequestRoadsPayload.CODEC, Network::handleRequest);
         registrar.playToServer(ConfigureRoadPayload.TYPE, ConfigureRoadPayload.CODEC, Network::handleConfigure);
         registrar.playToServer(RoadBulkActionPayload.TYPE, RoadBulkActionPayload.CODEC, Network::handleBulkAction);
@@ -144,7 +147,7 @@ public final class Network {
             final RoadPlan boundPlan = RoadManager.get(level).findByController(controllerPos);
             if (boundPlan == null || !boundPlan.id().equals(payload.roadId())) return;
             if (boundPlan != null && (!canManageRoad(level, player, boundPlan)
-                    || !RoadRules.canEdit(boundPlan) || findBoundWand(player, controllerPos) == null)) {
+                    || !RoadRules.canEdit(boundPlan) || com.YLFXM.mcreconstruction.road.RoadCrossings.inUse(level,boundPlan) || findBoundWand(player, controllerPos) == null)) {
                 MCReconstruction.LOGGER.info("Road preview refused: bound/state/permission check at {}", controllerPos);
                 return;
             }
@@ -171,7 +174,9 @@ public final class Network {
             final BlockPos[] ends = orientEndpoints(existing, payload.a(), payload.b());
             final BlockPos a = ends[0];
             final BlockPos b = ends[1];
-            final Direction facing = directionBetween(a, b);
+            // Preview and construction must identify the same real controller; A-to-B
+            // belongs to travelDir, never to the controller's immutable facing.
+            final Direction facing = boundPlan.controllerFacing();
 
             RoadPlan plan;
             if (existing != null
@@ -193,10 +198,7 @@ public final class Network {
                             width, Math.min(2, width), effectiveWidthSide,
                             Math.max(0, payload.lampSpacing()));
                     plan = result.plan();
-                    plan.setMirror(mirror);
-                    if (boundPlan.axis() == plan.axis() || boundPlan.segments().isEmpty()) {
-                        plan.adoptCommittedRows(boundPlan.rowOverrides()); plan.adoptPendingRows(boundPlan.pendingRows());
-                    }
+                    RoadReplanning.draftPreview(boundPlan,plan,player.getUUID(),mirror);
                 } catch (final IllegalArgumentException ex) {
                     // Selection is not a road yet (diagonal, too long, anchor off
                     // the line). The client keeps its last preview; no chat noise.
@@ -204,7 +206,17 @@ public final class Network {
                 }
             }
 
-            final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
+            com.YLFXM.mcreconstruction.road.RoadCrossingConsent.inspect(level,player,plan);
+            if (RoadRules.canCreate(boundPlan)) {
+                try { com.YLFXM.mcreconstruction.road.RoadAutoPlanning.initialize(level,plan,false); }
+                catch (IllegalArgumentException ex) {
+                    plan.planning().sample(com.YLFXM.mcreconstruction.road.RoadAutoPlanning.geometryKey(plan),new int[0]);
+                    plan.planning().relationshipKey(com.YLFXM.mcreconstruction.road.RoadAutoPlanning.relationshipKey(level,plan));
+                    plan.planning().issue(ex.getMessage());
+                }
+            }
+            final int oldPlanningRevision=plan.planning().revision();
+            final Blueprint blueprint = RoadBlueprintGenerator.generateQuiet(plan, level,
                     Config.defaultLampReserveHeight(),player);
             if (blueprint == null) {
                 return;
@@ -214,7 +226,10 @@ public final class Network {
             // still temporary and this never consumes Create or commits rows.
             if (RoadReplanning.acceptDraftRows(boundPlan, plan)) {
                 RoadManager.get(level).add(boundPlan);
-                sendRoads(player, colony);
+                RoadBlueprintStore.saveChecked(level,boundPlan,blueprint);
+                level.players().forEach(Network::sendRoads);
+            } else if(plan==boundPlan && oldPlanningRevision!=plan.planning().revision()) {
+                RoadManager.get(level).add(plan);sendRoads(player,colony);
             }
             // The preview position is the anchor itself, NOT anchor - offset.
             // Structurize's BlueprintPreviewData.setPos takes the world position
@@ -226,6 +241,14 @@ public final class Network {
             // Placing real blocks is the opposite case: that path needs
             // anchor - offset to compute the minimum corner.
             final BlockPos origin = plan.anchorPos();
+            Blueprint shown=blueprint;
+            if(!payload.jointPeer().equals(new UUID(0,0))) {
+                try {shown=com.YLFXM.mcreconstruction.road.RoadJointWork.preview(level,player,plan,payload.jointPeer());}
+                catch(IllegalArgumentException ex) {
+                    MCReconstruction.LOGGER.info("Joint preview refused for {}: {}",plan.id(),ex.getMessage());
+                    player.displayClientMessage(net.minecraft.network.chat.Component.translatable("mcreconstruction.preview.joint_failed",ex.getMessage()),true);
+                }
+            }
             // One line per preview (the client de-duplicates, so this is not
             // per-frame). It is the quickest way to tell a content problem from
             // a placement problem: the ghost starts at origin - primaryOffset.
@@ -234,7 +257,7 @@ public final class Network {
                     plan.id(), origin, blueprint.getSizeX(), blueprint.getSizeY(),
                     blueprint.getSizeZ(), blueprint.getPrimaryBlockOffset());
             PacketDistributor.sendToPlayer(player, new RoadPreviewPayload(
-                    com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint),
+                    com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(shown),
                     origin, payload.sequence(), boundPlan.id(), level.dimension().location().toString()));
         });
     }
@@ -312,7 +335,7 @@ public final class Network {
         plan.setMirror(mirror);
         reportRemap(player, old, plan);
 
-        final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
+        final Blueprint blueprint = RoadBlueprintGenerator.generateQuiet(plan, level,
                 Config.defaultLampReserveHeight(),player);
         if (blueprint == null) {
             return null;
@@ -366,7 +389,7 @@ public final class Network {
                 MCReconstruction.LOGGER.info("Road cell edit ignored: no plan at {}", controllerPos);
                 return;
             }
-            if (!canManageRoad(level, player, plan) || !RoadRules.canEdit(plan)) {
+            if (!canManageRoad(level, player, plan) || com.YLFXM.mcreconstruction.road.RoadCrossings.inUse(level,plan) || !RoadRules.canEdit(plan)) {
                 MCReconstruction.LOGGER.info("Road cell edit refused: road {} is locked or under construction", plan.id());
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
                         "This road is locked or under construction."), false);
@@ -413,10 +436,18 @@ public final class Network {
                 case STAIR_UP -> com.YLFXM.mcreconstruction.road.CellType.STAIR_DOWN;
                 case STAIR_DOWN -> com.YLFXM.mcreconstruction.road.CellType.FLAT;
             };
+            if(next!=com.YLFXM.mcreconstruction.road.CellType.FLAT
+                    && com.YLFXM.mcreconstruction.road.RoadCrossings.flatLocked(level,plan,row)) {
+                com.YLFXM.mcreconstruction.road.RoadNotices.send(player,plan.id(),"flat",net.minecraft.network.chat.Component.literal("This junction row must remain flat; use layered crossing settings to pass above or below."));
+                return;
+            }
             // Validate a proposal copy; a rejected height/volume change must not
             // mutate the live plan's pending rows or stop its controller guard.
             plan=RoadPlan.load(plan.save());
             plan.setRowType(row, next);
+            plan.planning().manual(row,next);
+            try {com.YLFXM.mcreconstruction.road.RoadAutoPlanning.initialize(level,plan,true);}
+            catch(IllegalArgumentException ex) {plan.planning().issue(ex.getMessage());}
 
             final Blueprint blueprint = RoadBlueprintGenerator.generate(plan, level,
                     Config.defaultLampReserveHeight(),player);
@@ -465,7 +496,7 @@ public final class Network {
             if (plan == null) {
                 return;
             }
-            if (!canManageRoad(level, player, plan) || !RoadRules.canToggleEdit(plan)) return;
+            if (!canManageRoad(level, player, plan) || com.YLFXM.mcreconstruction.road.RoadCrossings.inUse(level,plan) || !RoadRules.canToggleEdit(plan)) return;
             plan.setAllowBlueprintEdit(payload.allow());
             RoadManager.get(level).add(plan);
             sendRoads(player, colony);
@@ -490,6 +521,10 @@ public final class Network {
             // bounded by Config.maxRoadLength.
 
             final RoadPlacementMode mode = payload.mode();
+            if(!RoadRules.isPlanningCommand(mode)) {
+                player.displayClientMessage(net.minecraft.network.chat.Component.translatable("mcreconstruction.construction.native_required"),false);
+                return; // Legacy direct placement must not bypass frozen crossing consent.
+            }
             final boolean creativeInstant = mode != RoadPlacementMode.SURVIVAL
                     && mode != RoadPlacementMode.PLAN
                     && Config.creativeInstantBuild() && player.isCreative();
@@ -520,6 +555,7 @@ public final class Network {
                 return;
             }
             if (!canManageRoad(level, player, old)
+                    || com.YLFXM.mcreconstruction.road.RoadCrossings.inUse(level,old)
                     || !(mode == RoadPlacementMode.PLAN ? RoadRules.canCreate(old) : RoadRules.canEdit(old))) {
                 MCReconstruction.LOGGER.info("Road configure refused: plan={} state={} mode={}", old.id(), old.state(), mode);
                 player.displayClientMessage(net.minecraft.network.chat.Component.literal(
@@ -755,7 +791,7 @@ public final class Network {
                 }
                 if (payload.removeBlocks()) {
                     if (com.YLFXM.mcreconstruction.road.RoadRemover.remove(level,player,plan,payload.instant())) cleared++;
-                } else { RoadDataCleaner.clear(level,plan); cleared++; }
+                } else { if(RoadDataCleaner.clear(level,plan)) cleared++; else denied++; }
             }
             sendRoads(player, scope);
             final int count = cleared;
@@ -1176,16 +1212,35 @@ public final class Network {
         // Which roads this player may act on; the client only uses it to grey out
         // buttons, every action is re-checked server side.
         final ListTag manageable = new ListTag();
+        final RoadPlan relationOrigin=RoadManager.get(level).findByController(com.YLFXM.mcreconstruction.road.RoadWandBinding.heldController(player.getInventory()));
         for (final RoadPlan plan : RoadManager.get(level).all()) {
             final com.minecolonies.api.colony.IColony owner = IColonyManager.getInstance()
                     .getColonyByPosFromWorld(level, plan.controllerPos());
-            if (!isVisibleTo(plan, owner, player)) continue;
+            final boolean visible=isVisibleTo(plan,owner,player);
+            final boolean relationOnly=!visible && relationOrigin!=null && !relationOrigin.id().equals(plan.id())
+                    && canManageRoad(level,player,relationOrigin) && !relationOrigin.segments().isEmpty() && !plan.segments().isEmpty()
+                    && com.YLFXM.mcreconstruction.road.RoadJointWork.potentialOverlap(relationOrigin,plan);
+            if(!visible && !relationOnly)continue;
             final boolean inScope = colony != null
                     ? owner == null || owner.getID() == colony.getID()
                     : !wildernessOnly || owner == null;
-            if (inScope) surveyIds.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
+            if (inScope && !relationOnly) surveyIds.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
             RoadBlueprintStore.ensureAppliedBounds(level,plan);
-            list.add(plan.saveForSync());
+            final CompoundTag sync;
+            if(relationOnly) {
+                boolean candidateOverlap=com.YLFXM.mcreconstruction.road.RoadCrossingGeometry.body(relationOrigin).intersect(
+                        com.YLFXM.mcreconstruction.road.RoadCrossingGeometry.body(plan))!=null;
+                sync=(candidateOverlap ? plan:com.YLFXM.mcreconstruction.road.RoadCrossings.reference(level,plan)).saveForSync();
+                var planning=new CompoundTag();var original=sync.getCompound("planning");
+                planning.put("pairs",original.getList("pairs",10).copy());planning.put("spanFloors",original.getList("spanFloors",10).copy());
+                planning.put("localPairs",original.getList("localPairs",10).copy());
+                sync.put("planning",planning);sync.remove("creator");sync.putBoolean("relationOnly",true);
+                sync.putString("state",plan.state().name());sync.putBoolean("allowBlueprintEdit",plan.allowBlueprintEdit());
+                if(plan.appliedBounds()!=null)sync.put("appliedBounds",plan.appliedBounds().save());
+            } else sync=plan.saveForSync();
+            sync.putBoolean("repairBusy",plan.isRepairBusy() || com.YLFXM.mcreconstruction.road.RoadCrossings.inUse(level,plan));
+            if(relationOrigin!=null && relationOrigin.id().equals(plan.id()) && canManageRoad(level,player,plan))com.YLFXM.mcreconstruction.road.RoadCrossingConsent.addAccessSync(level,player,plan,sync);
+            list.add(sync);
             if (canManageRoad(level, player, plan)) {
                 manageable.add(net.minecraft.nbt.StringTag.valueOf(plan.id().toString()));
             }

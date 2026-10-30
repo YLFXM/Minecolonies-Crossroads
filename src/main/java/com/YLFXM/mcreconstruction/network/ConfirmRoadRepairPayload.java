@@ -26,11 +26,14 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 public record ConfirmRoadRepairPayload(UUID planId, UUID token, int mode, String handler,
-                                      String pack, String path, BlockPos pos, int rotation) implements CustomPacketPayload {
+                                      String pack, String path, BlockPos pos, int rotation,boolean jointApproved) implements CustomPacketPayload {
     public static final Type<ConfirmRoadRepairPayload> TYPE=new Type<>(ResourceLocation.fromNamespaceAndPath("mcreconstruction","confirm_road_repair"));
     public static final StreamCodec<RegistryFriendlyByteBuf,ConfirmRoadRepairPayload> CODEC=StreamCodec.of(
         (b,p)->{b.writeUUID(p.planId());b.writeUUID(p.token());b.writeVarInt(p.mode());b.writeUtf(p.handler());
-            b.writeUtf(p.pack());b.writeUtf(p.path());b.writeBlockPos(p.pos());b.writeVarInt(p.rotation());},
-        b->new ConfirmRoadRepairPayload(b.readUUID(),b.readUUID(),b.readVarInt(),b.readUtf(),b.readUtf(),b.readUtf(),b.readBlockPos(),b.readVarInt()));
+            b.writeUtf(p.pack());b.writeUtf(p.path());b.writeBlockPos(p.pos());b.writeVarInt(p.rotation());b.writeBoolean(p.jointApproved());},
+        b->new ConfirmRoadRepairPayload(b.readUUID(),b.readUUID(),b.readVarInt(),b.readUtf(),b.readUtf(),b.readUtf(),b.readBlockPos(),b.readVarInt(),b.readBoolean()));
+    public ConfirmRoadRepairPayload(UUID plan,UUID token,int mode,String handler,String pack,String path,BlockPos pos,int rotation) {
+        this(plan,token,mode,handler,pack,path,pos,rotation,false);
+    }
     @Override public Type<? extends CustomPacketPayload> type(){return TYPE;}
 }

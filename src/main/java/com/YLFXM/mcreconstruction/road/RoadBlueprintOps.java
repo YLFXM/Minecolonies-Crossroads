@@ -42,6 +42,9 @@ public final class RoadBlueprintOps {
         final var id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         return "structurize".equals(id.getNamespace()) && "blocksolidsubstitution".equals(id.getPath());
     }
+    public static boolean isStair(final BlockState state) {
+        return state.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.STAIRS_SHAPE);
+    }
 
     public static boolean isConcrete(final BlockState state) {
         return !state.isAir() && !isPlaceholder(state);

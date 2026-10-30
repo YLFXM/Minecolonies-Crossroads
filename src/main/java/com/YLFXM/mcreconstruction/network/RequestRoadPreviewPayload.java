@@ -40,7 +40,8 @@ public record RequestRoadPreviewPayload(BlockPos controllerPos,
                                         boolean mirror,
                                         int width,
                                         int lampSpacing,
-                                        long sequence, java.util.UUID roadId) implements CustomPacketPayload {
+                                        long sequence, java.util.UUID roadId,java.util.UUID jointPeer) implements CustomPacketPayload {
+    public RequestRoadPreviewPayload(BlockPos controller,BlockPos anchor,BlockPos a,BlockPos b,boolean mirror,int width,int lamps,long sequence,java.util.UUID road) {this(controller,anchor,a,b,mirror,width,lamps,sequence,road,new java.util.UUID(0,0));}
     public static final Type<RequestRoadPreviewPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(MCReconstruction.MODID, "request_road_preview"));
 
@@ -55,6 +56,7 @@ public record RequestRoadPreviewPayload(BlockPos controllerPos,
                 buf.writeVarInt(Math.max(0, payload.lampSpacing()));
                 buf.writeLong(payload.sequence());
                 buf.writeUUID(payload.roadId());
+                buf.writeUUID(payload.jointPeer());
             },
             buf -> new RequestRoadPreviewPayload(
                     buf.readBlockPos(),
@@ -64,7 +66,7 @@ public record RequestRoadPreviewPayload(BlockPos controllerPos,
                     buf.readBoolean(),
                     buf.readVarInt(),
                     buf.readVarInt(),
-                    buf.readLong(), buf.readUUID()));
+                    buf.readLong(), buf.readUUID(),buf.readUUID()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

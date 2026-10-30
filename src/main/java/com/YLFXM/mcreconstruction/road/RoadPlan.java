@@ -133,7 +133,7 @@ public final class RoadPlan {
     public boolean isRepairBusy() { return repairSession != null || repairBusy; }
     public CompoundTag saveForSync() {
         final CompoundTag tag=save();
-        tag.remove("removalSession"); tag.remove("repairSession"); tag.putBoolean("repairBusy",isRepairBusy());
+        tag.remove("removalSession"); tag.remove("repairSession"); tag.remove("appliedGeometry"); tag.remove("interruptedConstruction");tag.putBoolean("interrupted",hasInterruptedConstruction()); tag.putBoolean("repairBusy",isRepairBusy());
         return tag;
     }
 
@@ -621,6 +621,7 @@ public final class RoadPlan {
             }
         }
         lastDroppedRows = dropped;
+        planning.prune(newMin,newMax);
         return dropped;
     }
 
@@ -657,10 +658,27 @@ public final class RoadPlan {
     }
 
     public void clearRowOverrides() {
+        planning.clearRows();
         rowOverrides.clear();
         pendingRows = null;
         lastDroppedRows = 0;
     }
+
+    private CompoundTag interruptedConstruction;
+    private boolean interrupted;
+    public boolean hasInterruptedConstruction() {return interruptedConstruction!=null || interrupted;}
+    public CompoundTag interruptedConstruction() {return interruptedConstruction==null ? null : interruptedConstruction.copy();}
+    public void setInterruptedConstruction(CompoundTag value) {interruptedConstruction=value==null ? null : value.copy();interrupted=false;}
+    private CompoundTag appliedGeometry;
+    public CompoundTag appliedGeometry() { return appliedGeometry==null ? null : appliedGeometry.copy(); }
+    public void setAppliedGeometry(CompoundTag value) { appliedGeometry=value==null ? null : value.copy(); }
+    public CompoundTag geometrySnapshot() {
+        CompoundTag tag=save(); tag.remove("appliedGeometry");tag.remove("interruptedConstruction");tag.remove("repairSession");tag.remove("removalSession");
+        return tag;
+    }
+    private RoadPlanningState planning=new RoadPlanningState();
+    public RoadPlanningState planning() { return planning; }
+    public void adoptPlanning(RoadPlanningState value) { planning=RoadPlanningState.load(value.save()); }
 
     private int alongOf(final BlockPos pos) {
         return axis() == Direction.Axis.X ? pos.getX() : pos.getZ();
@@ -728,6 +746,9 @@ public final class RoadPlan {
             tag.put("pendingRows", pending);
         }
         tag.putInt("lastDroppedRows", lastDroppedRows);
+        tag.put("planning",planning.save());
+        if(appliedGeometry!=null) tag.put("appliedGeometry",appliedGeometry.copy());
+        if(interruptedConstruction!=null)tag.put("interruptedConstruction",interruptedConstruction.copy());
         if(appliedBounds!=null) tag.put("appliedBounds",appliedBounds.save());
         if (removalSession != null) tag.put("removalSession",removalSession.save());
         if (repairSession != null) tag.put("repairSession",repairSession.save());
@@ -816,7 +837,11 @@ public final class RoadPlan {
         if(tag.contains("appliedBounds",10)) plan.appliedBounds=RoadBounds.load(tag.getCompound("appliedBounds"));
         if (tag.contains("removalSession",10)) plan.removalSession=RoadRemovalSession.load(tag.getCompound("removalSession"));
         plan.repairBusy=tag.getBoolean("repairBusy");
+        plan.interrupted=tag.getBoolean("interrupted");
         if (tag.contains("repairSession",10)) plan.repairSession=RoadRepairSession.load(tag.getCompound("repairSession"));
+        if(tag.contains("interruptedConstruction",10))plan.interruptedConstruction=tag.getCompound("interruptedConstruction").copy();
+        if(tag.contains("appliedGeometry",10)) plan.appliedGeometry=tag.getCompound("appliedGeometry").copy();
+        if(tag.contains("planning",10)) plan.planning=RoadPlanningState.load(tag.getCompound("planning"));
         return plan;
     }
 

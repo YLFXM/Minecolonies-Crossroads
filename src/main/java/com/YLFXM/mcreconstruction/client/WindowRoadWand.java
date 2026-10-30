@@ -53,6 +53,9 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
     private final Button mirrorButton;
     private final Button planButton;
     private final Button clearButton;
+    private final Button autoButton;
+    private final Button crossingButton;
+    private final Text planningText;
     /** Read-only display of the current lamp spacing between the -/+ buttons. */
     private final Button lampValueButton;
     private boolean mirror;
@@ -67,6 +70,14 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         this.mirrorButton = this.findPaneOfTypeByID("mirror", Button.class);
         this.planButton = this.findPaneOfTypeByID("plan", Button.class);
         this.clearButton = this.findPaneOfTypeByID("clear", Button.class);
+        this.autoButton=this.findPaneOfTypeByID("autoPlan",Button.class);
+        this.crossingButton=this.findPaneOfTypeByID("crossings",Button.class);
+        this.planningText=this.findPaneOfTypeByID("planning",Text.class);
+        this.autoButton.setColors(0x000000,0x9A9A9A,0x000000);
+        this.crossingButton.setColors(0x000000,0x9A9A9A,0x000000);
+        this.registerButton("autoPlan",button -> sendPlanning(0,new java.util.UUID(0,0),0));
+        this.registerButton("crossings",button -> { final RoadPlan current=this.boundPlan(this.boundController());
+            if(current!=null) {this.close();new WindowRoadCrossings(current.id()).open();} });
         this.lampValueButton = this.findPaneOfTypeByID("lampValue", Button.class);
         final RoadPlan bound = this.boundPlan(this.boundController());
         if (bound != null) RoadSelectionClient.bindTo(bound);
@@ -85,7 +96,12 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
             RoadSelectionClient.setMirror(this.mirror);
             this.mirrorButton.setText(Component.literal("Mirror: " + (this.mirror ? "on" : "off")));
         });
-        this.registerButton("clear", button -> RoadSelectionClient.clear());
+        this.registerButton("clear", button -> {
+            final RoadPlan current=this.boundPlan(this.boundController());
+            if(current!=null && current.state()==RoadState.DRAFT)PacketDistributor.sendToServer(new com.YLFXM.mcreconstruction.network.RoadPlanningPayload(
+                    current.id(),current.controllerPos(),BlockPos.ZERO,BlockPos.ZERO,RoadSelectionClient.mirror(),4,new java.util.UUID(0,0),0));
+            RoadSelectionClient.clear();
+        });
         this.registerButton("lampDown", button -> this.adjustLampSpacing(-1));
         this.registerButton("lampUp", button -> this.adjustLampSpacing(1));
     }
@@ -155,6 +171,9 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
                 && RoadRules.canCreate(plan) && allowed);
         this.mirrorButton.setEnabled(!locked && allowed);
         this.clearButton.setEnabled(!locked);
+        this.autoButton.setEnabled(!locked && allowed && RoadSelectionClient.hasBoth());
+        this.crossingButton.setEnabled(plan!=null && allowed && !plan.segments().isEmpty());
+        this.planningText.setText(Component.literal(plan==null ? "" : plan.planning().issue()));
 
         // Logged only when the combination changes. When a button stays grey the
         // reason is one of these four values, and guessing which one wasted a
@@ -210,6 +229,13 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         if (mode != RoadPlacementMode.CONFIGURE) {
             this.close();
         }
+    }
+
+    private void sendPlanning(int action,java.util.UUID other,int mode) {
+        final RoadPlan plan=this.boundPlan(this.boundController());
+        if(plan==null || !RoadSelectionClient.hasBoth()) return;
+        PacketDistributor.sendToServer(new com.YLFXM.mcreconstruction.network.RoadPlanningPayload(plan.id(),plan.controllerPos(),
+                RoadSelectionClient.a(),RoadSelectionClient.b(),RoadSelectionClient.mirror(),action,other,mode));
     }
 
     private RoadPlan boundPlan(final BlockPos controller) {

@@ -143,6 +143,9 @@ public final class RoadBuildWatcher {
 
     public static void markBuilt(final ServerLevel level, final RoadPlan plan) {
         RoadBlueprintStore.saveApplied(level, plan, RoadBlueprintStore.load(level, plan));
+        markBuiltAfterSnapshot(level,plan);
+    }
+    public static void markBuiltAfterSnapshot(final ServerLevel level,final RoadPlan plan) {
         RoadControllerMigration.migrate(level, plan);
         plan.setState(RoadState.BUILT);
         RoadManager.get(level).add(plan);

@@ -20,23 +20,29 @@ package com.YLFXM.mcreconstruction.road;
 
 /** Pure road-state policy shared by the UI and authoritative server handlers. */
 public final class RoadRules {
+    public static boolean isPlanningCommand(RoadPlacementMode mode) {
+        return mode==RoadPlacementMode.PLAN || mode==RoadPlacementMode.CONFIGURE;
+    }
     public static boolean canEdit(final RoadPlan plan) {
-        return plan != null && !plan.isRepairBusy() && (plan.state() == RoadState.DRAFT
-                || plan.state() == RoadState.PLANNED
+        return plan != null && !plan.isRepairBusy() && !plan.hasInterruptedConstruction() && (plan.state() == RoadState.DRAFT
+                || plan.state() == RoadState.PLANNED && (plan.appliedBounds()==null && plan.appliedGeometry()==null || plan.allowBlueprintEdit())
                 || (plan.state() == RoadState.BUILT && plan.allowBlueprintEdit()));
     }
 
     public static boolean canCreate(final RoadPlan plan) {
         return plan != null && !plan.isRepairBusy() && plan.state() == RoadState.DRAFT;
     }
+    public static boolean canChangePlatform(final RoadPlan own,final RoadPlan peer) {
+        return own!=null && peer!=null && !own.id().equals(peer.id()) && canEdit(own) && canEdit(peer);
+    }
 
     public static boolean canToggleEdit(final RoadPlan plan) {
-        return plan != null && !plan.isRepairBusy() && (plan.state() == RoadState.DRAFT
+        return plan != null && !plan.isRepairBusy() && !plan.hasInterruptedConstruction() && (plan.state() == RoadState.DRAFT
                 || plan.state() == RoadState.PLANNED || plan.state() == RoadState.BUILT);
     }
 
     public static boolean canRepair(final RoadPlan plan) {
-        return canToggleEdit(plan) && plan.state() != RoadState.DRAFT && !plan.segments().isEmpty();
+        return plan!=null && !plan.isRepairBusy() && (plan.state()==RoadState.PLANNED || plan.state()==RoadState.BUILT) && !plan.segments().isEmpty();
     }
 
     public static boolean canRemove(final RoadPlan plan) {

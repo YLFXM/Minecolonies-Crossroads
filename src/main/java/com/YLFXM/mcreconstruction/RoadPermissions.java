@@ -38,8 +38,8 @@ import net.minecraft.server.level.ServerPlayer;
  *
  * <p>Both answers are MineColonies' own
  * {@code Permissions#hasPermission(Player, Action)}. Nothing here re-implements
- * rank logic, and there is deliberately no custom bypass: the original check
- * already lets through creative players whose permission level reaches
+ * rank logic. Wilderness roads use the creator plus the same configured native
+ * creative/operator threshold. The original colony check lets through players whose permission level reaches
  * {@code permissioneventbypassminpermlevel} (default 2), and deliberately does
  * <em>not</em> let through an operator who is playing in survival.</p>
  */
@@ -120,13 +120,23 @@ public final class RoadPermissions {
     public static boolean canReceiveBlueprint(final com.YLFXM.mcreconstruction.road.RoadPlan plan,
                                               final IColony owner, final ServerPlayer player) {
         return owner != null ? canManage(player, owner)
-                : plan.creator() == null || plan.isCreatedBy(player.getUUID());
+                : canAccessWilderness(plan.creator(),player.getUUID(),creativeAdmin(player));
     }
 
     public static boolean canSeeRoad(final com.YLFXM.mcreconstruction.road.RoadPlan plan,
                                     final IColony owner, final ServerPlayer player) {
         return owner != null ? canView(player, owner)
-                : plan.creator() == null || plan.isCreatedBy(player.getUUID());
+                : canAccessWilderness(plan.creator(),player.getUUID(),creativeAdmin(player));
+    }
+
+    /** Same configured creative/operator threshold as native colony permissions. */
+    public static boolean creativeAdmin(final ServerPlayer player) {
+        return creativeAdmin(player.isCreative(),player.isCreative() && player.hasPermissions(com.minecolonies.api.IMinecoloniesAPI.getInstance()
+                .getConfig().getServer().permissionEventMinBypassPermLevel.get()));
+    }
+    public static boolean creativeAdmin(boolean creative,boolean reachesConfiguredLevel) {return creative && reachesConfiguredLevel;}
+    public static boolean canAccessWilderness(UUID creator,UUID player,boolean creativeAdmin) {
+        return creator==null || creator.equals(player) || creativeAdmin;
     }
 
     /**

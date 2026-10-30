@@ -39,7 +39,8 @@ import net.minecraft.world.level.block.Blocks;
  * structure pack.
  */
 public final class RoadDataCleaner {
-    public static void clear(final ServerLevel level, final RoadPlan plan) {
+    public static boolean clear(final ServerLevel level, final RoadPlan plan) {
+        if(RoadCrossings.inUse(level,plan)) return false;
         RoadRepair.forget(plan);
         removeWorkOrders(plan);
         RoadNativeRemoval.forget(level,plan);
@@ -48,6 +49,7 @@ public final class RoadDataCleaner {
 
         RoadBuildWatcher.stop(plan);
         RoadManager.get(level).remove(plan.id());
+        RoadCrossingUpdates.removed(level,plan);
         RoadBlueprintStore.delete(level, plan);
         RoadTemporaryPack.delete(level, plan);
 
@@ -68,6 +70,7 @@ public final class RoadDataCleaner {
             com.YLFXM.mcreconstruction.network.Network.sendRoads(player);
         }
         MCReconstruction.LOGGER.info("Cleared road data {}", plan.id());
+        return true;
     }
 
     /**

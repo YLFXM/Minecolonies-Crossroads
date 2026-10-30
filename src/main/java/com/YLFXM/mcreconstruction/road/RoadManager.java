@@ -102,6 +102,17 @@ public final class RoadManager extends SavedData {
         }
     }
 
+    /** Synchronous checkpoint used before retiring a multi-road redo record. */
+    public void checkpoint(ServerLevel level) throws java.io.IOException {
+        var root=level.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
+        var folder=net.minecraft.world.level.dimension.DimensionType.getStorageFolder(level.dimension(),root);
+        CompoundTag wrapper=new CompoundTag();
+        wrapper.put("data",save(new CompoundTag(),level.registryAccess()));
+        wrapper.putInt("DataVersion",net.minecraft.SharedConstants.getCurrentVersion().getDataVersion().getVersion());
+        RoadAtomicNbt.write(folder.resolve("data").resolve(DATA_NAME+".dat"),wrapper);
+        setDirty(false);
+    }
+
     @Override
     public CompoundTag save(final CompoundTag tag, final HolderLookup.Provider provider) {
         final ListTag list = new ListTag();

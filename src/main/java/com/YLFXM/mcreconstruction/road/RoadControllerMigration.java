@@ -96,9 +96,86 @@ public final class RoadControllerMigration {
         return result;
     }
 
+    /** A real lamp post means stacked solid blocks above the deck, not just a kerb or the controller. */
+    public static boolean hasLampPost(final ServerLevel level, final RoadPlan plan, final BlockPos column) {
+        try {
+            final int deck = RoadHeightProfile.of(plan).row(plan.axis() == Direction.Axis.X ? column.getX() : column.getZ()).baseY();
+            int solid = 0;
+            for (int dy = 1; dy <= 4; dy++) {
+                final BlockState state = level.getBlockState(new BlockPos(column.getX(), deck + dy, column.getZ()));
+                if (!state.isAir() && !state.canBeReplaced() && !isController(state)) solid++;
+            }
+            return solid >= 2;
+        } catch (final RuntimeException ex) { return false; }
+    }
+
+    /** Nearest row whose lamp really exists, read from the generated row table. */
+    public static Integer nearestLampRow(final RoadPlan plan, final int anchorRow) {
+        final var lamps = plan.planning().lamps();
+        for (int distance = 1; distance <= 64; distance++) {
+            for (final int row : new int[]{anchorRow + distance, anchorRow - distance}) {
+                if (row < plan.minAlong() || row > plan.maxAlong()) continue;
+                if (Boolean.TRUE.equals(lamps.get(row))) return row;
+            }
+        }
+        return null;
+    }
+    /** Nearest surviving lamp column along this road, ignoring junction corner lamps. */
+    public static BlockPos nearestLampColumn(final ServerLevel level, final RoadPlan plan) {
+        if (plan.segments().isEmpty()) return null;
+        final var corners = RoadCrossings.forcedLamps(level, plan);
+        final int anchor = RoadHeightProfile.anchorAlong(plan);
+        final int first = plan.minAlong(), last = plan.maxAlong();
+        for (int distance = 1; distance <= 64; distance++) {
+            for (final int row : new int[]{anchor + distance, anchor - distance}) {
+                if (row < first || row > last || corners.contains(row)) continue;
+                for (int lateral = 0; lateral < plan.width(); lateral++) {
+                    final int side = plan.widthSide();
+                    final BlockPos column = RoadHeightProfile.position(plan, row, side * lateral,
+                            RoadHeightProfile.of(plan).row(row).baseY());
+                    if (!RoadCrossingGeometry.body(plan).contains(column.getX(), column.getZ()) || !hasLampPost(level, plan, column)) continue;
+                    final BlockPos next = column;
+                    for (final Direction dir : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
+                        final BlockPos beside = next.relative(dir);
+                        if (RoadCrossingGeometry.body(plan).contains(beside.getX(), beside.getZ()) && !hasLampPost(level, plan, beside) && level.getBlockState(beside).canBeReplaced()) return beside;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** True when the controller has a real lamp post on one of its four sides. */
+    public static boolean hasAdjacentPost(final ServerLevel level, final RoadPlan plan, final BlockPos controller) {
+        for (final Direction dir : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
+            final BlockPos beside = controller.relative(dir);
+            if (RoadCrossingGeometry.body(plan).contains(beside.getX(), beside.getZ()) && hasLampPost(level, plan, beside)) return true;
+        }
+        return false;
+    }
+
     public static boolean migrate(final ServerLevel level, final RoadPlan plan) {
         if (plan.segments().isEmpty()) {
             return false;
+        }
+        // The generator records per-row lamp outcomes; a junction may have suppressed the lamp at
+        // the anchor row. Move the controller to the nearest row that really carries a lamp.
+        final int anchorRow = RoadHeightProfile.anchorAlong(plan);
+        if (Boolean.FALSE.equals(plan.planning().lamps().get(anchorRow))) {
+            final Integer row = nearestLampRow(plan, anchorRow);
+            if (row != null) {
+                final int baseY = RoadHeightProfile.of(plan).row(row).baseY();
+                final BlockPos lamp = RoadHeightProfile.position(plan, row, 0, baseY + 1);
+                final BlockPos beside = RoadHeightProfile.position(plan, row, plan.widthSide(), baseY + 1);
+                final BlockPos oldPos = plan.controllerPos();
+                final BlockState oldState = level.getBlockState(oldPos);
+                if (RoadCrossingGeometry.body(plan).contains(beside.getX(), beside.getZ())
+                        && place(level, plan, beside, oldPos, oldState, isController(oldState), lamp)) {
+                    MCReconstruction.LOGGER.info("Controller moved to lamp row {} for road {}", row, plan.id());
+                    return true;
+                }
+            }
+            MCReconstruction.LOGGER.warn("No surviving lamp row for road {}; keeping the previous controller position", plan.id());
         }
 
         final List<BlockPos> candidates = candidates(plan);
@@ -130,7 +207,13 @@ public final class RoadControllerMigration {
     private static boolean place(final ServerLevel level, final RoadPlan plan, final BlockPos target,
                                  final BlockPos oldPos, final BlockState oldState,
                                  final boolean oldRemovable) {
-        final BlockState desired = controllerState(plan, target, oldState);
+        return place(level, plan, target, oldPos, oldState, oldRemovable, plan.anchorPos());
+    }
+
+    private static boolean place(final ServerLevel level, final RoadPlan plan, final BlockPos target,
+                                 final BlockPos oldPos, final BlockState oldState,
+                                 final boolean oldRemovable, final BlockPos focus) {
+        final BlockState desired = controllerState(plan, target, oldState, focus);
         if (desired == null) {
             return false;
         }
@@ -174,6 +257,11 @@ public final class RoadControllerMigration {
      */
     private static BlockState controllerState(final RoadPlan plan, final BlockPos target,
                                               final BlockState oldState) {
+        return controllerState(plan, target, oldState, plan.anchorPos());
+    }
+
+    private static BlockState controllerState(final RoadPlan plan, final BlockPos target,
+                                              final BlockState oldState, final BlockPos focus) {
         BlockState base;
         if (isController(oldState)) {
             base = oldState;
@@ -192,7 +280,7 @@ public final class RoadControllerMigration {
         if (facing == null) {
             return base;
         }
-        return base.setValue(facing, directionTo(target, plan.anchorPos()));
+        return base.setValue(facing, directionTo(target, focus));
     }
 
     private static Property<Direction> facingProperty(final BlockState state) {

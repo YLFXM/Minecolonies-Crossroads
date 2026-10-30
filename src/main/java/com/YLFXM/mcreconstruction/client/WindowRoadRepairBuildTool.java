@@ -43,6 +43,7 @@ public final class WindowRoadRepairBuildTool {
     private final OpenBuildToolPayload repair;
     private final WindowExtendedBuildTool window;
     private boolean submitted;
+    private boolean jointApproved;
     private record Choice(Component label, BuildToolPlacementMessage.HandlerType type, String handler) { }
 
     public WindowRoadRepairBuildTool(final OpenBuildToolPayload repair, final HolderLookup.Provider registries) {
@@ -61,6 +62,24 @@ public final class WindowRoadRepairBuildTool {
         final var mc=Minecraft.getInstance();
         final var data=RenderingCache.getBlueprintPreviewData("blueprint");
         if(mc.player==null || mc.level==null || data==null || data.getBlueprint()==null) return;
+        if(!jointApproved && !repair.jointImpact().isEmpty()) {
+            activeWindow.updatePlacementOptions();
+            final ScrollingList consent=activeWindow.findPaneOfTypeByID("placement",ScrollingList.class);
+            consent.setDataProvider(new ScrollingList.DataProvider() {
+                @Override public int getElementCount() {return repair.jointImpact().size()+1;}
+                @Override public void updateElement(int index,Pane row) {
+                    var button=row.findPaneOfTypeByID("type",ButtonImage.class);
+                    if(index<repair.jointImpact().size()) {
+                        button.setText(Component.literal(repair.jointImpact().get(index)));button.setEnabled(false);
+                        button.setColors(0x000000,0x444444,0x000000);
+                    } else {
+                        button.setEnabled(true);button.setColors(0x000000,0x9A9A9A,0x000000);
+                        button.setText(Component.translatable("mcreconstruction.crossing.approve"));
+                        button.setHandler(b -> {jointApproved=true;showChoices(activeWindow);});
+                    }
+                }
+            });consent.refreshElementPanes();return;
+        }
         final List<Choice> choices=new ArrayList<>();
         if(mc.player.isCreative()) {
             choices.add(new Choice(Component.translatable("structurize.gui.buildtool.complete"),BuildToolPlacementMessage.HandlerType.Complete,""));
@@ -77,6 +96,7 @@ public final class WindowRoadRepairBuildTool {
             @Override public int getElementCount() { return choices.size(); }
             @Override public void updateElement(final int index, final Pane row) {
                 final ButtonImage button=row.findPaneOfTypeByID("type",ButtonImage.class);
+                button.setEnabled(true);button.setColors(0x000000,0x9A9A9A,0x000000);
                 button.setText(choices.get(index).label());
                 button.setHandler(ignored -> submit(choices.get(index),activeWindow));
             }
@@ -93,7 +113,7 @@ public final class WindowRoadRepairBuildTool {
         final var blueprint=data.getBlueprint();
         final String path=com.YLFXM.mcreconstruction.road.RoadRepairSelection.path(pack.getSubPath(blueprint.getFilePath().resolve(blueprint.getFileName()+".blueprint")));
         PacketDistributor.sendToServer(new ConfirmRoadRepairPayload(repair.planId(),repair.repairToken(),choice.type().ordinal(),
-                choice.handler(),pack.getName(),path,data.getPos(),data.getRotationMirror().ordinal()));
+                choice.handler(),pack.getName(),path,data.getPos(),data.getRotationMirror().ordinal(),jointApproved));
         submitted=true;
         if(choice.type()==BuildToolPlacementMessage.HandlerType.Survival) activeWindow.close();
     }

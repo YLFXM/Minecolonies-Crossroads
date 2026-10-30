@@ -27,7 +27,38 @@ public final class RoadRepairSession {
     private final UUID token;
     private final UUID owner;
     private final RoadState previousState;
-    private final CompoundTag target;
+    private CompoundTag target;
+    private CompoundTag dependencies=new CompoundTag();
+    private CompoundTag primaryBlueprint=new CompoundTag(),neighborUpdates=new CompoundTag();
+    private CompoundTag workBlueprint=new CompoundTag();
+    private String workDigest;
+    public String workDigest() {if(workDigest==null)workDigest=RoadCrossingConsent.digest(workBlueprint);return workDigest;}
+    private CompoundTag crossingGrants=new CompoundTag();
+    public CompoundTag crossingGrants() {return crossingGrants.copy();}
+    public void setCrossingGrants(CompoundTag grants) {
+        if(phase!=Phase.PREPARED)throw new IllegalStateException("Frozen consent");crossingGrants=grants.copy();
+        for(String key:crossingGrants.getAllKeys())crossingGrants.getCompound(key).putUUID("session",token);
+    }
+    public CompoundTag workBlueprint() {return workBlueprint.copy();}
+    public void setWorkBlueprint(CompoundTag blueprint) {if(phase!=Phase.PREPARED)throw new IllegalStateException("Frozen work");workBlueprint=blueprint.copy();workDigest=null;}
+    public static RoadRepairSession retry(RoadRepairSession old,UUID owner,long now) {
+        if(old.phase()==Phase.PREPARED || old.committing())throw new IllegalArgumentException("Not an interrupted native operation");
+        var next=new RoadRepairSession(UUID.randomUUID(),owner,RoadState.PLANNED,old.target,Phase.PREPARED,now,false);
+        next.dependencies=old.dependencies.copy();next.primaryBlueprint=old.primaryBlueprint.copy();next.neighborUpdates=old.neighborUpdates.copy();
+        next.workBlueprint=old.workBlueprint.copy();next.setCrossingGrants(old.crossingGrants);next.clearTargets=old.clearTargets;return next;
+    }
+    private boolean committing;
+    public CompoundTag primaryBlueprint() {return primaryBlueprint.copy();}
+    public CompoundTag neighborUpdates() {return neighborUpdates.copy();}
+    public boolean committing() {return committing;}
+    public void markCommitting() {if(phase==Phase.PREPARED)throw new IllegalStateException("Unconfirmed commit");committing=true;}
+    public void setJointBlueprints(CompoundTag primary,CompoundTag neighbors) {
+        if(phase!=Phase.PREPARED)throw new IllegalStateException("Frozen joint target");
+        primaryBlueprint=primary.copy();neighborUpdates=neighbors.copy();
+    }
+    public CompoundTag dependencies() { return dependencies.copy(); }
+    public void setDependencies(CompoundTag value) { if(phase!=Phase.PREPARED) throw new IllegalStateException("Frozen dependencies");dependencies=value.copy(); }
+    public void replacePreparedTarget(RoadPlan value) { if(phase!=Phase.PREPARED) throw new IllegalStateException("Frozen target");target=value.geometrySnapshot(); }
     private Phase phase;
     private long changedAt;
     private boolean orderObserved;
@@ -64,11 +95,16 @@ public final class RoadRepairSession {
     public long changedAt() { return changedAt; }
     public boolean orderObserved() { return orderObserved; }
     public void observeOrder() { orderObserved=true; }
+    public boolean acceptBuilder(boolean accepted,long now) {
+        if(!accepted || phase!=Phase.PREPARED)return false;
+        observeOrder();return start(Phase.SURVIVAL,now);
+    }
     public boolean nativeDone() { return nativeDone; }
     public void finishNative() { nativeDone=true; }
     public RoadPlan target() { return RoadPlan.load(target.copy()); }
     public boolean start(final Phase next, final long now) {
         if (phase != Phase.PREPARED || next == Phase.PREPARED) return false;
+        for(String key:crossingGrants.getAllKeys())crossingGrants.getCompound(key).putBoolean("confirmed",true);
         phase=next; changedAt=now; return true;
     }
     public boolean ownedBy(final UUID player, final UUID suppliedToken) {
@@ -77,13 +113,17 @@ public final class RoadRepairSession {
     public void commitRows(final RoadPlan plan) {
         if (phase==Phase.PREPARED) throw new IllegalStateException("Unconfirmed repair cannot commit rows");
         plan.adoptCommittedRows(target().rowOverrides());
+        plan.adoptPlanning(target().planning());
+        plan.planning().externalChanges(false);
         plan.adoptPendingRows(java.util.Map.of());
         plan.setLastDroppedRows(0);
     }
     public CompoundTag save() {
         final CompoundTag tag=new CompoundTag();
         tag.putUUID("token",token); tag.putUUID("owner",owner); tag.putString("previous",previousState.name());
-        tag.put("target",target.copy()); tag.putString("phase",phase.name()); tag.putLong("changedAt",changedAt);
+        tag.put("target",target.copy()); tag.put("dependencies",dependencies.copy());tag.put("primaryBlueprint",primaryBlueprint.copy());tag.put("neighborUpdates",neighborUpdates.copy());tag.putBoolean("committing",committing); tag.putString("phase",phase.name()); tag.putLong("changedAt",changedAt);
+        tag.put("workBlueprint",workBlueprint.copy());
+        tag.put("crossingGrants",crossingGrants.copy());
         tag.putBoolean("orderObserved",orderObserved);
         if(!clearTargets.isEmpty()) {
             final var list=new net.minecraft.nbt.ListTag();
@@ -102,6 +142,6 @@ public final class RoadRepairSession {
         for(int i=0;i<list.size();i++) {
             net.minecraft.nbt.NbtUtils.readBlockPos(list.getCompound(i),"pos").ifPresent(positions::add);
         }
-        session.clearTargets=java.util.List.copyOf(positions); return session;
+        session.clearTargets=java.util.List.copyOf(positions); session.dependencies=tag.getCompound("dependencies").copy();session.primaryBlueprint=tag.getCompound("primaryBlueprint").copy();session.neighborUpdates=tag.getCompound("neighborUpdates").copy();session.workBlueprint=tag.getCompound("workBlueprint").copy();session.crossingGrants=tag.getCompound("crossingGrants").copy();session.committing=tag.getBoolean("committing"); return session;
     }
 }

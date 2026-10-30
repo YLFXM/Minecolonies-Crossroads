@@ -58,10 +58,10 @@ public class RoadAuditRegression {
         check(RoadReplanning.acceptDraftRows(initial,initialPreview),"valid initial preview accepts clipped rows");
         check(initial.state()==RoadState.DRAFT && RoadRules.canCreate(initial),"initial shrinking never consumes Create");
         check(initial.editedRowCount()==1 && !initial.pendingRows().containsKey(14),"initial shrinking updates the live diff count");
-        check(initial.confirmedRowCount()==0 && initial.maxAlong()==15,"preview filtering commits neither rows nor geometry");
+        check(initial.confirmedRowCount()==0 && initial.maxAlong()==10,"draft saves referenceable candidate geometry without committing rows");
         RoadPlan expandedPreview=plan(5,11); expandedPreview.adoptPendingRows(initial.pendingRows());
-        check(!RoadReplanning.acceptDraftRows(initial,expandedPreview) && initial.cellType(14)==CellType.FLAT,
-                "discarded initial edits do not return after extending");
+        check(RoadReplanning.acceptDraftRows(initial,expandedPreview) && initial.cellType(14)==CellType.FLAT,
+                "candidate extension is saved while discarded initial edits stay discarded");
         RoadPlan turnedPreview=plan(5,11);
         check(RoadReplanning.acceptDraftRows(initial,turnedPreview) && initial.editedRowCount()==0,
                 "accepted draft axis reset can discard incompatible pending edits");

@@ -60,6 +60,6 @@ public final class RoadHeightProfile {
         return type==CellType.STAIR_DOWN ? forward.getOpposite() : forward;
     }
     public static String editSignature(final RoadPlan plan) {
-        return plan.travelDir()+":"+new java.util.TreeMap<>(plan.rowOverrides())+":"+new java.util.TreeMap<>(plan.pendingRows());
+        return plan.planning().revision()+":"+plan.travelDir()+":"+new java.util.TreeMap<>(plan.rowOverrides())+":"+new java.util.TreeMap<>(plan.pendingRows());
     }
 }

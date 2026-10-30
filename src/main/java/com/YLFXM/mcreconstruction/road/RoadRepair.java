@@ -55,6 +55,13 @@ public final class RoadRepair {
     public static boolean begin(final ServerLevel level, final ServerPlayer player, final RoadPlan plan) {
         if (!RoadPermissions.canManage(level,player,plan) || !RoadRules.canRepair(plan)) return false;
         if (!canPrepare(player,plan)) return false;
+        if(plan.interruptedConstruction()!=null) {
+            final var retry=RoadRepairSession.retry(RoadRepairSession.load(plan.interruptedConstruction()),player.getUUID(),System.currentTimeMillis());
+            if(retry.workBlueprint().isEmpty() || !RoadCrossings.verifyFrozen(level,retry)) {
+                tell(player,"The interrupted crossing work cannot be regenerated safely; keep its frozen record and inspect related roads.");return false;
+            }
+            return openPrepared(level,player,plan,retry,com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(retry.workBlueprint(),level.registryAccess()));
+        }
         RoadBlueprintStore.preserveBuilt(level,plan);
         return prepareAndOpen(level,player,plan,RoadRepairSession.prepare(plan,player.getUUID(),System.currentTimeMillis()));
     }
@@ -68,6 +75,7 @@ public final class RoadRepair {
     }
 
     private static boolean canPrepare(final ServerPlayer player, final RoadPlan plan) {
+        if(RoadCrossings.inUse(player.serverLevel(),plan)) {tell(player,"A related road has an active construction session.");return false;}
         if (RoadBuildWatcher.hasWorkOrder(plan) || RoadBuildWatcher.isWatching(plan)) {
             tell(player,"This road already has a construction session."); return false;
         }
@@ -86,12 +94,27 @@ public final class RoadRepair {
     private static boolean prepareAndOpen(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
                                           final RoadRepairSession session) {
         final RoadPlan target=session.target();
-        final Blueprint blueprint=RoadBlueprintGenerator.generate(target,level,Config.defaultLampReserveHeight(),player);
-        if (blueprint==null || !RoadBlueprintStore.saveChecked(level,plan,blueprint)) {
-            tell(player,"Road blueprint could not be generated or saved."); return false;
+        final RoadJointWork.Prepared joint;
+        try {
+            var authorized=RoadCrossingConsent.prepare(level,player,target);if(authorized==null)return false;
+            joint=authorized.work();session.setCrossingGrants(authorized.grants());
         }
-        session.setClearTargets(RoadBlueprintOps.clearTargets(plan,RoadBlueprintStore.loadApplied(level,plan),blueprint));
-        final long version=RoadTemporaryPack.replace(level,plan,target,blueprint);
+        catch(IllegalArgumentException ex) {MCReconstruction.LOGGER.warn("Road preparation refused: road={} reason={}",plan.id(),ex.getMessage());tell(player,ex.getMessage());return false;}
+        RoadCrossings.freeze(level,session,target);
+        RoadCrossings.extendFrozen(level,session,joint.updates());
+        session.setJointBlueprints(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(joint.primary()),joint.updates());
+        final Blueprint blueprint=joint.work();
+        session.setWorkBlueprint(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint));
+        session.setClearTargets(joint.clearTargets());
+        return openPrepared(level,player,plan,session,blueprint);
+    }
+    private static boolean openPrepared(ServerLevel level,ServerPlayer player,RoadPlan plan,RoadRepairSession session,Blueprint blueprint) {
+        try {RoadCrossingConsent.validate(level,player.getUUID(),session);}
+        catch(IllegalArgumentException ex) {tell(player,ex.getMessage());return false;}
+        if(!RoadBlueprintStore.saveChecked(level,plan,blueprint)) {
+            tell(player,"Road blueprint could not be saved.");return false;
+        }
+        final long version=RoadTemporaryPack.replace(level,plan,session.target(),blueprint);
         if (version<0) { tell(player,"Road blueprint could not be published."); return false; }
         RoadBuildWatcher.stop(plan);
         plan.setRepairSession(session); plan.setState(RoadState.PLANNED);
@@ -124,6 +147,9 @@ public final class RoadRepair {
                     plan.id(),mismatch,payload.path(),payload.pos(),payload.rotation());
             player.displayClientMessage(Component.translatable("mcreconstruction.repair.selection_"+mismatch.name().toLowerCase(java.util.Locale.ROOT)),false); return;
         }
+        if(!RoadJointWork.impact(level,session).isEmpty() && !payload.jointApproved()) {
+            player.displayClientMessage(Component.translatable("mcreconstruction.crossing.approve_required"),false);return;
+        }
         final var modes=com.ldtteam.structurize.network.messages.BuildToolPlacementMessage.HandlerType.values();
         if (payload.mode()<0 || payload.mode()>=modes.length) return;
         final var mode=modes[payload.mode()];
@@ -134,18 +160,30 @@ public final class RoadRepair {
                 || IColonyManager.getInstance().getColonyByPosFromWorld(level,plan.controllerPos())==null)) {
             tell(player,"Survival repair needs the MineColonies builder handler and a colony."); return;
         }
-        final Blueprint blueprint=RoadBlueprintStore.load(level,plan);
+        if(!RoadCrossings.verifyFrozen(level,session)) {cancel(level,plan,"crossing dependency changed");tell(player,"A crossing road changed; reopen construction.");return;}
+        try {RoadJointWork.validateFrozen(level,player,session);}
+        catch(IllegalArgumentException ex) {tell(player,ex.getMessage());return;}
+        final Blueprint blueprint=frozenBlueprint(level,plan,session);
         if (blueprint==null) { cancel(level,plan,"missing frozen blueprint"); return; }
-        session.start(survival ? RoadRepairSession.Phase.SURVIVAL : RoadRepairSession.Phase.NATIVE,System.currentTimeMillis());
+        if(survival) {
+            try {
+                if(!session.acceptBuilder(RoadBuilderDispatch.dispatch(level,player,plan,blueprint),System.currentTimeMillis()))
+                    throw new IllegalStateException("The native builder order was not accepted.");
+            } catch(RuntimeException ex) {
+                MCReconstruction.LOGGER.warn("Road builder dispatch failed: road={} session={} reason={}",plan.id(),session.token(),ex.getMessage());
+                cancel(level,plan,"builder order rejected before construction");
+                tell(player,"Builder order was rejected; the road returned to its previous state. "+ex.getMessage());return;
+            }
+        } else session.start(RoadRepairSession.Phase.NATIVE,System.currentTimeMillis());
+        RoadCrossingConsent.consume(session);
         plan.setState(RoadState.BUILDING); RoadManager.get(level).add(plan); sync(level);
         try {
             if (survival) {
-                handler.handle(blueprint,CustomRoadPack.PACK_NAME,RoadTemporaryPack.pathFor(plan),false,
-                        level,player,plan.anchorPos(),RotationMirror.NONE);
-                if (RoadBuildWatcher.hasWorkOrder(plan)) { session.observeOrder(); RoadManager.get(level).add(plan); }
+                // Already admitted synchronously above. A rejected request never becomes BUILDING.
+                RoadManager.get(level).add(plan);
             } else {
                 final var nativeHandler=new CreativeStructureHandler(level,plan.anchorPos(),blueprint,RotationMirror.NONE,mode==com.ldtteam.structurize.network.messages.BuildToolPlacementMessage.HandlerType.Pretty);
-                Manager.addToQueue(new PlaceStructureOperation(new StructurePlacer(nativeHandler),player) {
+                Manager.addToQueue(new PlaceStructureOperation(new RoadProtectedStructurePlacer(nativeHandler),player) {
                     @Override public boolean apply(final ServerLevel world) {
                         if (ACTIVE.get(plan.id()) != level) return true;
                         final RoadPlan current=RoadManager.get(level).get(plan.id());
@@ -153,6 +191,8 @@ public final class RoadRepair {
                         if (!world.dimension().equals(level.dimension())) return false;
                         if (!RoadPermissions.canManage(level,player,current)) { cancel(level,current,"permission revoked"); return true; }
                         try {
+                            if(!RoadCrossings.verifyFrozen(level,session)) {cancel(level,current,"crossing dependency changed during placement");return true;}
+                            RoadCrossingConsent.validate(level,session.owner(),session);
                             final boolean done=super.apply(world);
                             if (done) { session.finishNative(); poll(level,current,false); }
                             return done;
@@ -180,6 +220,11 @@ public final class RoadRepair {
     private static void poll(final ServerLevel level, final RoadPlan plan, final boolean restarting) {
         final RoadRepairSession session=plan.repairSession();
         if (session==null) { ACTIVE.remove(plan.id()); return; }
+        if(session.committing()) {
+            // The journal was created only after complete world validation. Redo writes, not world placement.
+            if(RoadJointWork.commit(level,plan,session,frozenBlueprint(level,plan,session)))completeCommit(level,plan,session);
+            return;
+        }
         final long age=System.currentTimeMillis()-session.changedAt();
         if (session.phase()==RoadRepairSession.Phase.PREPARED) {
             final ServerPlayer owner=level.getServer().getPlayerList().getPlayer(session.owner());
@@ -190,42 +235,75 @@ public final class RoadRepair {
             return;
         }
         if (session.phase()==RoadRepairSession.Phase.SURVIVAL) {
+            try {RoadCrossingConsent.validate(level,session.owner(),session);}
+            catch(IllegalArgumentException ex) {RoadDataCleaner.releaseWorkOrders(plan);cancel(level,plan,ex.getMessage());return;}
+            if(!RoadCrossings.verifyFrozen(level,session)) {
+                RoadDataCleaner.releaseWorkOrders(plan);cancel(level,plan,"crossing dependency changed during builder work");return;
+            }
+            var owner=level.getServer().getPlayerList().getPlayer(session.owner());
+            if(owner!=null) {
+                try {RoadJointWork.validateFrozen(level,owner,session);}
+                catch(IllegalArgumentException ex) {RoadDataCleaner.releaseWorkOrders(plan);cancel(level,plan,"related road permission changed");return;}
+            }
             if (RoadBuildWatcher.hasWorkOrder(plan)) {
+                RoadProtectedIterator.protectOrders(plan);
                 if (!session.orderObserved()) { session.observeOrder(); RoadManager.get(level).add(plan); }
                 return;
             }
-            if (!session.orderObserved() && !restarting && age<20000) return;
+            if (!session.orderObserved() && !restarting && owner!=null && owner.serverLevel()==level && age<PREPARE_TIMEOUT) return;
             if (!session.orderObserved()) { cancel(level,plan,"no builder order accepted"); return; }
         } else if (!session.nativeDone() && !restarting) {
             if (age>NATIVE_TIMEOUT) cancel(level,plan,"native queue timeout");
             return;
         }
-        final Blueprint blueprint=RoadBlueprintStore.load(level,plan);
+        final Blueprint blueprint=frozenBlueprint(level,plan,session);
         if (!RoadBuildWatcher.isBuilt(level,session.target(),blueprint)) {
             cancel(level,plan,"construction incomplete or cancelled"); return;
         }
         if(session.clearTargets().stream().anyMatch(pos -> !level.getBlockState(pos).isAir())) {
             cancel(level,plan,"old elevated road or lamp targets were not cleared"); return;
         }
-        if (blueprint==null || !RoadBlueprintStore.saveAppliedChecked(level,plan,blueprint)) {
-            cancel(level,plan,"could not save completed blueprint"); return;
+        if (blueprint==null || !RoadJointWork.commit(level,plan,session,blueprint)) {
+            MCReconstruction.LOGGER.warn("Joint snapshot commit will be retried for {}",plan.id());return;
         }
-        session.commitRows(plan); plan.setAllowBlueprintEdit(false); plan.setRepairSession(null); ACTIVE.remove(plan.id());
-        RoadBuildWatcher.markBuilt(level,plan);
-        MCReconstruction.LOGGER.info("Repair completed: road={} session={}; rows committed",plan.id(),session.token());
+        completeCommit(level,plan,session);
+    }
+
+    private static void completeCommit(ServerLevel level,RoadPlan plan,RoadRepairSession session) {
+        plan.setInterruptedConstruction(null);session.commitRows(plan);plan.setAllowBlueprintEdit(false);plan.setRepairSession(null);
+        RoadBuildWatcher.markBuiltAfterSnapshot(level,plan);
+        RoadCrossingUpdates.reconcileApplied(level,plan);
+        try {
+            RoadJointJournal.finish(level,session);ACTIVE.remove(plan.id());
+            MCReconstruction.LOGGER.info("Repair completed: road={} session={}; joint snapshots checkpointed",plan.id(),session.token());
+        } catch(java.io.IOException ex) {
+            plan.setRepairSession(session);RoadManager.get(level).add(plan);
+            MCReconstruction.LOGGER.error("Joint snapshot checkpoint will be retried for {}",plan.id(),ex);
+        }
+    }
+    private static Blueprint frozenBlueprint(ServerLevel level,RoadPlan plan,RoadRepairSession session) {
+        return session.workBlueprint().isEmpty() ? RoadBlueprintStore.load(level,plan)
+                : com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(session.workBlueprint(),level.registryAccess());
     }
 
     private static void cancel(final ServerLevel level, final RoadPlan plan, final String reason) {
         final RoadRepairSession session=plan.repairSession();
         if (session==null) return;
         final boolean unconfirmed=session.phase()==RoadRepairSession.Phase.PREPARED;
+        // Explicitly authorized: closing/reopening the unconfirmed tool in the same planning
+        // cycle keeps its bounded approval. The old tool token is still removed below.
+        // Permission loss, disconnect, timeout and other cancellation causes consume it.
+        if(unconfirmed && !"tool closed before confirm".equals(reason))RoadCrossingConsent.consume(session);
+        if(!unconfirmed)plan.setInterruptedConstruction(session.save());
         plan.setRepairSession(null); ACTIVE.remove(plan.id());
         plan.setState(unconfirmed ? session.previousState() : RoadState.PLANNED);
         RoadManager.get(level).add(plan);
         if (plan.state()==RoadState.BUILT) RoadTemporaryPack.delete(level,plan);
         sync(level);
         final ServerPlayer owner=level.getServer().getPlayerList().getPlayer(session.owner());
-        if (owner!=null) tell(owner,"Repair cancelled; unapplied edits were kept.");
+        if (owner!=null) tell(owner,unconfirmed ? "Repair cancelled; unapplied edits were kept." : "Construction interrupted; Repair resumes the frozen work. Unapplied edits and applied snapshots were kept.");
+        if(!unconfirmed && !session.neighborUpdates().isEmpty())for(var affected:level.players())
+            if(affected!=owner && RoadPermissions.canManage(level,affected,plan))tell(affected,"Crossing work interrupted: "+RoadNames.label(plan)+". Repair this road to finish the frozen changes.");
         MCReconstruction.LOGGER.info("Repair cancelled: road={} session={} reason={}",plan.id(),session.token(),reason);
     }
     private static void sync(final ServerLevel level) { level.players().forEach(Network::sendRoads); }
@@ -233,8 +311,10 @@ public final class RoadRepair {
 
     @SubscribeEvent public static void started(final ServerStartedEvent event) {
         ACTIVE.clear();
-        for(final ServerLevel level:event.getServer().getAllLevels()) for(final RoadPlan plan:RoadManager.get(level).all()) {
-            if(plan.repairSession()!=null) { ACTIVE.put(plan.id(),level); poll(level,plan,true); }
+        for(final ServerLevel level:event.getServer().getAllLevels()) {
+            RoadJointJournal.recover(level);
+            for(final RoadPlan plan:java.util.List.copyOf(RoadManager.get(level).all()))
+                if(plan.repairSession()!=null) { ACTIVE.put(plan.id(),level); poll(level,plan,true); }
         }
     }
     @SubscribeEvent public static void tick(final ServerTickEvent.Post event) {
@@ -242,6 +322,23 @@ public final class RoadRepair {
         for(final var entry:java.util.List.copyOf(ACTIVE.entrySet())) {
             final RoadPlan plan=RoadManager.get(entry.getValue()).get(entry.getKey());
             if(plan==null) ACTIVE.remove(entry.getKey()); else poll(entry.getValue(),plan,false);
+        }
+    }
+    @SubscribeEvent(priority=net.neoforged.bus.api.EventPriority.HIGHEST)
+    public static void beforeTick(final ServerTickEvent.Pre event) {
+        // Native decoration orders are created by ServerFutureProcessor at LevelTick.Post.
+        // Protect them before the next entity/worker tick, rather than waiting for the 20-tick completion poll.
+        for(var entry:java.util.List.copyOf(ACTIVE.entrySet())) {
+            RoadPlan plan=RoadManager.get(entry.getValue()).get(entry.getKey());
+            if(plan!=null && plan.repairSession()!=null && plan.repairSession().phase()==RoadRepairSession.Phase.SURVIVAL)
+                RoadProtectedIterator.protectOrders(plan);
+        }
+        for(var level:event.getServer().getAllLevels())for(var plan:RoadManager.get(level).all()) {
+            if(plan.interruptedConstruction()!=null && plan.state()!=RoadState.REMOVING &&
+                    (plan.repairSession()==null || plan.repairSession().phase()==RoadRepairSession.Phase.PREPARED)) {
+                // A late native second confirmation must not revive cancelled work without its token/locks.
+                if(RoadDataCleaner.releaseWorkOrders(plan)>0)MCReconstruction.LOGGER.warn("Rejected a late builder order for interrupted road {}",plan.id());
+            }
         }
     }
     @SubscribeEvent public static void logout(final PlayerEvent.PlayerLoggedOutEvent event) {
