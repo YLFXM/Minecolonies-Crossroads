@@ -1,5 +1,5 @@
 import java.util.*;
-import com.YLFXM.mcreconstruction.road.*;
+import com.YLFXM.rp.crossroads.road.*;
 import net.minecraft.core.*;
 import net.minecraft.world.level.Level;
 import net.minecraft.nbt.CompoundTag;
@@ -48,7 +48,7 @@ public final class RoadStage7Round1Regression {
         check(candidate.planning().spanFloor(initial.id())==null,"own layered height does not become the opposite road's shared height");
         var pending=RoadCrossingConsent.Decision.PENDING;
         check(RoadCrossingConsent.timeout(pending,119999,120000,true,true)==pending,"online consent waits the full 120 seconds");
-        check(RoadCrossingConsent.timeout(pending,120000,120000,true,true)==RoadCrossingConsent.Decision.APPROVED,"valid delivered consent defaults to approval at timeout");
+        check(RoadCrossingConsent.timeout(pending,120000,120000,true,true)==RoadCrossingConsent.Decision.REJECTED,"an unanswered request expires as a refusal");
         check(RoadCrossingConsent.timeout(pending,120001,120000,true,false)==RoadCrossingConsent.Decision.INVALID,"offline recipient never silently approves");
         check(RoadCrossingConsent.timeout(pending,120001,120000,false,true)==RoadCrossingConsent.Decision.INVALID,"changed proposal invalidates timeout");
         check(RoadCrossingConsent.timeout(RoadCrossingConsent.Decision.REJECTED,999999,120000,true,true)==RoadCrossingConsent.Decision.REJECTED,"explicit refusal is never replaced by timeout approval");

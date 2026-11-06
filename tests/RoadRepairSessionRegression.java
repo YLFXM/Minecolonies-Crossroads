@@ -1,4 +1,4 @@
-import com.YLFXM.mcreconstruction.road.*;
+import com.YLFXM.rp.crossroads.road.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
@@ -17,12 +17,16 @@ public final class RoadRepairSessionRegression {
         UUID owner=UUID.randomUUID();
         RoadPlan p=plan(RoadState.BUILT);p.setAllowBlueprintEdit(true);
         p.adoptCommittedRows(Map.of(7,CellType.STAIR_UP,14,CellType.STAIR_DOWN));
-        p.setRowType(7,CellType.FLAT);p.setRowType(8,CellType.STAIR_DOWN);p.setLastDroppedRows(1);
+        // The applied table must already carry the manual row we are about to release.
+        p.editRow(14,CellType.STAIR_DOWN);p.setAppliedGeometry(p.geometrySnapshot());
+        // Released level, unchanged type: that is the "dropped" figure, not a type difference.
+        p.clearManual(14);
+        p.setRowType(7,CellType.FLAT);p.setRowType(8,CellType.STAIR_DOWN);
         RoadRepairSession session=RoadRepairSession.prepare(p,owner,1234L);
         check(p.confirmedRowCount()==2 && p.editedRowCount()==2,"prepare leaves live tables intact");
-        check(p.allowBlueprintEdit() && p.lastDroppedRows()==1,"prepare does not lock edit switch or clear dropped");
-        check(session.target().confirmedRowCount()==1 && session.target().cellType(8)==CellType.STAIR_DOWN,"target merges pending and clips out-of-range rows");
-        check(session.target().cellType(7)==CellType.FLAT && session.target().pendingRows().isEmpty(),"frozen target clears pending on copy only");
+        check(p.allowBlueprintEdit() && p.lostRowCount()==1,"prepare does not lock edit switch or clear dropped");
+        check(session.target().cellType(8)==CellType.STAIR_DOWN && session.target().cellType(7)==CellType.FLAT,"target keeps the merged intent and clips out-of-range rows");
+        check(session.target().pendingRows().isEmpty(),"frozen target carries no diff of its own");
         check(session.target().id().equals(p.id()) && session.target().anchorPos().equals(p.anchorPos()),"target identity and anchor retained");
         check(session.previousState()==RoadState.BUILT && session.changedAt()==1234L,"original state and timestamp retained");
         check(session.ownedBy(owner,session.token()),"owner and token accepted");
@@ -46,13 +50,17 @@ public final class RoadRepairSessionRegression {
         check(!session.start(RoadRepairSession.Phase.SURVIVAL,3000L),"replay cannot change placement mode");
         check(session.changedAt()==2000L && !session.nativeDone(),"native start is not completion");
         session.finishNative();check(session.nativeDone(),"native queue completion recorded");
+        session.markCommitting();
+        check(session.resumableCommit(),"a mid-commit interruption resumes the frozen commit");
+        try{RoadRepairSession.retry(RoadRepairSession.load(session.save()),owner,2500L);throw new AssertionError("committing session retried");}
+        catch(IllegalArgumentException expected){checks++;}
         RoadRepairSession crash=RoadRepairSession.load(session.save());
         check(crash.phase()==RoadRepairSession.Phase.NATIVE && !crash.nativeDone(),"restart cannot trust in-memory queue completion");
         check(!crash.orderObserved(),"no worker progress fabricated");
         crash.commitRows(p);p.setRepairSession(null);
         check(p.confirmedRowCount()==1 && p.cellType(8)==CellType.STAIR_DOWN,"completion commits exactly frozen rows");
-        check(p.pendingRows().isEmpty() && p.lastDroppedRows()==0 && !p.isRepairBusy(),"completion clears diff and releases derived lock");
-        RoadPlan cancel=plan(RoadState.PLANNED);cancel.setRowType(6,CellType.STAIR_UP);
+        check(p.pendingRows().isEmpty() && p.lostRowCount()==0 && !p.isRepairBusy(),"completion clears diff and releases derived lock");
+        RoadPlan cancel=plan(RoadState.PLANNED);cancel.setAppliedGeometry(cancel.geometrySnapshot());cancel.setRowType(6,CellType.STAIR_UP);
         RoadRepairSession abandoned=RoadRepairSession.prepare(cancel,owner,4000L);cancel.setRepairSession(abandoned);cancel.setRepairSession(null);
         check(cancel.editedRowCount()==1 && cancel.confirmedRowCount()==0,"unconfirmed cancellation preserves pending diff");
         RoadRepairSession worker=RoadRepairSession.prepare(cancel,owner,5000L);worker.start(RoadRepairSession.Phase.SURVIVAL,6000L);worker.observeOrder();
@@ -68,23 +76,23 @@ public final class RoadRepairSessionRegression {
         var buffer=new net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(),net.minecraft.core.RegistryAccess.EMPTY);
         try {
             var data=new net.minecraft.nbt.CompoundTag();data.putString("test","frozen");
-            var open=new com.YLFXM.mcreconstruction.network.OpenBuildToolPayload(p.id(),"generated/test.blueprint",data,123,p.anchorPos(),session.token());
-            com.YLFXM.mcreconstruction.network.OpenBuildToolPayload.CODEC.encode(buffer,open);
-            var opened=com.YLFXM.mcreconstruction.network.OpenBuildToolPayload.CODEC.decode(buffer);
+            var open=new com.YLFXM.rp.crossroads.network.OpenBuildToolPayload(p.id(),"generated/test.blueprint",data,123,p.anchorPos(),session.token());
+            com.YLFXM.rp.crossroads.network.OpenBuildToolPayload.CODEC.encode(buffer,open);
+            var opened=com.YLFXM.rp.crossroads.network.OpenBuildToolPayload.CODEC.decode(buffer);
             check(open.equals(opened),"open packet carries frozen blueprint and token");
             check(!buffer.isReadable(),"open packet decoder consumes all fields");
             buffer.clear();
-            var closed=new com.YLFXM.mcreconstruction.network.NativeBuildClosedPayload(p.id(),session.token());
-            com.YLFXM.mcreconstruction.network.NativeBuildClosedPayload.CODEC.encode(buffer,closed);
-            check(closed.equals(com.YLFXM.mcreconstruction.network.NativeBuildClosedPayload.CODEC.decode(buffer)),"close packet carries matching session identity");
+            var closed=new com.YLFXM.rp.crossroads.network.NativeBuildClosedPayload(p.id(),session.token());
+            com.YLFXM.rp.crossroads.network.NativeBuildClosedPayload.CODEC.encode(buffer,closed);
+            check(closed.equals(com.YLFXM.rp.crossroads.network.NativeBuildClosedPayload.CODEC.decode(buffer)),"close packet carries matching session identity");
             check(!buffer.isReadable(),"close packet decoder consumes all fields");
             buffer.clear();
-            var confirm=new com.YLFXM.mcreconstruction.network.ConfirmRoadRepairPayload(p.id(),session.token(),2,"minecolonies","Reconstruction Plan","generated/test.blueprint",p.anchorPos(),0);
-            com.YLFXM.mcreconstruction.network.ConfirmRoadRepairPayload.CODEC.encode(buffer,confirm);
-            check(confirm.equals(com.YLFXM.mcreconstruction.network.ConfirmRoadRepairPayload.CODEC.decode(buffer)),"confirm packet preserves mode, pack, path and anchor");
+            var confirm=new com.YLFXM.rp.crossroads.network.ConfirmRoadRepairPayload(p.id(),session.token(),2,"minecolonies","Crossroads","generated/test.blueprint",p.anchorPos(),0);
+            com.YLFXM.rp.crossroads.network.ConfirmRoadRepairPayload.CODEC.encode(buffer,confirm);
+            check(confirm.equals(com.YLFXM.rp.crossroads.network.ConfirmRoadRepairPayload.CODEC.decode(buffer)),"confirm packet preserves mode, pack, path and anchor");
             check(!buffer.isReadable(),"confirm packet decoder consumes all fields");
-            check(new com.YLFXM.mcreconstruction.network.NativeBuildClosedPayload(p.id()).repairToken().equals(RoadNativeBuildTool.NO_SESSION),"legacy close constructor has no authorized session");
-            check(new com.YLFXM.mcreconstruction.network.OpenBuildToolPayload(p.id(),"generated/test.blueprint",data,1,p.anchorPos()).repairToken().equals(RoadNativeBuildTool.NO_SESSION),"legacy open constructor supplies no authorization for first construction");
+            check(new com.YLFXM.rp.crossroads.network.NativeBuildClosedPayload(p.id()).repairToken().equals(RoadNativeBuildTool.NO_SESSION),"legacy close constructor has no authorized session");
+            check(new com.YLFXM.rp.crossroads.network.OpenBuildToolPayload(p.id(),"generated/test.blueprint",data,1,p.anchorPos()).repairToken().equals(RoadNativeBuildTool.NO_SESSION),"legacy open constructor supplies no authorization for first construction");
         } finally { buffer.release(); }
         System.out.println("PASS "+checks+" repair session assertions");
     }

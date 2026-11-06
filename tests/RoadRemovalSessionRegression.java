@@ -1,5 +1,5 @@
-import com.YLFXM.mcreconstruction.road.*;
-import com.YLFXM.mcreconstruction.network.*;
+import com.YLFXM.rp.crossroads.road.*;
+import com.YLFXM.rp.crossroads.network.*;
 import com.minecolonies.api.colony.workorders.*;
 import net.minecraft.core.*;
 import net.minecraft.world.level.Level;
@@ -24,7 +24,12 @@ public final class RoadRemovalSessionRegression {
     public static void main(String[] args) {
         var owner=UUID.randomUUID(); var p=plan();
         p.adoptCommittedRows(Map.of(7,CellType.STAIR_UP));
-        p.setRowType(8,CellType.STAIR_DOWN); p.setLastDroppedRows(2); p.setAllowBlueprintEdit(true);
+        // Two manual rows are part of the applied table, then released: that is the
+        // "dropped" figure (lost manual levels), not a type difference.
+        p.editRow(9,CellType.STAIR_UP); p.editRow(10,CellType.STAIR_UP);
+        p.setAppliedGeometry(p.geometrySnapshot());
+        p.clearManual(9); p.clearManual(10);
+        p.setRowType(8,CellType.STAIR_DOWN); p.setAllowBlueprintEdit(true);
         var session=new RoadRemovalSession(owner,false,42); session.setOrderId(17);
         var restored=RoadRemovalSession.load(session.save());
         check(restored.token().equals(session.token()) && restored.owner().equals(owner),"persist operation and owner identity");
@@ -35,7 +40,7 @@ public final class RoadRemovalSessionRegression {
         p.setRemovalSession(session); p.setState(RoadState.REMOVING);
         var saved=RoadPlan.load(p.save());
         check(saved.removalSession().token().equals(session.token()) && saved.state()==RoadState.REMOVING,"road persists removal phase");
-        check(saved.editedRowCount()==1 && saved.confirmedRowCount()==1 && saved.lastDroppedRows()==2,"demolition preserves proposal and committed rows");
+        check(saved.editedRowCount()==1 && saved.confirmedRowCount()==3 && saved.lostRowCount()==2,"demolition preserves proposal and committed rows");
         check(saved.allowBlueprintEdit(),"demolition does not silently change edit preference");
         check(!p.saveForSync().contains("removalSession"),"private removal owner and destination not sent in index");
         check(RoadPlan.load(p.saveForSync()).state()==RoadState.REMOVING,"client gets authoritative removal state");
@@ -48,7 +53,7 @@ public final class RoadRemovalSessionRegression {
         check(!RoadNativeRemoval.matches(p,order(RoadTemporaryPack.PACK_NAME,new RoadRemovalSession(owner,false,42).path(p.id()),WorkOrderType.REMOVE)),"stale demolition path rejected");
         check(!RoadNativeRemoval.matches(p,order(RoadTemporaryPack.PACK_NAME,RoadTemporaryPack.pathFor(p),WorkOrderType.REMOVE)),"pending construction blueprint cannot stand in for applied demolition");
         p.setRemovalSession(null);p.setState(RoadState.PLANNED);
-        check(p.editedRowCount()==1 && p.confirmedRowCount()==1 && p.lastDroppedRows()==2,"cancel preserves live data");
+        check(p.editedRowCount()==1 && p.confirmedRowCount()==3 && p.lostRowCount()==2,"cancel preserves live data");
         check(RoadRules.canRemove(p) && RoadRules.canRepair(p),"cancel returns to retryable state");
         check(!RoadNativeRemoval.matches(p,match),"late order cannot revive cancelled operation");
         var instant=new RoadRemovalSession(owner,true,0);p.setRemovalSession(instant);

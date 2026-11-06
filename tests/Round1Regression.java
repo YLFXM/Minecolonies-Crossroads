@@ -1,5 +1,5 @@
-import com.YLFXM.mcreconstruction.road.*;
-import com.YLFXM.mcreconstruction.network.*;
+import com.YLFXM.rp.crossroads.road.*;
+import com.YLFXM.rp.crossroads.network.*;
 import net.minecraft.core.*;
 import net.minecraft.world.level.Level;
 import java.util.*;
@@ -8,7 +8,7 @@ public final class Round1Regression {
     private static int checks;
     private static void check(boolean value,String message){checks++;if(!value)throw new AssertionError(message);}
     public static void main(String[] args) {
-        String pack="Reconstruction Plan",path="generated/River-abcd.blueprint";
+        String pack="Crossroads",path="generated/River-abcd.blueprint";
         BlockPos anchor=new BlockPos(10,65,20);
         check(RoadRepairSelection.validate(pack,path,anchor,0,pack,"generated\\River-abcd.blueprint",anchor,0)==RoadRepairSelection.Mismatch.NONE,"Windows native relative path is accepted");
         check(RoadRepairSelection.validate(pack,path,anchor,0,pack,path,anchor,0)==RoadRepairSelection.Mismatch.NONE,"Unix relative path is accepted");
@@ -17,8 +17,8 @@ public final class Round1Regression {
         check(RoadRepairSelection.validate(pack,path,anchor,0,pack,path,anchor.above(),0)==RoadRepairSelection.Mismatch.ANCHOR,"height offset is not silently forgiven");
         check(RoadRepairSelection.validate(pack,path,anchor,0,pack,path,anchor,1)==RoadRepairSelection.Mismatch.ROTATION,"rotation restriction retained");
         check(RoadRepairSelection.validate(pack,path,anchor,0,pack,"generated/../generated/River-abcd.blueprint",anchor,0)==RoadRepairSelection.Mismatch.PATH,"path traversal is not normalised into a match");
-        var json=com.google.gson.JsonParser.parseString("{\"name\":\"Reconstruction Plan\",\"icon\":\"\",\"authors\":[],\"desc\":\"\",\"mods\":[],\"version\":1,\"pack-format\":1}").getAsJsonObject();
-        var root=java.nio.file.Path.of("D:/packs/Reconstruction Plan");
+        var json=com.google.gson.JsonParser.parseString("{\"name\":\"Crossroads\",\"icon\":\"\",\"authors\":[],\"desc\":\"\",\"mods\":[],\"version\":1,\"pack-format\":1}").getAsJsonObject();
+        var root=java.nio.file.Path.of("D:/packs/Crossroads");
         var meta=new com.ldtteam.structurize.storage.StructurePackMeta(json,root,"Local");
         String nativePath=meta.getSubPath(root.resolve("generated").resolve("River-abcd.blueprint"));
         check(RoadRepairSelection.path(nativePath).equals(path),"installed native pack path matches wire path after separator conversion");

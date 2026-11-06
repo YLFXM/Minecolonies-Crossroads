@@ -1,6 +1,6 @@
 """Export/verify canonical road units from the installed MineColonies source blueprints.
 
-GPL-3.0-or-later, ZhuanZ (YLFXM). No game or third-party Python packages required.
+GPL-3.0-or-later, YLFXM. No game or third-party Python packages required.
 """
 import argparse
 import copy
@@ -13,7 +13,7 @@ import struct
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-DEST = ROOT / 'src/main/resources/assets/mcreconstruction/blueprints/units/original'
+DEST = ROOT / 'src/main/resources/assets/rp_crossroads/blueprints/units/original'
 AIR = {'Name': 'minecraft:air'}
 
 def read_nbt(raw):

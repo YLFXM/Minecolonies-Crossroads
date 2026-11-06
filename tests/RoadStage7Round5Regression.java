@@ -1,4 +1,4 @@
-package com.YLFXM.mcreconstruction.road;
+package com.YLFXM.rp.crossroads.road;
 
 import java.util.*;
 import net.minecraft.SharedConstants;
@@ -10,6 +10,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import com.ldtteam.structurize.blueprints.v1.*;
 import com.ldtteam.structurize.blocks.schematic.*;
+
+import com.YLFXM.rp.crossroads.road.common.RoadBlocks;
+import com.YLFXM.rp.crossroads.road.common.BlueprintCells;
 
 /** Native shared-cell merge, real ghost projection, draft identity and bounded restoration proofs. */
 public final class RoadStage7Round5Regression {
@@ -55,7 +58,7 @@ public final class RoadStage7Round5Regression {
         for(var b:List.of(rawMain,nativeMain,rawPeer,nativePeer))b.setCachePrimaryOffset(new BlockPos(0,1,0));
         var ghost=RoadJointWork.ghostProjection(main,Map.of(main.id(),main,peer.id(),peer),Map.of(main.id(),rawMain,peer.id(),rawPeer),Map.of(main.id(),nativeMain,peer.id(),nativePeer),registry);
         check(ghost.getBlockState(corner).is(Blocks.COBBLESTONE),"single ghost includes visible shared corner from the same peer target as joint preview");
-        check(RoadBlueprintOps.isSolidFill(ghost.getBlockState(ownFill)),"single ghost restores visible fill behind native no-op mask");
+        check(RoadBlocks.isSolidFill(ghost.getBlockState(ownFill)),"single ghost restores visible fill behind native no-op mask");
         check(nativeMain.getBlockState(corner).is(skip),"display projection never turns native protected cells into world edits");
 
         var tried=new ArrayList<Integer>();var next=RoadPlanningActions.chooseMode(0,1,m->{tried.add(m);if(m==1)throw new IllegalArgumentException("no room");return "lower";});
@@ -67,12 +70,13 @@ public final class RoadStage7Round5Regression {
         check(denied && tried.equals(List.of(1,2)),"both unavailable alternatives reject without selecting another state");
 
         var actualMain=RoadPlan.load(main.save());var actualPeer=RoadPlan.load(peer.save());
-        check(RoadCrossingRestoration.geometry(main,actualMain,peer,actualPeer),"existing unchanged crossing passes restoration geometry gate");
-        var raised=RoadPlan.load(main.save());raised.setRowType(2,CellType.STAIR_UP);check(!RoadCrossingRestoration.geometry(raised,actualMain,peer,actualPeer),"changed crossing height needs approval");
-        var layered=RoadPlan.load(main.save());layered.planning().crossing(peer.id(),new RoadPlanningState.Crossing(true,1,20));check(!RoadCrossingRestoration.geometry(layered,actualMain,peer,actualPeer),"changed relation needs approval");
+        var sameLevel=new RoadPlanningState.Crossing(false,0);
+        check(RoadCrossingRestoration.geometry(main,actualMain,actualPeer,sameLevel,sameLevel),"existing unchanged crossing passes restoration geometry gate");
+        var raised=RoadPlan.load(main.save());raised.setRowType(2,CellType.STAIR_UP);check(!RoadCrossingRestoration.geometry(raised,actualMain,actualPeer,sameLevel,sameLevel),"changed crossing height needs approval");
+        check(!RoadCrossingRestoration.geometry(main,actualMain,actualPeer,new RoadPlanningState.Crossing(true,1,20),sameLevel),"changed relation needs approval");
         var ownApplied=image(registry);var otherApplied=image(registry);var work=image(registry);
         // The peer anchor is always protected, regardless of background AIR in old snapshots.
-        var peerAnchor=peer.anchorPos().subtract(RoadBlueprintOps.origin(main,work));work.addBlockState(peerAnchor,skip.defaultBlockState());
+        var peerAnchor=peer.anchorPos().subtract(BlueprintCells.origin(main,work));work.addBlockState(peerAnchor,skip.defaultBlockState());
         var shared=new BlockPos(2,0,1);var otherShared=new BlockPos(1,0,1);
         ownApplied.addBlockState(shared,Blocks.COBBLESTONE.defaultBlockState());otherApplied.addBlockState(otherShared,Blocks.COBBLESTONE.defaultBlockState());work.addBlockState(shared,Blocks.COBBLESTONE.defaultBlockState());
         for(var b:List.of(ownApplied,otherApplied,work))b.setCachePrimaryOffset(new BlockPos(0,1,0));

@@ -1,6 +1,6 @@
-package com.YLFXM.mcreconstruction.road;
+package com.YLFXM.rp.crossroads.road;
 
-import com.YLFXM.mcreconstruction.RoadPermissions;
+import com.YLFXM.rp.crossroads.RoadPermissions;
 import java.util.*;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.*;
@@ -20,7 +20,7 @@ public final class RoadStage7Round3Regression {
     }
     private static RoadCrossings.Neighbor neighbor(RoadPlan own,RoadPlan other) {
         return new RoadCrossings.Neighbor(other,other,null,RoadCrossingGeometry.body(own).intersect(RoadCrossingGeometry.body(other)),
-                RoadCrossingGeometry.walk(own).intersect(RoadCrossingGeometry.walk(other)),RoadCrossings.setting(own,other));
+                RoadCrossingGeometry.walk(own).intersect(RoadCrossingGeometry.walk(other)),new RoadPlanningState.Crossing(false,0));
     }
     public static void main(String[] args) {
         SharedConstants.tryDetectVersion();net.neoforged.fml.loading.LoadingModList.of(List.of(),List.of(),List.of(),List.of(),Map.of());Bootstrap.bootStrap();
@@ -28,17 +28,18 @@ public final class RoadStage7Round3Regression {
         var oldA=RoadPlan.load(a.save());var oldB=RoadPlan.load(b.save());var oldC=c.save();
         var overlap=RoadCrossingGeometry.walk(a).intersect(RoadCrossingGeometry.walk(b));
         var remote=RoadCrossingGeometry.walk(b).intersect(RoadCrossingGeometry.walk(c));
-        a.planning().crossing(b.id(),new RoadPlanningState.Crossing(false,0,12,65));
-        b.planning().crossing(a.id(),new RoadPlanningState.Crossing(false,0,12,65));
-        b.planning().crossing(c.id(),new RoadPlanningState.Crossing(false,0,13,64));
-        RoadLockReconcile.apply(a,id -> id.equals(b.id()) ? b : null);
-        RoadLockReconcile.apply(b,id -> id.equals(a.id()) ? a : id.equals(c.id()) ? c : null);
+        var ab=new RoadJunctions.Junction(a.id(),b.id(),RoadCrossingGeometry.body(a).intersect(RoadCrossingGeometry.body(b)),
+                new RoadPlanningState.Crossing(false,0,12,65),null,false,false,1);
+        var bc=new RoadJunctions.Junction(b.id(),c.id(),RoadCrossingGeometry.body(b).intersect(RoadCrossingGeometry.body(c)),
+                new RoadPlanningState.Crossing(false,0,13,64),null,false,false,1);
+        RoadLockReconcile.apply(a,List.of(ab),id -> id.equals(b.id()) ? b : null,id -> false);
+        RoadLockReconcile.apply(b,List.of(ab,bc),id -> id.equals(a.id()) ? a : id.equals(c.id()) ? c : null,id -> false);
         check(RoadCrossingGeometry.platform(b,remote)==64,"an existing junction platform is recorded as a lock");
-        check(b.planning().locks().values().stream().anyMatch(lock -> !lock.anchor() && lock.height()==65),"the lock keeps the agreed platform height");
-        var locksBefore=b.planning().save().getCompound("planning").getList("locks",10).size();
+        check(b.lockedRows().entrySet().stream().anyMatch(lock -> lock.getKey()!=RoadHeightProfile.anchorAlong(b) && lock.getValue()==64),"the lock keeps the agreed platform surface height");
+        var locksBefore=Map.copyOf(b.lockedRows());
         var stranger=road(Direction.Axis.X,0,15);
-        RoadLockReconcile.apply(b,id -> id.equals(a.id()) ? a : id.equals(c.id()) ? c : id.equals(stranger.id()) ? stranger : null);
-        check(b.planning().save().getCompound("planning").getList("locks",10).size()==locksBefore,"an overlapping road without a relation record never becomes a constraint");
+        RoadLockReconcile.apply(b,List.of(ab,bc),id -> id.equals(a.id()) ? a : id.equals(c.id()) ? c : id.equals(stranger.id()) ? stranger : null,id -> false);
+        check(b.lockedRows().equals(locksBefore),"an overlapping road without a relation record never becomes a constraint");
         RoadJointWork.alignTargets(a,b,65,2,110);
         check(RoadCrossingGeometry.platform(a,overlap)==65,"primary new platform replaces its old applied height");
         check(RoadCrossingGeometry.platform(b,overlap)==65,"peer new target uses the same requested platform");
@@ -51,20 +52,18 @@ public final class RoadStage7Round3Regression {
         refused=false;try{RoadJointWork.alignTargets(a,b,110,2,110);}catch(IllegalArgumentException ex){refused=true;}
         check(refused,"unreachable joint height is still refused");
         check(RoadCrossingGeometry.platform(a,overlap)==65,"failed solving keeps the accepted proposal intact");
-        a.planning().policy(b.id(),2);a.planning().local(b.id(),true);a.planning().crossing(b.id(),new RoadPlanningState.Crossing(true,1,20));
-        var bBefore=b.save();check(!RoadCrossings.setting(b,a).layered(),"private strict intent cannot change the foreign global relation");
-        try(var scope=RoadCrossings.scope(Map.of(a.id(),a),Map.of(),a.id())) {
-            check(RoadCrossings.setting(b,a).layered() && RoadCrossings.setting(b,a).order()==-1,"this operation derives the inverse underpass");
-            check(RoadCrossings.setting(a,b).order()==1,"the primary keeps its overpass");
-            a.planning().crossing(b.id(),new RoadPlanningState.Crossing(true,-1,21));
-            check(RoadCrossings.setting(b,a).order()==1,"strict underpass derives the inverse overpass");
-            check(!RoadCrossings.setting(c,a).layered(),"unrelated pairs do not inherit the strict rule");
-        }
-        check(b.save().equals(bBefore),"scoped reciprocal calculation never edits peer NBT");
-        check(!RoadCrossings.setting(b,a).layered(),"scope close restores the foreign relationship");
+        var strictOver=new RoadJunctions.Junction(a.id(),b.id(),RoadCrossingGeometry.body(a).intersect(RoadCrossingGeometry.body(b)),
+                new RoadPlanningState.Crossing(true,1,20),null,false,false,2);
+        check(RoadJunctions.ruleFor(strictOver,a.id()).order()==1 && RoadJunctions.ruleFor(strictOver,b.id()).order()==-1,
+                "one strict record derives the inverse underpass for the neighbour");
+        var strictUnder=new RoadJunctions.Junction(a.id(),b.id(),RoadCrossingGeometry.body(a).intersect(RoadCrossingGeometry.body(b)),
+                new RoadPlanningState.Crossing(true,-1,21),null,false,false,3);
+        check(RoadJunctions.ruleFor(strictUnder,b.id()).order()==1,"strict underpass derives the inverse overpass");
+        check(!bc.rule().layered(),"unrelated pairs keep their own rule");
         var flatA=road(Direction.Axis.X,0,0);var flatB=road(Direction.Axis.Z,10,-15);
-        check(RoadCrossings.sharedLampRow(flatA,flatB,RoadCrossings.setting(flatA,flatB))!=null,"the east-west road provides the shared corner lamp");
-        check(RoadCrossings.sharedLampRow(flatB,flatA,RoadCrossings.setting(flatB,flatA))==null,"the north-south road yields the corner lamp");
+        var same=new RoadPlanningState.Crossing(false,0);
+        check(RoadCrossings.sharedLampRow(flatA,flatB,same)!=null,"the east-west road provides the shared corner lamp");
+        check(RoadCrossings.sharedLampRow(flatB,flatA,same)==null,"the north-south road yields the corner lamp");
         check(!RoadCrossings.deckCell(c,new BlockPos(10,80,17)),"height outside the deck is not a structural deferral");
         var origin=new BlockPos(10,64,0);
         check(RoadCrossings.adjacentLamp(origin,new BlockPos(11,90,0),64,70,65,71),"horizontal neighbors with overlapping lamp intervals conflict");
@@ -78,9 +77,12 @@ public final class RoadStage7Round3Regression {
         lamp.add(new BlockPos(0,20,0),Blocks.AIR.defaultBlockState(),null);
         check(RoadCrossings.adjacentLamp(a,10,64,a,11,64,lamp),"real unit entries suppress a same-height adjacent whole lamp");
         check(!RoadCrossings.adjacentLamp(a,10,64,a,11,71,lamp),"unused AIR height never enlarges a lamp's collision interval");
-        check(RoadCrossingConsent.notifyTimeoutRecipient(RoadCrossingConsent.Decision.APPROVED,true),"timeout approval informs the recipient");
-        check(!RoadCrossingConsent.notifyTimeoutRecipient(RoadCrossingConsent.Decision.APPROVED,false),"manual answer uses its existing receipt");
-        check(!RoadCrossingConsent.notifyTimeoutRecipient(RoadCrossingConsent.Decision.INVALID,true),"later invalidation cannot announce automatic approval");
+        check(RoadCrossingConsent.timeout(RoadCrossingConsent.Decision.APPROVED,999999,120000,true,true)==RoadCrossingConsent.Decision.APPROVED,
+                "an answered request keeps its recorded decision");
+        check(RoadCrossingConsent.timeout(RoadCrossingConsent.Decision.PENDING,999999,120000,true,true)==RoadCrossingConsent.Decision.REJECTED,
+                "an unanswered request expires as a refusal");
+        check(RoadCrossingConsent.timeout(RoadCrossingConsent.Decision.PENDING,999999,120000,false,true)==RoadCrossingConsent.Decision.INVALID,
+                "a changed proposal invalidates the request before timing out");
         UUID owner=UUID.randomUUID(),actor=UUID.randomUUID();
         for(boolean creative:new boolean[]{false,true})for(boolean op:new boolean[]{false,true}) {
             boolean bypass=RoadPermissions.creativeAdmin(creative,op);

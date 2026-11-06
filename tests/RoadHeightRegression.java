@@ -1,4 +1,4 @@
-import com.YLFXM.mcreconstruction.road.*;
+import com.YLFXM.rp.crossroads.road.*;
 import net.minecraft.core.*;
 import net.minecraft.world.level.Level;
 import java.util.*;
@@ -15,7 +15,7 @@ public final class RoadHeightRegression {
     }
     public static void main(String[] args) {
         check(RoadUnitLibrary.supports("minecolonies","street",4),"historical logical pack resolves bundled classic unit");
-        check(RoadUnitLibrary.supports("Reconstruction Plan","street",4),"generated pack alias resolves bundled classic unit");
+        check(RoadUnitLibrary.supports("Crossroads","street",4),"generated pack alias resolves bundled classic unit");
         check(RoadUnitLibrary.supports("Minecolonies Original","street",4),"native classic pack resolves bundled unit");
         check(!RoadUnitLibrary.supports("foreign","street",4) && !RoadUnitLibrary.supports("minecolonies","other",4)
                 && !RoadUnitLibrary.supports("minecolonies","street",3),"unsupported style or dimensions do not silently select a different unit");
@@ -44,6 +44,7 @@ public final class RoadHeightRegression {
             check(profile.row(a-2*direction).baseY()==63,"the far side follows the slope without shifting the anchor");
         }
         var p=plan(Direction.Axis.X,1,1);
+        p.setAppliedGeometry(p.geometrySnapshot());
         p.setRowType(11,CellType.STAIR_UP);
         String up=RoadHeightProfile.editSignature(p);
         p.setRowType(11,CellType.STAIR_DOWN);

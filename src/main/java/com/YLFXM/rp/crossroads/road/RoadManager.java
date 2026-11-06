@@ -1,0 +1,125 @@
+/*
+ * Copyright (C) 2026 YLFXM
+ *
+ * MineColonies: Crossroads - a feature expansion addon for MineColonies.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+package com.YLFXM.rp.crossroads.road;
+
+import com.YLFXM.rp.crossroads.Crossroads;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.saveddata.SavedData;
+
+/**
+ * Per-dimension road index. MVP only uses the overworld, but the data is stored
+ * on the level it belongs to.
+ */
+public final class RoadManager extends SavedData {
+    private static final String DATA_NAME = "rp_crossroads_roads";
+    private static final SavedData.Factory<RoadManager> FACTORY =
+            new SavedData.Factory<>(RoadManager::new, RoadManager::load);
+
+    private final Map<UUID, RoadPlan> roads = new HashMap<>();
+    /** Per-dimension junction table; see {@link RoadJunctions}. */
+    private final Map<String, RoadJunctions.Junction> junctions = new java.util.LinkedHashMap<>();
+
+    public static RoadManager get(final ServerLevel level) {
+        return level.getDataStorage().computeIfAbsent(FACTORY, DATA_NAME);
+    }
+
+    public Collection<RoadPlan> all() {
+        return Collections.unmodifiableCollection(roads.values());
+    }
+
+    public RoadPlan get(final UUID id) {
+        return roads.get(id);
+    }
+
+    public RoadPlan findByController(final net.minecraft.core.BlockPos controllerPos) {
+        for (final RoadPlan plan : roads.values()) {
+            if (plan.controllerPos().equals(controllerPos)) {
+                return plan;
+            }
+        }
+        return null;
+    }
+
+    public void add(final RoadPlan plan) {
+        roads.put(plan.id(), plan);
+        setDirty();
+    }
+
+    public void remove(final UUID id) {
+        if (roads.remove(id) != null) {
+            setDirty();
+        }
+    }
+
+    Map<String, RoadJunctions.Junction> junctionTable() {
+        return junctions;
+    }
+
+    void junctionsChanged() {
+        setDirty();
+    }
+
+    /** Synchronous checkpoint used before retiring a multi-road redo record. */
+    public void checkpoint(ServerLevel level) throws java.io.IOException {
+        var root=level.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
+        var folder=net.minecraft.world.level.dimension.DimensionType.getStorageFolder(level.dimension(),root);
+        CompoundTag wrapper=new CompoundTag();
+        wrapper.put("data",save(new CompoundTag(),level.registryAccess()));
+        wrapper.putInt("DataVersion",net.minecraft.SharedConstants.getCurrentVersion().getDataVersion().getVersion());
+        RoadAtomicNbt.write(folder.resolve("data").resolve(DATA_NAME+".dat"),wrapper);
+        setDirty(false);
+    }
+
+    @Override
+    public CompoundTag save(final CompoundTag tag, final HolderLookup.Provider provider) {
+        final ListTag list = new ListTag();
+        for (final RoadPlan plan : roads.values()) {
+            list.add(plan.save());
+        }
+        tag.put("roads", list);
+        tag.put("junctions", RoadJunctions.saveAll(junctions.values()));
+        return tag;
+    }
+
+    private static RoadManager load(final CompoundTag tag, final HolderLookup.Provider provider) {
+        final RoadManager manager = new RoadManager();
+        final ListTag list = tag.getList("roads", 10);
+        for (int i = 0; i < list.size(); i++) {
+            // One unreadable entry must not cost the whole dimension its roads: a save
+            // written before the row-level model is rejected on purpose, and the other
+            // roads in the list are still perfectly valid.
+            try {
+                final RoadPlan plan = RoadPlan.load(list.getCompound(i));
+                manager.roads.put(plan.id(), plan);
+            } catch (final RuntimeException ex) {
+                Crossroads.LOGGER.warn("Skipping unreadable road at index {}: {}", i, ex.getMessage());
+            }
+        }
+        manager.junctions.putAll(RoadJunctions.loadAll(tag.getList("junctions", 10)));
+        return manager;
+    }
+}

@@ -1,4 +1,4 @@
-package com.YLFXM.mcreconstruction.road;
+package com.YLFXM.rp.crossroads.road;
 
 import com.minecolonies.api.colony.IColony;
 import com.minecolonies.api.colony.workorders.*;
@@ -14,6 +14,10 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 
+import com.YLFXM.rp.crossroads.road.common.RoadBlocks;
+import com.YLFXM.rp.crossroads.road.common.BlueprintCells;
+import com.YLFXM.rp.crossroads.road.common.RoadGeometry;
+
 /** Production reference selection, field-only reciprocal sync, native admission and real removal masks. */
 public final class RoadStage7Round4Regression {
     private static int checks;
@@ -23,6 +27,10 @@ public final class RoadStage7Round4Regression {
                 new BlockPos(axis==Direction.Axis.X ? anchor:cross,-60,axis==Direction.Axis.X ? cross-1:anchor-1),Direction.SOUTH,false,"minecolonies","street",4,WalkRange.of(1,2),1,4);
         p.addSegment(new RoadSegment(new BlockPos(axis==Direction.Axis.X ? min:cross,-61,axis==Direction.Axis.X ? cross:min),length,axis,0,SegmentKind.ROAD));
         p.setState(RoadState.PLANNED);p.setAllowBlueprintEdit(true);p.setTravelDir(-1);return p;
+    }
+    private static RoadCrossings.Neighbor neighbor(RoadPlan own,RoadPlan model,RoadPlanningState.Crossing setting) {
+        return new RoadCrossings.Neighbor(model,model,null,RoadCrossingGeometry.body(own).intersect(RoadCrossingGeometry.body(model)),
+                RoadCrossingGeometry.walk(own).intersect(RoadCrossingGeometry.walk(model)),setting);
     }
     private static final class NativeAdmission {
         final Map<Integer,IServerWorkOrder> orders=new HashMap<>();boolean accept=true,failHook;
@@ -58,50 +66,50 @@ public final class RoadStage7Round4Regression {
 
         // Coordinates/profile from the report: anchor -60, old physical end 27, current proposed end 43.
         var primary=road(Direction.Axis.X,68,34,93,23);var oldPeer=road(Direction.Axis.Z,8,20,15,84);
-        oldPeer.adoptCommittedRows(Map.of(9,CellType.STAIR_UP,11,CellType.STAIR_UP,14,CellType.STAIR_UP));
-        var peer=road(Direction.Axis.Z,8,36,15,84);peer.setId(oldPeer.id());peer.adoptCommittedRows(oldPeer.rowOverrides());peer.setAppliedGeometry(oldPeer.geometrySnapshot());
+        oldPeer.adoptCommittedRows(Map.of(9,CellType.STAIR_UP,11,CellType.STAIR_UP,14,CellType.STAIR_UP));oldPeer.setAppliedGeometry(oldPeer.geometrySnapshot());
+        var peer=road(Direction.Axis.Z,8,36,15,84);peer.setId(oldPeer.id());peer.adoptCommittedRows(oldPeer.rowOverrides());peer.setAppliedGeometry(peer.geometrySnapshot());peer.setAppliedGeometry(oldPeer.geometrySnapshot());
         var oldPrimary=RoadPlan.load(primary.save());var oldPeerTag=oldPeer.save();
-        primary.planning().crossing(peer.id(),new RoadPlanningState.Crossing(false,0,100,-60));
-        peer.planning().crossing(primary.id(),new RoadPlanningState.Crossing(false,0,100,-60));
-        var target=RoadJointWork.prospectivePeer(peer,oldPeer,primary);
-        RoadLockReconcile.apply(primary,id -> id.equals(peer.id()) ? oldPeer : null);
-        RoadLockReconcile.apply(target,id -> id.equals(primary.id()) ? oldPrimary : null);
+        var relation=new RoadPlanningState.Crossing(false,0,100,-60);
+        var recorded=new RoadJunctions.Junction(primary.id(),peer.id(),RoadCrossingGeometry.body(primary).intersect(RoadCrossingGeometry.body(peer)),
+                relation,null,true,true,1);
+        var target=RoadJointWork.prospectivePeer(peer,oldPeer,primary,relation);
+        RoadLockReconcile.apply(primary,List.of(recorded),id -> id.equals(peer.id()) ? oldPeer : null,id -> true);
+        RoadLockReconcile.apply(target,List.of(recorded),id -> id.equals(primary.id()) ? oldPrimary : null,id -> true);
         RoadJointWork.alignTargets(primary,target,-60,-62,310);
-        boolean refused=false;try{RoadCrossings.validate(primary,RoadCrossings.neighbor(primary,peer,oldPeer,null));}catch(IllegalArgumentException ex){refused=ex.getMessage().contains("Junction height must match");}
+        boolean refused=false;try{RoadCrossings.validate(primary,neighbor(primary,oldPeer,relation));}catch(IllegalArgumentException ex){refused=ex.getMessage().contains("Junction height must match");}
         check(refused,"reproduces the screenshot with the stale default physical platform");
         try(var scope=RoadCrossings.scope(Map.of(primary.id(),primary,peer.id(),target),Map.of(),primary.id())) {
-            RoadCrossings.validate(primary,RoadCrossings.neighbor(primary,peer,oldPeer,null));
-            check(RoadCrossings.neighbor(primary,peer,oldPeer,null).model()==target,"ordinary/joint/frozen scopes select the exact new target rather than old applied geometry");
-            check(RoadCrossings.reference(null,peer)==target,"shared scoped reference is used without another world lookup");
+            RoadCrossings.validate(primary,neighbor(primary,target,relation));
+            check(RoadCrossings.reference(null,peer)==target,"ordinary/joint/frozen scopes select the exact new target rather than old applied geometry");
         }
         check(oldPeer.save().equals(oldPeerTag),"new platform selection does not edit the applied source");
         var extendingMain=road(Direction.Axis.X,47,44,52,36);
         check(RoadCrossingGeometry.body(extendingMain).intersect(RoadCrossingGeometry.body(oldPeer))==null,"old physical road ends before the new crossing");
         check(RoadCrossings.planningReference(extendingMain,peer,oldPeer)==peer,"new crossing lookup keeps the current candidate instead of falsely reporting no overlap");
-        var extension=RoadJointWork.prospectivePeer(peer,oldPeer,extendingMain);
+        var extension=RoadJointWork.prospectivePeer(peer,oldPeer,extendingMain,relation);
         check(extension.maxAlong()==43,"prospective preview retains the current proposed end");
         check(RoadJointWork.potentialOverlap(extendingMain,peer),"proposal overlap reaches the resolver even when outside its applied range");
         var far=road(Direction.Axis.Z,100,12,105,100);check(!RoadJointWork.potentialOverlap(primary,far),"unrelated roads are skipped before loading their physical blueprints");
         far.setAppliedGeometry(oldPeer.geometrySnapshot());check(RoadJointWork.potentialOverlap(primary,far),"a changed proposal cannot hide an existing physical crossing from the minimal relation index");
-        check(RoadCrossings.neighbor(extendingMain,peer,oldPeer,null)!=null,"the new relation is referenceable before neighbor extension construction");
+        check(RoadCrossingGeometry.body(extendingMain).intersect(RoadCrossingGeometry.body(peer))!=null,"the new relation is geometrically referenceable before peer extension construction");
         var dependency=RoadCrossings.frozenDependency(peer,oldPeer,false);
         check(dependency.getBoolean("applied") && RoadPlan.load(dependency.getCompound("model")).maxAlong()==27,"frozen verification still records the physical source, not unbuilt extension bounds");
         check(RoadCrossings.frozenDependency(peer,oldPeer,true).getBoolean("constraintOnly"),"remote dependency remains read-only");
-        peer.setRowType(40,CellType.STAIR_DOWN);var proposal=RoadPlan.load(peer.geometrySnapshot());proposal.adoptPendingRows(Map.of());proposal.setRowType(24,CellType.STAIR_DOWN);proposal.applyPendingRows();
+        peer.setRowType(40,CellType.STAIR_DOWN);var proposal=RoadPlan.load(peer.geometrySnapshot());proposal.adoptPendingRows(Map.of());proposal.setRowType(24,CellType.STAIR_DOWN);proposal.pruneOutOfRangeRows();
         RoadJointWork.stageProposalRows(peer,proposal,oldPeer);
         check(peer.pendingRows().containsKey(40),"updating an unbuilt extension does not erase unrelated pending edits");
         check(peer.pendingRows().containsKey(24),"the local platform adjustment remains a proposal, not an applied commit");
 
         var peerRows=Map.copyOf(peer.rowOverrides());var peerPending=Map.copyOf(peer.pendingRows());var applied=peer.appliedGeometry().copy();var geometry=List.copyOf(peer.segments());
-        primary.planning().policy(peer.id(),2);primary.planning().local(peer.id(),true);
-        primary.planning().crossing(peer.id(),new RoadPlanningState.Crossing(true,1,200));RoadPlanningActions.syncRelativeRule(primary,peer);
-        var inverse=peer.planning().crossings().get(primary.id());
-        check(inverse.layered() && inverse.order()==-1 && inverse.version()==200,"strict overpass actually persists inverse underpass metadata");
-        var restored=RoadPlan.load(peer.save());check(restored.planning().crossings().get(primary.id()).order()==-1,"inverse field survives NBT, not only thread-local calculation");
-        primary.planning().crossing(peer.id(),new RoadPlanningState.Crossing(true,-1,201));RoadPlanningActions.syncRelativeRule(primary,peer);
-        check(peer.planning().crossings().get(primary.id()).order()==1,"strict underpass actually persists inverse overpass metadata");
-        check(peer.rowOverrides().equals(peerRows) && peer.pendingRows().equals(peerPending),"field-only sync does not rewrite committed or pending row tables");
-        check(peer.appliedGeometry().equals(applied) && peer.segments().equals(geometry),"field-only sync cannot change applied geometry or endpoints");
+        var overpass=new RoadJunctions.Junction(primary.id(),peer.id(),RoadCrossingGeometry.body(primary).intersect(RoadCrossingGeometry.body(peer)),
+                new RoadPlanningState.Crossing(true,1,200),null,false,false,2);
+        check(RoadJunctions.ruleFor(overpass,primary.id()).order()==1 && RoadJunctions.ruleFor(overpass,peer.id()).order()==-1,
+                "one strict overpass record reads as the inverse underpass for the peer");
+        var underpass=new RoadJunctions.Junction(primary.id(),peer.id(),RoadCrossingGeometry.body(primary).intersect(RoadCrossingGeometry.body(peer)),
+                new RoadPlanningState.Crossing(true,-1,201),null,false,false,3);
+        check(RoadJunctions.ruleFor(underpass,peer.id()).order()==1,"one strict underpass record reads as the inverse overpass for the peer");
+        check(peer.rowOverrides().equals(peerRows) && peer.pendingRows().equals(peerPending),"relation records never rewrite committed or pending row tables");
+        check(peer.appliedGeometry().equals(applied) && peer.segments().equals(geometry),"relation records cannot change applied geometry or endpoints");
 
         var nativeApi=new NativeAdmission();var session=RoadRepairSession.prepareInitial(primary,UUID.randomUUID(),1);
         nativeApi.accept=false;boolean accepted=RoadBuilderDispatch.admit(nativeApi.colony,nativeApi.order);
@@ -119,13 +127,29 @@ public final class RoadStage7Round4Regression {
         var maskSource=RoadBlueprintGenerator.emptyBlueprint((short)2,(short)2,(short)1,registries);
         maskSource.addBlockState(BlockPos.ZERO,fill.defaultBlockState());maskSource.addBlockState(new BlockPos(1,0,0),Blocks.COBBLESTONE.defaultBlockState());maskSource.setCachePrimaryOffset(new BlockPos(0,1,0));
         var mask=RoadCrossings.removalMask(primary,maskSource,List.of(),registries);
-        check(RoadCrossings.deckCell(primary,RoadBlueprintOps.origin(primary,mask)),"fixture fill is at actual deck height, where the previous conversion wrongly removed it");
-        check(RoadBlueprintOps.isSolidFill(mask.getBlockState(BlockPos.ZERO)),"production removal mask preserves native environmental fill marker at deck height");
+        check(RoadCrossings.deckCell(primary,BlueprintCells.origin(primary,mask)),"fixture fill is at actual deck height, where the previous conversion wrongly removed it");
+        check(RoadBlocks.isSolidFill(mask.getBlockState(BlockPos.ZERO)),"production removal mask preserves native environmental fill marker at deck height");
         check(!RoadNativeRemoval.target(mask.getBlockState(BlockPos.ZERO)),"creative scan and native removal do not treat fill as a concrete demolition target");
         check(RoadNativeRemoval.target(mask.getBlockState(new BlockPos(1,0,0))),"explicit cobblestone remains demolishable");
         var roundtrip=BlueprintUtil.readBlueprintFromNBT(BlueprintUtil.writeBlueprintToNBT(mask),registries);
-        check(RoadBlueprintOps.isSolidFill(roundtrip.getBlockState(BlockPos.ZERO)),"fill retention survives the actual saved native demolition blueprint");
+        check(RoadBlocks.isSolidFill(roundtrip.getBlockState(BlockPos.ZERO)),"fill retention survives the actual saved native demolition blueprint");
         check(maskSource.getBlockState(BlockPos.ZERO).is(fill),"masking leaves the applied source immutable");
+
+        // A raised junction step may sit above the old applied image's top; the applied mask
+        // must grow to cover both volumes instead of refusing the commit.
+        var small=RoadBlueprintGenerator.emptyBlueprint((short)2,(short)2,(short)2,registries);
+        small.addBlockState(new BlockPos(1,0,0),Blocks.COBBLESTONE.defaultBlockState());
+        small.setCachePrimaryOffset(new BlockPos(0,1,0));
+        var world=peer.anchorPos().subtract(new BlockPos(0,1,0));
+        var tall=RoadBlueprintGenerator.emptyBlueprint((short)2,(short)3,(short)2,registries);
+        tall.addBlockState(new BlockPos(0,2,0),Blocks.STONE_STAIRS.defaultBlockState());
+        tall.addBlockState(new BlockPos(1,0,0),Blocks.GOLD_BLOCK.defaultBlockState());
+        tall.setCachePrimaryOffset(new BlockPos(0,1,0));
+        var union=RoadJointWork.maskedApplied(peer,small,tall,new RoadGeometry.Rect(world.getX(),world.getZ(),world.getX(),world.getZ()),registries);
+        check(RoadCrossings.stateAt(union,peer,world.above(2)).is(Blocks.STONE_STAIRS),"applied union covers a target step above the old image");
+        check(RoadCrossings.stateAt(union,peer,world.offset(1,0,0)).is(Blocks.COBBLESTONE),"applied union preserves old cells outside the shared footprint");
+        check(!RoadCrossings.stateAt(union,peer,world.offset(1,0,0)).is(Blocks.GOLD_BLOCK),"outside-shared target cells never overlay the old image");
+        check(union.getSizeY()>=3,"applied union grows to the union volume");
         System.out.println("PASS "+checks+" stage7 round4 target/admission/removal assertions");
     }
 }

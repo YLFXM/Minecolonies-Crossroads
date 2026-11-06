@@ -14,7 +14,7 @@ public final class RoadUnitDataRegression {
         return data.getList("palette",10).getCompound((index%2==0 ? word>>>16 : word)&65535);
     }
     public static void main(String[] args) throws Exception {
-        Path directory=Path.of("src/main/resources/assets/mcreconstruction/blueprints/units/original");
+        Path directory=Path.of("src/main/resources/assets/rp_crossroads/blueprints/units/original");
         var manifest=JsonParser.parseString(Files.readString(directory.resolve("units.json"))).getAsJsonObject();
         for(String kind:List.of("road","lamp","stair")) {
             var spec=manifest.getAsJsonObject("units").getAsJsonObject(kind);
@@ -56,9 +56,9 @@ public final class RoadUnitDataRegression {
         var matcher=java.util.regex.Pattern.compile("(?m)^version\\s*=\\s*\"([^\"]+)\"")
                 .matcher(Files.readString(Path.of("src/main/resources/META-INF/neoforge.mods.toml")));
         if(!matcher.find()) throw new IllegalStateException("Mod version missing");
-        try(var jar=new ZipFile("dist/mcreconstruction-"+matcher.group(1)+".jar")) {
+        try(var jar=new ZipFile("dist/rp_crossroads-"+matcher.group(1)+".jar")) {
             for(String file:List.of("units.json","street_road.blueprint","street_lamp.blueprint","street_stair.blueprint")) {
-                try(var stream=jar.getInputStream(jar.getEntry("assets/mcreconstruction/blueprints/units/original/"+file))) {
+                try(var stream=jar.getInputStream(jar.getEntry("assets/rp_crossroads/blueprints/units/original/"+file))) {
                     check(Arrays.equals(stream.readAllBytes(),Files.readAllBytes(directory.resolve(file))),"built jar contains exact unit resource "+file);
                 }
             }

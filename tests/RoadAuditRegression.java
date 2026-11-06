@@ -1,4 +1,4 @@
-import com.YLFXM.mcreconstruction.road.*;
+import com.YLFXM.rp.crossroads.road.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
@@ -41,8 +41,8 @@ public class RoadAuditRegression {
             }
         }
         UUID owner=UUID.randomUUID();
-        RoadPlan old=plan(5,11); old.setCreator(owner); old.setDisplayName("Colony - River Road"); old.setRoadName("River Road");
-        old.setRowType(6,CellType.STAIR_UP); old.setRowType(14,CellType.STAIR_DOWN);
+        RoadPlan old=plan(5,11); old.setAppliedGeometry(old.geometrySnapshot()); old.setCreator(owner); old.setDisplayName("Colony - River Road"); old.setRoadName("River Road");
+        old.editRow(6,CellType.STAIR_UP); old.editRow(14,CellType.STAIR_DOWN);
         check(old.confirmedRowCount()==0 && old.editedRowCount()==2,"empty committed table fixture");
         RoadPlan draft=plan(5,11); RoadReplanning.inherit(old,draft,UUID.randomUUID(),true);
         check(draft.state()==RoadState.DRAFT && RoadRules.canCreate(draft),"settings do not consume draft");
@@ -53,8 +53,9 @@ public class RoadAuditRegression {
         check(small.roadName().equals(old.roadName()) && small.walkRange().equals(old.walkRange()),"name and asymmetric walk interval retained");
         RoadPlan wide=plan(5,11); RoadReplanning.inherit(small,wide,UUID.randomUUID(),false);
         check(wide.editedRowCount()==1 && wide.cellType(14)==CellType.FLAT,"discarded pending edit stays discarded");
-        RoadPlan initial=plan(5,11); initial.setRowType(6,CellType.STAIR_UP); initial.setRowType(14,CellType.STAIR_DOWN);
-        RoadPlan initialPreview=plan(5,6); initialPreview.adoptPendingRows(initial.pendingRows());
+        RoadPlan initial=plan(5,11); initial.setAppliedGeometry(initial.geometrySnapshot()); initial.editRow(6,CellType.STAIR_UP); initial.editRow(14,CellType.STAIR_DOWN);
+        RoadPlan initialPreview=plan(5,6); initialPreview.setAppliedGeometry(initialPreview.geometrySnapshot());
+        initialPreview.editRow(6,CellType.STAIR_UP); initialPreview.editRow(14,CellType.STAIR_DOWN);
         check(RoadReplanning.acceptDraftRows(initial,initialPreview),"valid initial preview accepts clipped rows");
         check(initial.state()==RoadState.DRAFT && RoadRules.canCreate(initial),"initial shrinking never consumes Create");
         check(initial.editedRowCount()==1 && !initial.pendingRows().containsKey(14),"initial shrinking updates the live diff count");
@@ -62,18 +63,44 @@ public class RoadAuditRegression {
         RoadPlan expandedPreview=plan(5,11); expandedPreview.adoptPendingRows(initial.pendingRows());
         check(RoadReplanning.acceptDraftRows(initial,expandedPreview) && initial.cellType(14)==CellType.FLAT,
                 "candidate extension is saved while discarded initial edits stay discarded");
-        RoadPlan turnedPreview=plan(5,11);
+        RoadPlan turnedPreview=plan(5,11); turnedPreview.setMirror(true);
         check(RoadReplanning.acceptDraftRows(initial,turnedPreview) && initial.editedRowCount()==0,
                 "accepted draft axis reset can discard incompatible pending edits");
-        RoadPlan committed=plan(5,11); committed.setState(RoadState.PLANNED); committed.setRowType(14,CellType.STAIR_UP);
+        RoadPlan committed=plan(5,11); committed.setState(RoadState.PLANNED); committed.setAppliedGeometry(committed.geometrySnapshot()); committed.setRowType(14,CellType.STAIR_UP);
         check(!RoadReplanning.acceptDraftRows(committed,initialPreview) && committed.editedRowCount()==1,
                 "draft-only row acceptance cannot mutate planned roads");
-        old.clearRowOverrides(); old.adoptCommittedRows(Map.of(14,CellType.STAIR_UP));
+        old.clearRowOverrides(); old.adoptCommittedRows(Map.of(14,CellType.STAIR_UP)); old.setAppliedGeometry(old.geometrySnapshot());
         RoadPlan shrink=plan(5,6); RoadReplanning.inherit(old,shrink,owner,false);
-        check(shrink.lastDroppedRows()==1 && shrink.confirmedRowCount()==1,"shrink preserves committed row until Repair");
+        check(shrink.lostRowCount()==0 && shrink.confirmedRowCount()==1,"shrink preserves committed row until Repair");
         RoadPlan restore=plan(5,11); RoadReplanning.inherit(shrink,restore,owner,false);
-        check(restore.lastDroppedRows()==0 && restore.cellType(14)==CellType.STAIR_UP,"reextend restores committed row");
-        shrink.applyPendingRows(); check(shrink.confirmedRowCount()==0,"Repair prunes committed row");
+        check(restore.lostRowCount()==0 && restore.cellType(14)==CellType.STAIR_UP,"reextend restores committed row");
+        RoadPlan manualLoss=plan(5,11); manualLoss.editRow(14,CellType.STAIR_UP);
+        manualLoss.setAppliedGeometry(manualLoss.geometrySnapshot());
+        RoadPlan clipped=plan(5,6); RoadReplanning.inherit(manualLoss,clipped,owner,false);
+        check(clipped.lostRowCount()==1,"shortening reports the manual row it lost");
+
+        // Shorten then re-extend: inside the built span the proposal is rebuilt from the
+        // snapshot, so trimming must not erase what the world already has.
+        RoadPlan built=plan(5,11);
+        built.editRow(10,CellType.STAIR_UP); built.editRow(14,CellType.STAIR_DOWN);
+        built.setAppliedGeometry(built.geometrySnapshot());
+        RoadPlan trimmed=plan(5,6);
+        RoadReplanning.inherit(built,trimmed,owner,false);
+        check(trimmed.cellType(10)==CellType.STAIR_UP,"a manual row inside the new range survives shortening");
+        RoadPlan regrown=plan(5,11);
+        RoadReplanning.inherit(trimmed,regrown,owner,false);
+        check(regrown.cellType(14)==CellType.STAIR_DOWN && regrown.row(14).manual(),
+                "re-extending restores the built manual row from the applied snapshot");
+        check(regrown.editedRowCount()==0,"restored rows are not reported as edits");
+        RoadPlan fresh=plan(5,11); fresh.setAppliedGeometry(fresh.geometrySnapshot()); fresh.editRow(9,CellType.STAIR_UP);
+        RoadPlan freshNext=plan(5,6); RoadReplanning.inherit(fresh,freshNext,owner,false);
+        check(freshNext.cellType(9)==CellType.STAIR_UP && freshNext.row(9).manual(),
+                "a fresh manual edit inside the built span carries over");
+        RoadPlan beyond=plan(5,11); beyond.setAppliedGeometry(beyond.geometrySnapshot()); beyond.setRowType(16,CellType.STAIR_UP);
+        RoadPlan beyondNext=plan(5,11); RoadReplanning.inherit(beyond,beyondNext,owner,false);
+        check(beyondNext.cellType(16)==CellType.STAIR_UP,
+                "rows outside the built span still come from the previous proposal");
+        shrink.pruneOutOfRangeRows(); check(shrink.rowOverrides().isEmpty(),"Repair prunes the out-of-range row");
         try { RoadReplanning.validate(old,new BlockPos(10,64,15),new BlockPos(10,64,25)); throw new AssertionError("axis change accepted"); }
         catch(IllegalArgumentException expected) { checks++; }
         try { RoadReplanning.validate(old,new BlockPos(5,64,21),new BlockPos(15,64,21)); throw new AssertionError("sideways change accepted"); }

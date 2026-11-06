@@ -36,6 +36,9 @@ run/
 # 前置 mod 的源码快照（放在仓库外 D:\PCL\workspace\refs，此处仅作兜底）
 /refs/
 
+# 道路系统的逐轮详细设计（本地阅读，不入库；结论已并入设计文档/进度/代码结构说明）
+/docs/道路系统/
+
 # 系统文件
 Thumbs.db
 .DS_Store

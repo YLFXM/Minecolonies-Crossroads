@@ -59,7 +59,7 @@ $toml = Get-Content -LiteralPath (Join-Path $root 'src\main\resources\META-INF\n
 # Anchored to the line start so it cannot match loaderVersion="...".
 if ($toml -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'Could not read the mod version from neoforge.mods.toml' }
 $version = $Matches[1]
-$out = Join-Path $root "dist\mcreconstruction-$version.jar"
+$out = Join-Path $root "dist\rp_crossroads-$version.jar"
 if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Force }
 $jarExe = Join-Path $javaHome 'bin\jar.exe'
 if (Test-Path -LiteralPath $jarExe) {

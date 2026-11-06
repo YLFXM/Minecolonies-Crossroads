@@ -1,7 +1,8 @@
-import com.YLFXM.mcreconstruction.road.*;
+import com.YLFXM.rp.crossroads.road.*;
 import net.minecraft.core.*;
 import net.minecraft.world.level.Level;
 import java.util.*;
+import com.YLFXM.rp.crossroads.road.common.RoadGeometry;
 
 public final class RoadPlanningRegression {
     private static int checks;
@@ -40,7 +41,7 @@ public final class RoadPlanningRegression {
         catch(IllegalArgumentException expected){checks++;}
         var x=road(Direction.Axis.X,0,0,1);var z=road(Direction.Axis.Z,0,0,1);
         var intersection=RoadCrossingGeometry.walk(x).intersect(RoadCrossingGeometry.walk(z));
-        check(intersection.equals(new RoadCrossingGeometry.Rect(1,1,2,2)),"walk intersection excludes kerbs");
+        check(intersection.equals(new RoadGeometry.Rect(1,1,2,2)),"walk intersection excludes kerbs");
         var mirrored=road(Direction.Axis.X,0,0,-1);
         check(RoadCrossingGeometry.walk(mirrored).minZ()==-2 && RoadCrossingGeometry.walk(mirrored).maxZ()==-1,"mirrored walk interval correct");
         var junction=new RoadCrossings.Neighbor(z,z,null,RoadCrossingGeometry.body(x).intersect(RoadCrossingGeometry.body(z)),intersection,new RoadPlanningState.Crossing(false,0));
@@ -53,19 +54,25 @@ public final class RoadPlanningRegression {
         try {RoadCrossings.validate(x,bridge);throw new AssertionError("two-block clearance accepted");}
         catch(IllegalArgumentException expected){checks++;}
         low.setAnchorPos(new BlockPos(0,62,0));
-        z.planning().crossing(x.id(),new RoadPlanningState.Crossing(true,-1,10));
-        check(RoadCrossings.setting(x,z).order()==1,"newer reverse pair settings are interpreted from this road");
-        x.planning().crossing(z.id(),new RoadPlanningState.Crossing(false,0,11));
-        check(!RoadCrossings.setting(x,z).layered(),"newer same-level selection supersedes older reverse setting");
-        x.planning().manual(0,CellType.FLAT);x.planning().manual(2,CellType.STAIR_UP);
+        var junctionRect=RoadCrossingGeometry.body(x).intersect(RoadCrossingGeometry.body(z));
+        var lowerOrdered=x.id().compareTo(z.id())<0 ? x:z;
+        var upperOrdered=lowerOrdered==x ? z:x;
+        var layeredJunction=new RoadJunctions.Junction(x.id(),z.id(),junctionRect,
+                new RoadPlanningState.Crossing(true,lowerOrdered==x ? -1:1,10),null,false,false,1);
+        var stored=RoadJunctions.loadAll(RoadJunctions.saveAll(List.of(layeredJunction))).values().iterator().next();
+        check(RoadJunctions.ruleFor(stored,lowerOrdered.id()).order()==-1
+                && RoadJunctions.ruleFor(stored,upperOrdered.id()).order()==1,
+                "one stored order is interpreted from both directions without a second mirror");
+        check(stored.rule().layered() && stored.rule().version()==10,"layered intent and version survive the junction table NBT");
+        var replaced=new RoadJunctions.Junction(x.id(),z.id(),junctionRect,new RoadPlanningState.Crossing(false,0,11),null,false,false,2);
+        var newer=RoadJunctions.loadAll(RoadJunctions.saveAll(List.of(replaced))).values().iterator().next();
+        check(!newer.rule().layered() && newer.rule().version()==11,"a newer same-level rule replaces the layered rule in the single record");
+        x.editRow(0,CellType.FLAT);x.editRow(2,CellType.STAIR_UP);
         x.planning().sample("fixture",new int[]{65,66});
-        x.planning().crossing(z.id(),new RoadPlanningState.Crossing(true,1));
         var restored=RoadPlan.load(x.save());
-        check(restored.planning().manual().containsKey(0) && restored.planning().manual().get(0)==CellType.FLAT,"explicit flat survives NBT even without a row diff");
-        check(restored.planning().crossings().get(z.id()).layered(),"layered intent survives NBT without an obsolete arch field");
+        check(restored.manualRows().containsKey(0) && restored.manualRows().get(0)==CellType.FLAT,"explicit flat survives NBT even without a row diff");
         check(restored.planning().terrain()[1]==66,"terrain sample persists");
-        restored.planning().prune(1,3);check(!restored.planning().manual().containsKey(0),"draft shrink prunes manual intent too");
-        check(RoadCrossingGeometry.pair(x.id(),z.id()).equals(RoadCrossingGeometry.pair(z.id(),x.id())),"pair identity independent of ordering");
+        restored.stageRemap(1,3);check(!restored.manualRows().containsKey(0),"draft shrink prunes manual intent too");
         x.setAppliedGeometry(x.geometrySnapshot());
         check(!x.geometrySnapshot().contains("appliedGeometry"),"applied geometry snapshots cannot recursively nest");
         check(!x.saveForSync().contains("appliedGeometry"),"public sync excludes private applied model");

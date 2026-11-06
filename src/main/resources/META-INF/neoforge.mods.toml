@@ -3,34 +3,34 @@ loaderVersion="[4,)"
 license="GPL-3.0"
 
 [[mods]]
-modId="mcreconstruction"
-version="0.1.7"
-displayName="MineColonies: Reconstruction Plan"
-authors="ZhuanZ (YLFXM)"
-description='''Feature expansion for MineColonies: build real, persistent colony roads with a Road Wand, manage them with a Road Surveyor and a Work Order Scroll, and hand them to the native build tool.'''
+modId="rp_crossroads"
+version="0.2.0-beta.1"
+displayName="MineColonies: Crossroads"
+authors="YLFXM"
+description='''Reconstruction Plan series, module 1: build real, persistent colony roads with a Road Wand, manage them with a Road Surveyor and a Work Order Scroll, hand them to the native build tool, and shape the surrounding terrain with custom dig/fill orders.'''
 
-[[dependencies.mcreconstruction]]
+[[dependencies.rp_crossroads]]
 modId="neoforge"
 type="required"
 versionRange="[21.1.0,)"
 ordering="NONE"
 side="BOTH"
 
-[[dependencies.mcreconstruction]]
+[[dependencies.rp_crossroads]]
 modId="minecraft"
 type="required"
 versionRange="[1.21,1.22)"
 ordering="NONE"
 side="BOTH"
 
-[[dependencies.mcreconstruction]]
+[[dependencies.rp_crossroads]]
 modId="minecolonies"
 type="required"
 versionRange="[1.0.0,)"
 ordering="AFTER"
 side="BOTH"
 
-[[dependencies.mcreconstruction]]
+[[dependencies.rp_crossroads]]
 modId="structurize"
 type="required"
 versionRange="[1.0.0,)"
