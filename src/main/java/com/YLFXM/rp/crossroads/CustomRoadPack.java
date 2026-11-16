@@ -53,6 +53,19 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 public final class CustomRoadPack {
     public static final String PACK_NAME = "Crossroads";
     /**
+     * Owner string this pack is registered under, on both sides.
+     *
+     * <p>Structurize's "switch pack" window groups the list by
+     * {@code StructurePackMeta#getOwner()} into a {@code TreeMap} and shows the
+     * owner as the category heading; that field is read nowhere else (verified
+     * against Structurize 1.0.835). So the owner doubles as a sort weight:
+     * upper-case names sort before every lower-case mod id, and
+     * {@code "Crossroads"} also beats {@code "Local"} — the road pack stays in the
+     * first row instead of being buried under the style packs, which is what
+     * happened while it was registered as {@code "rp_crossroads"}.</p>
+     */
+    public static final String PACK_OWNER = PACK_NAME;
+    /**
      * Pack name shipped before 0.2.0-beta.1, kept for one purpose only: deleting
      * the stale client-side copy. It is never an accepted identity, so an old
      * blueprint or controller is simply foreign.
@@ -77,9 +90,30 @@ public final class CustomRoadPack {
         com.YLFXM.rp.crossroads.road.RoadTemporaryPack.rebuildFromStore(event.getServer());
     }
 
+    /** Folder chain under the world root that holds this save's road pack. */
+    private static final String PACK_DIR = "rp_crossroads";
+    private static final String PACK_FOLDER = "structurepack";
+
     public static Path packRoot(final MinecraftServer server) {
         return server.getWorldPath(LevelResource.ROOT)
-                .resolve("rp_crossroads").resolve("structurepack");
+                .resolve(PACK_DIR).resolve(PACK_FOLDER);
+    }
+
+    /**
+     * True when {@code path} is this save's road pack directory.
+     *
+     * <p>Used by the pack-privacy filter, which only exists in the path argument
+     * of structurize's zip walk. Comparing the whole path would need a server
+     * instance; the two folder names are unique to us inside a save.</p>
+     */
+    public static boolean isPackRoot(final Path path) {
+        if (path == null || path.getFileName() == null) {
+            return false;
+        }
+        final Path parent = path.getParent();
+        return parent != null && parent.getFileName() != null
+                && PACK_DIR.equals(parent.getFileName().toString())
+                && PACK_FOLDER.equals(path.getFileName().toString());
     }
 
     /**
@@ -131,7 +165,7 @@ public final class CustomRoadPack {
                 // never send, so the client never finishes StructurePacks loading and
                 // the build tool shows no packs at all.
                 StructurePacks.discoverPackAtPath(packRoot, false,
-                        List.of("structurize", "minecolonies"), false, "rp_crossroads");
+                        List.of("structurize", "minecolonies"), false, PACK_OWNER);
                 keepDefaultPackOffRoadPack();
             }
             return version;

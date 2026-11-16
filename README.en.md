@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-A MineColonies add-on: lay out axis-aligned straight roads with the Road Wand, generate real Structurize blueprints, build them through the native builder flow, and then manage, repair and demolish them from the native Decoration Controller.
+A MineColonies add-on: lay out axis-aligned straight roads with the Road Painter, generate real Structurize blueprints, build them through the native builder flow, and then manage, repair and demolish them from the native Decoration Controller.
 
 Requires Minecraft 1.21.1 · NeoForge 21.1.259 · MineColonies 1.1.1403-1.21.1 · Structurize 1.0.835 · BlockUI 1.0.212 · Domum Ornamentum 1.0.236 (the combination that has actually been tested; the minimum versions declared in the mod metadata do not mean every combination works). This mod cannot run on its own.
 
@@ -13,7 +13,7 @@ Requires Minecraft 1.21.1 · NeoForge 21.1.259 · MineColonies 1.1.1403-1.21.1 �
 ## Prerequisites and Installation
 
 1. Install MineColonies and its dependencies (Structurize, BlockUI, Domum Ornamentum), and make sure they run on 1.21.1 / NeoForge 21.1.259.
-2. Put `rp_crossroads-0.2.0-beta.1.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
+2. Put `rp_crossroads-0.2.0.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
 3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (13) is rejected at login.
 
 For single-player, steps 1–2 are enough. On a server, ship the same jar to the server and to all players.
@@ -39,23 +39,23 @@ Report beta issues to **2909987685@qq.com**, ideally with:
 
 | Item | Purpose |
 |---|---|
-| Road Wand `road_wand` | Pick A/B to plan a road, edit row by row, view the ghost, open the build tool. |
-| Road Surveyor `road_surveyor` | Show a road's extent and manage several at once (Release / Remove). Shift-right-click a Town Hall to bind a colony; while unbound it lists the wilderness roads you may manage. |
-| Work Order Scroll `work_order_scroll` | After Shift-right-clicking a Town Hall to bind it, view and bulk-cancel that colony's work orders. |
+| Road Painter `road_wand` | Pick A/B to plan a road, edit row by row, view the ghost, open the build tool. |
+| Road Register `road_surveyor` | Show a road's extent and manage several at once (Release / Remove). Shift-right-click a Town Hall to bind a colony; while unbound it lists the wilderness roads you may manage. |
+| Work Order List `work_order_scroll` | After Shift-right-clicking a Town Hall to bind it, view and bulk-cancel that colony's work orders. |
 
 All three items appear on this mod's creative tab. "Native build tool" below means Structurize's build tool; the same layouts are also listed in the in-game recipe book.
 
-![Road Wand recipe](docs/images/recipe-wand.png)
+![Road Painter recipe](docs/images/recipe-wand.png)
 
-*Road Wand: iron ingot + native build tool + stick. The two mirrored layouts are equivalent.*
+*Road Painter: iron ingot + native build tool + stick. The two mirrored layouts are equivalent.*
 
-![Road Surveyor recipe](docs/images/recipe-surveyor.png)
+![Road Register recipe](docs/images/recipe-surveyor.png)
 
-*Road Surveyor: native build tool in the top middle, paper in the center, sticks in the other seven slots.*
+*Road Register: native build tool in the top middle, paper in the center, sticks in the other seven slots.*
 
-![Work Order Scroll recipe](docs/images/recipe-scroll.png)
+![Work Order List recipe](docs/images/recipe-scroll.png)
 
-*Work Order Scroll: native build tool in the top middle, paper in the center and in the bottom middle, sticks in the other six slots.*
+*Work Order List: native build tool in the top middle, paper in the center and in the bottom middle, sticks in the other six slots.*
 
 ## Planning and Building for the First Time
 
@@ -64,7 +64,7 @@ All three items appear on this mod's creative tab. "Native build tool" below mea
 3. Holding the wand, left-click to pick A and Shift-left-click to pick B. The two points fix the horizontal endpoints; they must share an X or a Z axis, up to 256 blocks apart.
 4. The anchor row is always flat, with the road surface one block below the anchor; the other rows accumulate step height. The Y you clicked for A/B is not a height target.
 5. Right-click air to open the wand panel and adjust mirroring, lamp spacing (1–8; 1 means no lamps) and auto planning. The road is still an unstarted plan at this point.
-6. Click "Create blueprint / Open build tool" and pick the blueprint just generated under `generated/` in the native build tool.
+6. Click "Create blueprint / Open build tool": the native tool opens on `generated/` with the blueprint just generated **already selected**; you can still pick another one.
 
 Construction uses the three native modes (Complete / Pretty / Survival): in creative it finishes instantly and consumes no materials, while in survival a colony builder works through the order. A wrong blueprint, a moved anchor or a rotated blueprint are refused.
 
@@ -72,9 +72,11 @@ Closing the window before confirming rolls back to unstarted the first time; an 
 
 ## Editing, Repair and Removal
 
+- Point the wand at any block of this road to outline the whole row and show `Row N · current → next` under the crosshair (N counts from the start of the road, not a coordinate), coloured by type (flat white / step up cyan / step down orange).
 - Shift-right-click a non-controller block of this road to switch it between flat / step up / step down. The anchor row and any active same-level junction must stay flat. For a road that is already built, enable "Edit Blueprint" in the controller panel first.
 - A confirmed road can only be extended or shortened along its axis; it cannot be moved sideways. Editing never touches the world.
 - Repair is unavailable before construction starts. It freezes the target again and runs the same native build; editing is blocked while it runs, and the edited/lost counters reset on success.
+- When someone else is building or removing this road, the controller panel's second line names them (`Building: X (preparing/building)`, `Removing: X`) and a rejected Repair says who holds the session; wait, or ask them to close their window or finish.
 - The Remove button on the controller: in survival it creates a native REMOVE order; in creative you can then choose a builder demolition or an instant native demolition. Cancelling that second choice does nothing.
 - An unstarted road only clears the plan, the controller and the explicit anchor. A built road freezes the demolition target from a trusted snapshot; without one it conservatively keeps the terrain.
 - Management records are cleared only after the demolition actually finishes; cancelling does not roll back blocks that are already gone.
@@ -134,7 +136,7 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 The documents below are written in Chinese.
 
-- [Design document](docs/阡陌纵横-设计文档-0.2.0-beta.1.md) — the rules currently in effect and future boundaries.
+- [Design document](docs/阡陌纵横-设计文档-0.2.0.md) — the rules currently in effect and future boundaries.
 - [Implementation progress](docs/阡陌纵横-实现进度.md) — stage completion and acceptance records.
 - [Code structure and mechanics](docs/代码结构与机制.md) — how sources, regression tests and scripts are split, call traces and change scope.
 - [Contributing and porting](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).

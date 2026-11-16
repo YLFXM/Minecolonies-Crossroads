@@ -18,6 +18,8 @@
  */
 package com.YLFXM.rp.crossroads.road;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,9 +35,13 @@ import com.ldtteam.structurize.operations.PlaceStructureOperation;
 import com.ldtteam.structurize.placement.structure.CreativeStructureHandler;
 import com.ldtteam.structurize.storage.SurvivalBlueprintHandlers;
 import com.minecolonies.api.colony.IColonyManager;
+import com.minecolonies.api.entity.ai.workers.util.IBuilderUndestroyable;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -103,7 +109,7 @@ public final class RoadRepair {
 
     private static boolean canPrepare(final ServerPlayer player, final RoadPlan plan) {
         if (RoadBuildWatcher.hasWorkOrder(plan) || RoadBuildWatcher.isWatching(plan)) {
-            tell(player,"rp_crossroads.road.session_open"); return false;
+            tellSessionOpen(player,plan); return false;
         }
         if (ACTIVE.entrySet().stream().anyMatch(entry -> {
             final RoadPlan other=RoadManager.get(entry.getValue()).get(entry.getKey());
@@ -115,6 +121,21 @@ public final class RoadRepair {
             tell(player,"rp_crossroads.plan.no_build_tool"); return false;
         }
         return true;
+    }
+
+    /**
+     * Refuses a second session on a busy road, naming whoever holds it when they are online.
+     *
+     * <p>The name is the actual remedy: "someone is building" makes the player retry,
+     * "YLFXM is building" tells them who to ask. Offline holders fall back to the neutral
+     * line, since there is nobody to contact anyway.</p>
+     */
+    private static void tellSessionOpen(final ServerPlayer player, final RoadPlan plan) {
+        final RoadRepairSession session=plan.repairSession();
+        final ServerPlayer owner=session==null ? null
+                : player.server.getPlayerList().getPlayer(session.owner());
+        if (owner==null) { tell(player,"rp_crossroads.road.session_open"); return; }
+        tell(player,"rp_crossroads.road.session_open_by",owner.getGameProfile().getName());
     }
 
     private static boolean prepareAndOpen(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
@@ -226,7 +247,7 @@ public final class RoadRepair {
                             if(!RoadCrossings.verifyFrozen(level,session)) {cancel(level,current,"crossing dependency changed during placement");return true;}
                             RoadCrossingConsent.validate(level,session.owner(),session);
                             final boolean done=super.apply(world);
-                            if (done) { session.finishNative(); poll(level,current,false); }
+                            if (done) { session.finishNative(); poll(level,current,false,false); }
                             return done;
                         } catch (final RuntimeException ex) {
                             Crossroads.LOGGER.error("Native repair placement failed for {}",plan.id(),ex);
@@ -249,7 +270,33 @@ public final class RoadRepair {
     }
     public static void forget(final RoadPlan plan) { ACTIVE.remove(plan.id()); plan.setRepairSession(null); }
 
-    private static void poll(final ServerLevel level, final RoadPlan plan, final boolean restarting) {
+    /**
+     * Runs this plan's completion check on the tick after its builder order was completed.
+     *
+     * <p>Two differences from the periodic sweep, both deliberate:</p>
+     * <ul>
+     *   <li>The order is known to have existed, so {@code orderObserved} is recorded first.
+     *       Without that, a build fast enough to finish between two sweeps would be
+     *       cancelled as "no builder order accepted".</li>
+     *   <li>{@code fast} forbids the not-built-yet cancellation; the sweep keeps that job.</li>
+     * </ul>
+     *
+     * @return {@code true} while the session is still live, i.e. the caller may try again.
+     */
+    public static boolean pollNow(final ServerLevel level, final RoadPlan plan) {
+        if (!level.equals(ACTIVE.get(plan.id()))) return false;
+        final RoadRepairSession session=plan.repairSession();
+        if (session==null) return false;
+        if (session.phase()==RoadRepairSession.Phase.SURVIVAL && !session.orderObserved()) {
+            session.observeOrder();
+            RoadManager.get(level).add(plan);
+        }
+        poll(level,plan,false,true);
+        return level.equals(ACTIVE.get(plan.id()));
+    }
+
+    private static void poll(final ServerLevel level, final RoadPlan plan, final boolean restarting,
+                             final boolean fast) {
         final RoadRepairSession session=plan.repairSession();
         if (session==null) { ACTIVE.remove(plan.id()); return; }
         if(session.committing()) {
@@ -290,11 +337,18 @@ public final class RoadRepair {
         }
         final Blueprint blueprint=frozenBlueprint(level,plan,session);
         if (!RoadBuildWatcher.isBuilt(level,session.target(),blueprint)) {
+            // Fast path (completion signal): the last blocks may still be settling one
+            // tick after the order vanished. Never turn that into a cancellation —
+            // hand it back to the periodic sweep, which decides as it always has.
+            if (fast) {
+                if (Crossroads.LOGGER.isDebugEnabled()) {
+                    Crossroads.LOGGER.debug("Road {} signalled complete but not fully placed yet; retrying",plan.id());
+                }
+                return;
+            }
             cancel(level,plan,"construction incomplete or cancelled"); return;
         }
-        if(session.clearTargets().stream().anyMatch(pos -> !level.getBlockState(pos).isAir())) {
-            cancel(level,plan,"old elevated road or lamp targets were not cleared"); return;
-        }
+        warnUnclearedCells(level,plan,session);
         if (blueprint==null || !RoadJointWork.commit(level,plan,session,blueprint)) {
             Crossroads.LOGGER.warn("Joint snapshot commit will be retried for {}",plan.id());return;
         }
@@ -318,6 +372,31 @@ public final class RoadRepair {
                 : com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(session.workBlueprint(),level.registryAccess());
     }
 
+    /**
+     * Diagnostic for leftover "must become air" cells at completion.
+     *
+     * <p>Removal is the builder's job, and the native AI never removes blocks it protects:
+     * {@link IBuilderUndestroyable} (our own decoration controller is one of them), bedrock,
+     * anything still holding fluid. Our decoration controller sits next to the anchor on a cell
+     * the blueprint has as air, so demanding that every clear target be air cancelled repairs
+     * that had actually finished — the controller can never be cleared, by design.</p>
+     *
+     * <p>So the check stays as a log line only: leftovers the builder <em>could</em> have removed
+     * are reported once, and never block the hand-over. Whatever the builder leaves behind is the
+     * native flow's decision, not a reason to drop the road back to PLANNED.</p>
+     */
+    private static void warnUnclearedCells(final ServerLevel level,final RoadPlan plan,final RoadRepairSession session) {
+        final List<BlockPos> left=new ArrayList<>();
+        for(final BlockPos pos:session.clearTargets()) {
+            final BlockState state=level.getBlockState(pos);
+            if(state.isAir()||!state.getFluidState().isEmpty())continue;
+            if(state.getBlock() instanceof IBuilderUndestroyable||state.getBlock()==Blocks.BEDROCK)continue;
+            left.add(pos);
+        }
+        if(left.isEmpty())return;
+        Crossroads.LOGGER.warn("Road {} finished with {} cell(s) the builder did not clear, first {}: {}",
+                plan.id(),left.size(),Math.min(5,left.size()),left.subList(0,Math.min(5,left.size())));
+    }
     private static void cancel(final ServerLevel level, final RoadPlan plan, final String reason) {
         final RoadRepairSession session=plan.repairSession();
         if (session==null) return;
@@ -350,14 +429,14 @@ public final class RoadRepair {
         for(final ServerLevel level:event.getServer().getAllLevels()) {
             RoadJointJournal.recover(level);
             for(final RoadPlan plan:java.util.List.copyOf(RoadManager.get(level).all()))
-                if(plan.repairSession()!=null) { ACTIVE.put(plan.id(),level); poll(level,plan,true); }
+                if(plan.repairSession()!=null) { ACTIVE.put(plan.id(),level); poll(level,plan,true,false); }
         }
     }
     @SubscribeEvent public static void tick(final ServerTickEvent.Post event) {
         if(event.getServer().getTickCount()%20!=0) return;
         for(final var entry:java.util.List.copyOf(ACTIVE.entrySet())) {
             final RoadPlan plan=RoadManager.get(entry.getValue()).get(entry.getKey());
-            if(plan==null) ACTIVE.remove(entry.getKey()); else poll(entry.getValue(),plan,false);
+            if(plan==null) ACTIVE.remove(entry.getKey()); else poll(entry.getValue(),plan,false,false);
         }
     }
     @SubscribeEvent(priority=net.neoforged.bus.api.EventPriority.HIGHEST)

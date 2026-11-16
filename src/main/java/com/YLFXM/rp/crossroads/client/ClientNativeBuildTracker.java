@@ -23,6 +23,7 @@ import com.ldtteam.structurize.blueprints.v1.Blueprint;
 import com.ldtteam.structurize.client.gui.WindowExtendedBuildTool;
 import com.ldtteam.structurize.storage.StructurePacks;
 import com.YLFXM.rp.crossroads.CustomRoadPack;
+import com.YLFXM.rp.crossroads.mixin.WindowExtendedBuildToolAccessor;
 import com.YLFXM.rp.crossroads.Crossroads;
 import com.YLFXM.rp.crossroads.network.NativeBuildClosedPayload;
 import java.util.List;
@@ -66,15 +67,19 @@ public final class ClientNativeBuildTracker {
     /** Pack that was selected before the road pack took over; restored on close. */
     private static String previousPackName;
     private static boolean nativeWindowSeen;
+    /** Blueprint the server just pushed, without folder or extension; empty when unknown. */
+    private static String wantedBlueprint = "";
     /** True once the folder was opened, or once we stopped trying. */
     private static boolean folderOpened;
     private static int folderAttempts;
 
     public static boolean isActive() { return activePlan != null; }
 
-    public static void begin(final UUID planId, final String previousPack, final UUID repairToken) {
+    public static void begin(final UUID planId, final String blueprintPath,
+                             final String previousPack, final UUID repairToken) {
         activeRepair=repairToken; openingAttempts=0;
         activePlan = planId;
+        wantedBlueprint = baseName(blueprintPath);
         previousPackName = previousPack;
         nativeWindowSeen = false;
         folderOpened = false;
@@ -135,14 +140,66 @@ public final class ClientNativeBuildTracker {
         // selecting a blueprint: that needs the window's private selection state,
         // and picking one for the player is not what was asked for.
         window.updateBlueprints(generated, GENERATED);
+        selectGenerated(window, generated);
         folderOpened = true;
+    }
+
+    /**
+     * Selects the blueprint the server pushed for this session.
+     *
+     * <p>The window marks an entry as selected by comparing it with the preview
+     * cache, so going through {@code setBlueprint} also updates the tree label,
+     * the ghost and the confirm button — the player does not have to find the file
+     * in the list. Runs only on the open that drops us into {@code generated/}; a
+     * manual pick afterwards is never overridden.</p>
+     */
+    private static void selectGenerated(final WindowExtendedBuildTool window,
+                                        final java.util.List<Blueprint> generated) {
+        final Blueprint target = matchGenerated(generated);
+        if (target == null) {
+            return;
+        }
+        ((WindowExtendedBuildToolAccessor) (Object) window).rp$setBlueprint(target);
+    }
+
+    /**
+     * Finds the pushed blueprint by name. When the folder holds exactly one entry
+     * that entry can only be ours; with several in-progress roads a name mismatch
+     * means "do not guess", so nothing is selected.
+     */
+    private static Blueprint matchGenerated(final java.util.List<Blueprint> generated) {
+        if (generated.isEmpty()) {
+            return null;
+        }
+        if (!wantedBlueprint.isEmpty()) {
+            for (final Blueprint blueprint : generated) {
+                if (baseName(blueprint.getFileName()).equalsIgnoreCase(wantedBlueprint)) {
+                    return blueprint;
+                }
+            }
+        }
+        return generated.size() == 1 ? generated.get(0) : null;
+    }
+
+    /** File name without folder or {@code .blueprint}, for tolerant comparison. */
+    private static String baseName(final String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        final int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        final String name = slash >= 0 ? path.substring(slash + 1) : path;
+        return name.endsWith(".blueprint")
+                ? name.substring(0, name.length() - ".blueprint".length())
+                : name;
     }
 
     public static void abort(final UUID plan, final UUID token) {
         PacketDistributor.sendToServer(new NativeBuildClosedPayload(plan,token));
-        activePlan=null; nativeWindowSeen=false; restorePack();
+        activePlan=null; nativeWindowSeen=false; wantedBlueprint=""; restorePack();
     }
-    public static void reset() { activePlan=null; nativeWindowSeen=false; previousPackName=null; }
+    public static void reset() {
+        activePlan=null; nativeWindowSeen=false; previousPackName=null; wantedBlueprint="";
+    }
 
     private ClientNativeBuildTracker() {
     }

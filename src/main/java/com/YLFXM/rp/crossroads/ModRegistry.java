@@ -18,7 +18,6 @@
  */
 package com.YLFXM.rp.crossroads;
 
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.item.CreativeModeTab;
 import net.neoforged.bus.api.IEventBus;
@@ -32,18 +31,15 @@ public final class ModRegistry {
     public static final DeferredItem<ItemRoadSurveyor> ROAD_SURVEYOR =
             ITEMS.register("road_surveyor",
                     () -> new ItemRoadSurveyor(new net.minecraft.world.item.Item.Properties()
-                            .stacksTo(1)
-                            .component(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true)));
+                            .stacksTo(1)));
     public static final DeferredItem<ItemRoadWand> ROAD_WAND =
             ITEMS.register("road_wand",
                     () -> new ItemRoadWand(new net.minecraft.world.item.Item.Properties()
-                            .stacksTo(1)
-                            .component(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true)));
+                            .stacksTo(1)));
     public static final DeferredItem<ItemWorkOrderScroll> WORK_ORDER_SCROLL =
             ITEMS.register("work_order_scroll",
                     () -> new ItemWorkOrderScroll(new net.minecraft.world.item.Item.Properties()
-                            .stacksTo(1)
-                            .component(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true)));
+                            .stacksTo(1)));
     /** Dedicated creative tab so all mod items are in one place. */
     public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, Crossroads.MODID);

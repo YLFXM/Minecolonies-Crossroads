@@ -75,7 +75,7 @@ public final class ClientRoadPackWriter {
 
             final List<String> mods = ModList.get().getMods().stream()
                     .map(IModInfo::getModId).toList();
-            StructurePacks.discoverPackAtPath(root, false, mods, false, "rp_crossroads");
+            StructurePacks.discoverPackAtPath(root, false, mods, false, CustomRoadPack.PACK_OWNER);
             return true;
         } catch (final IOException ex) {
             Crossroads.LOGGER.error("Could not write road blueprint {} to the client pack",
@@ -129,6 +129,36 @@ public final class ClientRoadPackWriter {
     }
 
     /**
+     * Deletes the leftover {@code removal/} folder from the client pack.
+     *
+     * <p>Demolition snapshots are server-side only: the builder reads them from the
+     * save, and since the pack-privacy batch they are not transferred either. Older
+     * versions did send them, so the folder lingers on disk and the native build tool
+     * lists it as an empty category. Nothing on the client reads it, so the whole
+     * subtree goes; the server's copy is untouched.</p>
+     */
+    public static void dropLeftoverRemovalFolder() {
+        final Path removal = Minecraft.getInstance().gameDirectory.toPath()
+                .resolve("blueprints").resolve(CustomRoadPack.PACK_NAME).resolve("removal");
+        if (!Files.isDirectory(removal)) {
+            return;
+        }
+        try {
+            try (var paths = Files.walk(removal)) {
+                paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (final IOException ignored) {
+                    }
+                });
+            }
+            Crossroads.LOGGER.info("Removed the leftover client-side removal folder at {}", removal);
+        } catch (final IOException ex) {
+            Crossroads.LOGGER.warn("Could not remove the leftover client removal folder", ex);
+        }
+    }
+
+    /**
      * Removes blueprint files this client no longer has any right to see.
      *
      * <p>Blueprints are pushed per player, so whatever was written during a
@@ -169,7 +199,7 @@ public final class ClientRoadPackWriter {
                     .map(IModInfo::getModId).toList();
             StructurePacks.discoverPackAtPath(
                     minecraft.gameDirectory.toPath().resolve("blueprints").resolve(CustomRoadPack.PACK_NAME),
-                    false, mods, false, "rp_crossroads");
+                    false, mods, false, CustomRoadPack.PACK_OWNER);
         }
     }
 

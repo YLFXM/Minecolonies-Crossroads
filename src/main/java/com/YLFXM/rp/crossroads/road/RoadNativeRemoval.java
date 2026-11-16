@@ -229,7 +229,19 @@ public final class RoadNativeRemoval {
         if (session!=null) RoadBlueprintStore.deleteRemoval(level,plan,session);
         plan.setRemovalSession(null);
     }
-    private static void poll(RoadPlan plan,Active active,boolean restart) {
+    /**
+     * Runs this plan's demolition check on the tick after its REMOVE order completed.
+     *
+     * @return {@code true} while the removal is still in flight, i.e. the caller may try again.
+     */
+    public static boolean pollNow(ServerLevel level,RoadPlan plan) {
+        final Active active=ACTIVE.get(plan.id());
+        if (active==null || !active.level.equals(level) || plan.removalSession()==null) return false;
+        poll(plan,active,false,true);
+        return ACTIVE.containsKey(plan.id());
+    }
+
+    private static void poll(RoadPlan plan,Active active,boolean restart,boolean fast) {
         var session=plan.removalSession();
         if (session==null) { ACTIVE.remove(plan.id()); return; }
         if (!session.instant() && hasOrder(plan)) return;
@@ -238,7 +250,16 @@ public final class RoadNativeRemoval {
             return;
         }
         if (!loaded(active.level,plan,active.blueprint)) return;
-        if (!cleared(active.level,plan,active.blueprint)) { cancel(active.level,plan,"demolition incomplete or cancelled"); return; }
+        if (!cleared(active.level,plan,active.blueprint)) {
+            // Fast path (completion signal): never cancel on a single tick's reading,
+            // the periodic sweep still owns that verdict.
+            if (fast) {
+                if (Crossroads.LOGGER.isDebugEnabled())
+                    Crossroads.LOGGER.debug("Removal of {} signalled complete but not fully cleared yet; retrying",plan.id());
+                return;
+            }
+            cancel(active.level,plan,"demolition incomplete or cancelled"); return;
+        }
         Crossroads.LOGGER.info("Removal completed: road={} token={}",plan.id(),session.token());
         if(!RoadDataCleaner.clear(active.level,plan,true))
             Crossroads.LOGGER.warn("Road removal cleanup refused: road={} state={}",plan.id(),plan.state());
@@ -262,14 +283,14 @@ public final class RoadNativeRemoval {
             if(blueprint==null) { cancel(level,plan,"missing demolition snapshot"); continue; }
             if(!session.instant() && !RoadBlueprintStore.publishRemoval(level,plan,session,blueprint)) { cancel(level,plan,"cannot restore demolition publication"); continue; }
             Active active=new Active(level,blueprint); active.nativeDone=session.instant();
-            ACTIVE.put(plan.id(),active); poll(plan,active,true);
+            ACTIVE.put(plan.id(),active); poll(plan,active,true,false);
         }
     }
     @SubscribeEvent public static void tick(ServerTickEvent.Post event) {
         if(event.getServer().getTickCount()%20!=0) return;
         for(var entry:List.copyOf(ACTIVE.entrySet())) {
             var active=entry.getValue(); var plan=RoadManager.get(active.level).get(entry.getKey());
-            if(plan==null) ACTIVE.remove(entry.getKey()); else poll(plan,active,false);
+            if(plan==null) ACTIVE.remove(entry.getKey()); else poll(plan,active,false,false);
         }
     }
     @SubscribeEvent public static void stopped(ServerStoppedEvent event) { ACTIVE.clear(); }

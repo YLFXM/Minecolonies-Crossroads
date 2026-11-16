@@ -109,7 +109,7 @@ public final class RoadAnchorSurvivalHandler implements ISurvivalBlueprintHandle
         // so getPrimaryBlockOffset() would still report the un-rotated position
         // and the whole blueprint would be shifted by one cell.
         //
-        // The blueprint is a 2x1x1 pair (stone_bricks anchor + decoration
+        // The blueprint is a 2x1x1 pair (dirt anchor + decoration
         // controller), so without this every placement ignored the rotation and
         // always put the controller east of the anchor.
         final BlockPos primary = blueprint.getPrimaryBlockOffset();

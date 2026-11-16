@@ -23,6 +23,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.YLFXM.rp.crossroads.network.ClientRoadCache;
 import com.YLFXM.rp.crossroads.road.RoadBounds;
 import com.YLFXM.rp.crossroads.road.RoadPlan;
+import com.YLFXM.rp.crossroads.client.RoadAim;
 import com.YLFXM.rp.crossroads.client.RoadSelectionClient;
 import com.YLFXM.rp.crossroads.road.RoadRenderRange;
 import java.util.ArrayList;
@@ -37,6 +38,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
@@ -103,6 +105,50 @@ public final class ClientRoadRenderer {
         }
         buffers.endBatch(RenderType.lines());
         pose.popPose();
+    }
+
+    /**
+     * Outlines the whole row the wand is aimed at.
+     *
+     * <p>A separate subscriber from the plan-bounds pass on purpose: that pass
+     * returns early when no preview mode is active, while the aim hint must work
+     * as long as the wand is bound to a road.</p>
+     */
+    @SubscribeEvent
+    public static void onRenderAim(final RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
+            return;
+        }
+        final Minecraft minecraft = Minecraft.getInstance();
+        RoadAim.update(minecraft);
+        if (!RoadAim.visible()) {
+            return;
+        }
+        final PoseStack pose = event.getPoseStack();
+        final Vec3 camera = event.getCamera().getPosition();
+        pose.pushPose();
+        pose.translate(-camera.x, -camera.y, -camera.z);
+        final MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
+        final VertexConsumer lines = buffers.getBuffer(RenderType.lines());
+        final float[] rgb = RoadAim.rgb();
+        LevelRenderer.renderLineBox(pose, lines, RoadAim.box(), rgb[0], rgb[1], rgb[2], 1.0F);
+        buffers.endBatch(RenderType.lines());
+        pose.popPose();
+    }
+
+    /** Row number and type under the crosshair, so a Shift + right-click is never a guess. */
+    @SubscribeEvent
+    public static void onRenderAimLabel(final RenderGuiEvent.Post event) {
+        if (!RoadAim.visible()) {
+            return;
+        }
+        final var text = net.minecraft.network.chat.Component.translatable("rp_crossroads.aim.row",
+                RoadAim.rowNumber(),
+                net.minecraft.network.chat.Component.translatable(RoadAim.key(RoadAim.type())),
+                net.minecraft.network.chat.Component.translatable(RoadAim.key(RoadAim.next())));
+        final var gui = event.getGuiGraphics();
+        gui.drawCenteredString(Minecraft.getInstance().font, text,
+                gui.guiWidth() / 2, gui.guiHeight() / 2 + 26, 0xFFFFFFFF);
     }
 
     // Upright in the road-axis/world-Y plane; the outline and depth are scaled to 75%.

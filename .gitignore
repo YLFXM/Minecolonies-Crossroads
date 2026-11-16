@@ -6,6 +6,8 @@
 
 # 本机依赖 classpath（绝对路径，机器相关，不入库）
 /cp.txt
+# 本机解出的编译期依赖（来源见 CONTRIBUTING）
+/libs/
 
 # IDE
 /.idea/

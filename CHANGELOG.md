@@ -1,5 +1,34 @@
 # 更新记录
 
+## 0.2.0 — 2026-11-16 P3 基础：Mixin 引入与体验批次
+
+### 新增
+
+- **Mixin 基础设施**：`neoforge.mods.toml` 声明 `[[mixins]]`，jar 根新增 `rp_crossroads.mixins.json`（`mixins` 通用桶 + `client` 客户端桶，`JAVA_21`，不使用 refmap）；编译期类路径补入从 NeoForge 包 jarjar 解出的 `mixinextras-neoforge-0.5.5.jar`，`@WrapOperation` 可直接使用，`build.ps1` 无需改动。
+- **完成信号**：`AbstractWorkOrder.onCompleted` 末尾的 `removeWorkOrder` 被 `@WrapOperation` 包住，工单完成的同一刻交给 `road/RoadOrderSignal`，下一个 tick 立即跑 `RoadRepair` / `RoadNativeRemoval` / `RoadBuildWatcher` 的 `pollNow`；20 tick 周期扫描降为兜底。首次施工、跨重启 Repair、拆除三条流程实测在同一 tick 内收尾。
+- **原生工具预选蓝图**：`WindowExtendedBuildToolAccessor`（`@Invoker("setBlueprint")`，`client` 桶）+ `ClientNativeBuildTracker` 按基名匹配，打开建造工具即选中本次推送的蓝图，玩家改选后不抢回。
+- **准星整行高亮**：`client/RoadAim` 每帧解析命中的行，整行描边 + 准星下方显示「第 N 行 · 当前类型 → 切换后类型」，按行类型着色；行号是道路相对行号（`RoadPlan.rowNumber`，A 端起算），不是世界坐标。
+- **结构包隐私过滤**：`ServerStructurePackLoaderMixin` 包住 structurize 打包时的 `Files.walkFileTree`，`road/RoadPackPrivacy` 对本存档道路包剔除 `generated/` 与 `removal/`；发起者的蓝图仍走 `OpenBuildToolPayload` 点对点下发，不受影响。
+- **施工者可见**：`RoadPlan` 增加仅同步的 `builder`/`builderName`/`builderPhase`，控制器面板显示「施工中：X（准备中/建造中）」与「拆除中：X」；Repair 被拒时提示带发起者名字。
+- 三个道具改为更贴合贴图的名称：**道路绘制器 / 道路清单 / 工单清单**（英文 Road Painter / Road Register / Work Order List）。
+
+### 修复
+
+- 生存模式 Repair 建成后被判「施工已中断」、状态回 `PLANNED`、控制器不迁移：收尾曾要求所有清空目标变空气，而装饰控制器是 `IBuilderUndestroyable`、建筑工永不拆，该格恒无法变空气。现改为 `warnUnclearedCells` 诊断日志，收尾仍由全量方块校验决定。
+- 结构包在「切换包」列表沉底：注册用的 owner 改为 `CustomRoadPack.PACK_OWNER`，分类 `TreeMap` 排到首行。
+- 面板在 `PREPARED` 阶段只显示「修复进行中」而没有名字：面板数据取自 `OpenRoadPlanPayload` 的快照，而施工者字段只在索引广播里追加。现两条路径共用 `Network.writeBuilder`。
+- 准星与 Shift+右键回执显示的行号是 along 坐标（世界坐标）：新增 `RoadPlan.rowNumber`，两处统一为相对行号。
+- 构建工具里出现空白 `removal` 分类：客户端登录时删除旧版本残留的 `blueprints/Crossroads/removal/`。
+- 锚点方块默认由 `minecraft:stone_bricks` 改为 `minecraft:dirt`（`Config.roadAnchorBlock`）。
+
+### 文档
+
+- 设计文档随版本改名 `docs/阡陌纵横-设计文档-0.2.0.md`，同步 README（中英）、AGENTS、结构文档与进度文档中的路径与版本头；CHANGELOG 增加本版条目。
+- 新增 `output/P3/P3-实施计划.md`：P3 四个任务的范围、依赖、版本与裁决记录。
+- 新增 `output/P3/mixin引入/`：可行性分析与逐项裁决（C1–C8 实测结论、24 项候选清单）、批 1–4 详细设计与各轮修复记录。
+- `AGENTS.md` 补 Mixin 分端规则与进度文档清理口径；`CONTRIBUTING.md` 补 MixinExtras 离线解包步骤；`.gitignore` 忽略本机解出的 `libs/`。
+- 验证：构建通过（产物 487,651 B / sha256 `2ace3aee0102…`）；25 个 Java 测试程序 1475 条断言 + `export_road_units.py --verify` 25 条全部通过；人工验收覆盖客户端与专用服务器启动、生存建路/Repair/拆除、取消、跨重启、切换包置顶、准星高亮、预选蓝图、施工者可见与结构包过滤。
+
 ## 0.2.0-beta.1 — 2026-11-06 P2 收尾：整合优化与命名重构
 
 ### 新增

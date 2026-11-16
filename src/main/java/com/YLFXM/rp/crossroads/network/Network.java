@@ -36,6 +36,7 @@ import com.YLFXM.rp.crossroads.road.RoadBuildWatcher;
 import com.YLFXM.rp.crossroads.road.RoadDataCleaner;
 import com.YLFXM.rp.crossroads.road.RoadManager;
 import com.YLFXM.rp.crossroads.road.RoadRepair;
+import com.YLFXM.rp.crossroads.road.RoadRepairSession;
 import com.YLFXM.rp.crossroads.road.RoadNames;
 import com.YLFXM.rp.crossroads.road.RoadPlacementMode;
 import com.YLFXM.rp.crossroads.road.RoadPlan;
@@ -468,12 +469,12 @@ public final class Network {
             if(!RoadProposal.pack(level,plan,plan,blueprint))return;
             RoadProposal.save(level,plan,blueprint,RoadProposal.Save.VOID);
             RoadProposal.index(level,plan,RoadProposal.Audience.PLAYER,player,colony);
-            Crossroads.LOGGER.info("Road {} row {} edited by {}: -> {}",
-                    plan.id(), row, player.getName().getString(), next);
+            Crossroads.LOGGER.info("Road {} row {} (display {}) edited by {}: -> {}",
+                    plan.id(), row, plan.rowNumber(row), player.getName().getString(), next);
             // A Component argument, never the CellType itself: translatable arguments
             // accept only Component/Number/Boolean/String, and an enum there throws
             // inside the packet path (it showed up as a system_chat encode failure).
-            RoadNotices.actionBar(player, "rp_crossroads.row.edited", row,
+            RoadNotices.actionBar(player, "rp_crossroads.row.edited", plan.rowNumber(row),
                     net.minecraft.network.chat.Component.translatable(
                             "rp_crossroads.cell." + next.name().toLowerCase(java.util.Locale.ROOT)));
         });
@@ -1045,6 +1046,7 @@ public final class Network {
             } else sync=plan.saveForSync();
             injectJunctions(level,plan,sync);
             sync.putBoolean("repairBusy",plan.isRepairBusy());
+            writeBuilder(level,plan,sync);
             if(relationOrigin!=null && relationOrigin.id().equals(plan.id()) && canManageRoad(level,player,plan))com.YLFXM.rp.crossroads.road.RoadCrossingConsent.addAccessSync(level,player,plan,sync);
             list.add(sync);
             if (canManageRoad(level, player, plan)) {
@@ -1061,6 +1063,32 @@ public final class Network {
         // linger in the native build tool.
         tag.put("blueprints", entitledBlueprintNames(player));
         PacketDistributor.sendToPlayer(player, new RoadSyncPayload(tag));
+    }
+
+    /**
+     * Tells the client who is working on this road, so the controller panel can name them
+     * instead of showing a bare "busy" state.
+     *
+     * <p>Sync-only data: the session itself stays authoritative, and the name is resolved
+     * from the player list at send time (an offline owner simply has no name).</p>
+     */
+    public static void writeBuilder(final ServerLevel level, final RoadPlan plan, final CompoundTag sync) {
+        final UUID who;
+        final String phase;
+        final RoadRepairSession repair = plan.repairSession();
+        if (repair != null) {
+            who = repair.owner();
+            phase = repair.phase() == RoadRepairSession.Phase.PREPARED ? "PREPARED" : "BUILDING";
+        } else if (plan.removalSession() != null) {
+            who = plan.removalSession().owner();
+            phase = "REMOVING";
+        } else {
+            return;
+        }
+        final ServerPlayer online = level.getServer().getPlayerList().getPlayer(who);
+        sync.putUUID("builder", who);
+        sync.putString("builderName", online == null ? "" : online.getGameProfile().getName());
+        sync.putString("builderPhase", phase);
     }
 
     /** Projects this dimension's junction records into the client's read-only relation view. */

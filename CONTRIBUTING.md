@@ -6,6 +6,8 @@
 
 当前本机测试环境是Minecraft 1.21.1、NeoForge 21.1.259、Java 21。准确安装依赖见README；构建classpath来自未入库的cp.txt，换机器须重新配置映射Minecraft与依赖JAR。
 
+Mixin注入用到的 MixinExtras 需在编译期可见：从本机 `libraries/net/neoforged/neoforge/<ver>/neoforge-<ver>-universal.jar` 解出 `META-INF/jarjar/mixinextras-neoforge-0.5.5.jar` 放到仓库根 `libs/`，并在 cp.txt 末尾追加该 JAR 的绝对路径。`libs/` 与 cp.txt 一样不入库；运行期无需本步骤（NeoForge 已 jarjar 加载）。
+
 查API先读仓库外refs内的MineColonies、Structurize、BlockUI源码，按需检索，不反编译依赖。refs是对应分支源码，可能比实际安装包新，二进制签名以cp.txt指向的依赖为准。
 
 ## 版本移植时优先检查

@@ -1,6 +1,6 @@
 {
   "parent": "minecraft:item/generated",
   "textures": {
-    "layer0": "minecolonies:item/resourcescroll"
+    "layer0": "rp_crossroads:item/work_order_scroll"
   }
 }

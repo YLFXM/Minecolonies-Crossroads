@@ -72,6 +72,14 @@ public final class RoadHeightRegression {
         check(session.target().cellType(11)==CellType.STAIR_DOWN && p.editedRowCount()==1,"geometry preparation leaves live diff intact");
         var target=session.target(); target.setRowType(11,CellType.FLAT);
         check(session.target().cellType(11)==CellType.STAIR_DOWN,"frozen target cannot be mutated by later edits");
+        for(int direction:List.of(-1,1)) {
+            var numbered=plan(Direction.Axis.Z,direction,1);
+            final int first=numbered.travelDir()>0?numbered.minAlong():numbered.maxAlong();
+            final int last=numbered.travelDir()>0?numbered.maxAlong():numbered.minAlong();
+            check(numbered.rowNumber(first)==1,"row labels start at 1 on endpoint A");
+            check(numbered.rowNumber(last)==numbered.maxAlong()-numbered.minAlong()+1,
+                    "row labels end at the far end, never a world coordinate");
+        }
         System.out.println("PASS "+checks+" road height/session assertions");
     }
 }

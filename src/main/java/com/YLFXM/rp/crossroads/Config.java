@@ -25,7 +25,7 @@ public final class Config {
 
     private static final ModConfigSpec.ConfigValue<String> ROAD_ANCHOR_BLOCK = BUILDER
             .comment("Temporary visible anchor/post block next to the decoration controller; replaced by a lamp in the final road.")
-            .define("roadAnchorBlock", "minecraft:stone_bricks");
+            .define("roadAnchorBlock", "minecraft:dirt");
 
     private static final ModConfigSpec.IntValue LAMP_SPACING = BUILDER
             .comment("Default lamp spacing in road units (0 disables lamps).")

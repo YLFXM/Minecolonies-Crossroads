@@ -28,6 +28,7 @@ import com.YLFXM.rp.crossroads.network.ClientRoadCache;
 import com.YLFXM.rp.crossroads.network.RoadControllerActionPayload;
 import com.YLFXM.rp.crossroads.road.RoadNames;
 import com.YLFXM.rp.crossroads.road.RoadPlan;
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -95,7 +96,10 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         // counts the lost rows as dropped instead.
         final net.minecraft.network.chat.MutableComponent detail = Component.empty();
         if (plan != null) {
-            if (plan.isRepairBusy()) {
+            final Component worker = builderLine(plan);
+            if (worker != null) {
+                detail.append(worker).append("  ·  ");
+            } else if (plan.isRepairBusy()) {
                 detail.append(Component.translatable("rp_crossroads.gui.repair_running")).append("  ·  ");
             }
             detail.append(Component.translatable(plan.allowBlueprintEdit()
@@ -115,6 +119,30 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         this.editButton.setEnabled(canManage && RoadRules.canToggleEdit(plan));
         this.editButton.setText(Component.translatable(plan != null && plan.allowBlueprintEdit()
                 ? "rp_crossroads.gui.edit_blueprint_on" : "rp_crossroads.gui.edit_blueprint_off"));
+    }
+
+    /**
+     * Who is working on the road right now, with the stage.
+     *
+     * <p>Reads the sync-only fields the server fills in ({@code builder} / {@code builderName} /
+     * {@code builderPhase}); returns {@code null} when nobody is working, so the caller can
+     * fall back to the plain "busy" line for plans synced before this field existed.</p>
+     */
+    private static Component builderLine(final RoadPlan plan) {
+        if (plan == null || plan.builderPhase().isEmpty()) {
+            return null;
+        }
+        final net.minecraft.world.entity.player.Player self = Minecraft.getInstance().player;
+        final boolean mine = self != null && self.getUUID().equals(plan.builder());
+        final Component who = mine
+                ? Component.translatable("rp_crossroads.gui.you")
+                : Component.literal(plan.builderName().isEmpty() ? "?" : plan.builderName());
+        if ("REMOVING".equals(plan.builderPhase())) {
+            return Component.translatable("rp_crossroads.gui.removing_by", who);
+        }
+        return Component.translatable("rp_crossroads.gui.building_by", who,
+                Component.translatable("PREPARED".equals(plan.builderPhase())
+                        ? "rp_crossroads.gui.phase_preparing" : "rp_crossroads.gui.phase_building"));
     }
 
     private void chooseRemoval() {

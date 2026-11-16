@@ -161,7 +161,8 @@ public final class ClientPayloadHandlers {
             // fundamentals/townhall1 inside our pack on every startup.
             final StructurePackMeta previous = StructurePacks.getSelectedPack();
             ClientNativeBuildTracker.begin(
-                    payload.planId(), previous == null ? CustomRoadPack.STYLE_PACK : previous.getName(), payload.repairToken());
+                    payload.planId(), payload.blueprintPath(),
+                    previous == null ? CustomRoadPack.STYLE_PACK : previous.getName(), payload.repairToken());
             StructurePacks.switchSelectedPack(CustomRoadPack.PACK_NAME);
             // The native window draws its own ghost for the same blueprint, so
             // ours has to go or the two would stack.

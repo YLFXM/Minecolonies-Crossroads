@@ -138,6 +138,29 @@ public final class RoadPlan {
     public RoadRepairSession repairSession() { return repairSession; }
     public void setRepairSession(final RoadRepairSession session) { repairSession=session; repairBusy=false; }
     public boolean isRepairBusy() { return repairSession != null || repairBusy; }
+
+    /**
+     * Who is working on this road right now, for the controller panel.
+     *
+     * <p>Sync-only: written by {@code Network.sendRoads}, read back by {@link #load},
+     * never written by {@code save}. The authoritative owner is the session itself; a
+     * client only needs a name to display.</p>
+     */
+    private UUID builder;
+    private String builderName = "";
+    /** {@code PREPARED}, {@code BUILDING} or {@code REMOVING}; empty when nobody is working. */
+    private String builderPhase = "";
+
+    public UUID builder() { return builder; }
+    public String builderName() { return builderName; }
+    public String builderPhase() { return builderPhase; }
+
+    /** Called by {@code Network.sendRoads} on the server only. */
+    public void setBuilder(final UUID owner, final String name, final String phase) {
+        builder = owner;
+        builderName = name == null ? "" : name;
+        builderPhase = phase == null ? "" : phase;
+    }
     public CompoundTag saveForSync() {
         final CompoundTag tag=save();
         tag.remove("removalSession"); tag.remove("repairSession"); tag.remove("appliedGeometry"); tag.remove("interruptedConstruction");tag.putBoolean("interrupted",hasInterruptedConstruction()); tag.putBoolean("repairBusy",isRepairBusy());
@@ -454,6 +477,19 @@ public final class RoadPlan {
     /** Along-coordinate of endpoint A, derived from the travel direction. */
     public int alongOfA() {
         return travelDir >= 0 ? minAlong() : maxAlong();
+    }
+
+    /**
+     * 1-based row number shown to players: the same index
+     * {@link RoadAutoPlanning#index(RoadPlan, int)} uses internally, counted from
+     * endpoint A along the travel direction, so a label never leaks a world coordinate.
+     *
+     * <p>{@link #rowAt} answers in along-coordinates because that is what the geometry,
+     * blueprints and row states are keyed by. Only the labels need this translation, and
+     * they must use this method rather than the raw coordinate.</p>
+     */
+    public int rowNumber(final int along) {
+        return RoadAutoPlanning.index(this, along) + 1;
     }
 
     /** Controller-panel switch; see the {@code allowBlueprintEdit} field. */
@@ -989,6 +1025,11 @@ public final class RoadPlan {
         if(tag.contains("appliedBounds",10)) plan.appliedBounds=RoadBounds.load(tag.getCompound("appliedBounds"));
         if (tag.contains("removalSession",10)) plan.removalSession=RoadRemovalSession.load(tag.getCompound("removalSession"));
         plan.repairBusy=tag.getBoolean("repairBusy");
+        if (tag.hasUUID("builder")) {
+            plan.builder=tag.getUUID("builder");
+            plan.builderName=tag.getString("builderName");
+            plan.builderPhase=tag.getString("builderPhase");
+        }
         plan.interrupted=tag.getBoolean("interrupted");
         if (tag.contains("repairSession",10)) plan.repairSession=RoadRepairSession.load(tag.getCompound("repairSession"));
         if(tag.contains("interruptedConstruction",10))plan.interruptedConstruction=tag.getCompound("interruptedConstruction").copy();

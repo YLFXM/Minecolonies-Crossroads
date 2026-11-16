@@ -29,6 +29,9 @@ public final class ClientRoadSessionEvents {
         // Structurize scanned blueprints/ at startup, so the pre-rename copy is
         // already registered by now; drop both the files and the meta.
         ClientRoadPackWriter.purgeStalePack();
+        // Demolition snapshots never reach the client any more; the folder older
+        // versions left behind only shows up as an empty category in the build tool.
+        ClientRoadPackWriter.dropLeftoverRemovalFolder();
     }
 
     @SubscribeEvent public static void logout(final ClientPlayerNetworkEvent.LoggingOut event) {

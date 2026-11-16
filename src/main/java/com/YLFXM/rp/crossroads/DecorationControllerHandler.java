@@ -157,7 +157,12 @@ public final class DecorationControllerHandler {
         }
         Network.sendRoads(player, com.minecolonies.api.colony.IColonyManager.getInstance()
                 .getColonyByPosFromWorld(level, plan.controllerPos()));
-        PacketDistributor.sendToPlayer(player, new OpenRoadPlanPayload(plan.controllerPos(),plan.saveForSync(),false));
+        // The panel is built from this snapshot (ClientRoadCache.rememberAuthorized), so it
+        // needs the same "who is working" fields the index carries; saveForSync() alone
+        // leaves the panel saying "repair in progress" without naming anyone.
+        final net.minecraft.nbt.CompoundTag snapshot = plan.saveForSync();
+        Network.writeBuilder(level, plan, snapshot);
+        PacketDistributor.sendToPlayer(player, new OpenRoadPlanPayload(plan.controllerPos(),snapshot,false));
         com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,"rp_crossroads.bind.plan_opened",
                 com.YLFXM.rp.crossroads.road.RoadNames.label(plan));
     }

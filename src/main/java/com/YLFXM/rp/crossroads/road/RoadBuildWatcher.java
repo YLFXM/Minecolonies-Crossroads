@@ -193,86 +193,121 @@ public final class RoadBuildWatcher {
 
     private static void pollActive() {
         final long now = System.currentTimeMillis();
-        for (final Map.Entry<UUID, Watch> entry : new ArrayList<>(ACTIVE.entrySet())) {
-            final UUID id = entry.getKey();
-            final Watch watch = entry.getValue();
-            final RoadPlan plan = RoadManager.get(watch.level()).get(id);
-            if (plan == null || plan.state() == RoadState.REMOVED) {
-                ACTIVE.remove(id);
-                continue;
-            }
-            if (plan.isRepairBusy() || plan.state()==RoadState.REMOVING) { ACTIVE.remove(id); continue; }
-            if (plan.state() == RoadState.BUILT) {
-                ACTIVE.remove(id);
-                CLOSING.remove(id);
-                continue;
-            }
-            // Work order first: while a builder order is still in the manager the
-            // road is being built, and blocks matching early (the builder may
-            // finish the visible layer first) must NOT flip it to BUILT.
-            // The order disappearing from the manager is the "building finished"
-            // signal — MineColonies has no completion event to subscribe to, but
-            // the manager entry vanishing is the same observable fact.
-            final boolean workOrder = hasWorkOrder(plan);
-            if (workOrder) {
-                if (plan.state() != RoadState.BUILDING) {
-                    setStateAndIndex(watch.level(),plan,RoadState.BUILDING);
-                    watch.level().players().forEach(Network::sendRoads);
-                    Crossroads.LOGGER.info("Road {} picked up by a builder work order", id);
-                }
-                // A builder work order can run for a long time; keep watching
-                // instead of timing out and never migrating the controller.
-                ACTIVE.put(id, new Watch(watch.level(), now + TIMEOUT_MS, watch.blueprint()));
-                continue;
-            }
-
-            // No order left. Finish with one block check either way: an order can
-            // also be cancelled or replaced, and migrating the controller onto a
-            // shape that was never placed would be worse than missing a beat.
-            if (isBuilt(watch.level(), plan, watch.blueprint())) {
-                if (plan.state() == RoadState.BUILDING) {
-                    Crossroads.LOGGER.info("Road {} work order finished; marking built", id);
-                }
-                markBuilt(watch.level(), plan);
-                continue;
-            }
-            if (plan.state() == RoadState.BUILDING) {
-                // The order is gone but the shape is not there: it was cancelled.
-                // A confirmed start that never finished goes back to PLANNED with
-                // its proposal and the already-placed blocks kept — the design
-                // only returns a road to DRAFT when the player opened the tool and
-                // never confirmed, which the persistent repair session owns
-                // (RoadRepair.cancel restores session.previousState).
-                setStateAndIndex(watch.level(),plan,RoadState.PLANNED);
-                ACTIVE.remove(id);
-                CLOSING.remove(id);
-                watch.level().players().forEach(Network::sendRoads);
-                Crossroads.LOGGER.info("Road {} lost its work order before completion; back to planned", id);
-                continue;
-            }
-
-            final Long closeAt = CLOSING.get(id);
-            if (closeAt != null && now > closeAt) {
-                // The tool closed without finishing: unlock the plan UI, but
-                // keep watching. A large Paste can still be draining its queue
-                // at this point and must be allowed to complete and migrate.
-                //
-                // The state only says "no longer locked by an open window": the
-                // queue may still be draining and the full check below turns it
-                // BUILT when the shape lands. A player who opened the tool and
-                // closed it without confirming never reaches here with an
-                // unconfirmed session — RoadRepair cancels that case and restores
-                // the session's previousState (DRAFT).
-                setStateAndIndex(watch.level(),plan,RoadState.PLANNED);
-                CLOSING.remove(id);
-                watch.level().players().forEach(Network::sendRoads);
-                Crossroads.LOGGER.info("Road {} native placement closed; kept planned and still watching", id);
-            } else if (closeAt == null && now > watch.deadline()) {
-                ACTIVE.remove(id);
-                CLOSING.remove(id);
-                Crossroads.LOGGER.info("Road {} native placement timed out; blueprint kept", id);
-            }
+        for (final UUID id : new ArrayList<>(ACTIVE.keySet())) {
+            pollOne(id, now, false);
         }
+    }
+
+    /**
+     * One plan's slice of {@link #pollActive()}.
+     *
+     * <p>Losing the work order from the manager is still the fallback signal. Since the
+     * completion batch the builder reports completion directly instead (see
+     * {@code RoadOrderSignal}), and {@link #pollNow} runs this very body on the tick after
+     * that report, so a road never waits a full sweep to be marked built. The sweep keeps
+     * covering cancellations, restarts and anything the report missed.</p>
+     */
+    private static void pollOne(final UUID id, final long now, final boolean fast) {
+        final Watch watch = ACTIVE.get(id);
+        if (watch == null) {
+            return;
+        }
+        final RoadPlan plan = RoadManager.get(watch.level()).get(id);
+        if (plan == null || plan.state() == RoadState.REMOVED) {
+            ACTIVE.remove(id);
+            return;
+        }
+        if (plan.isRepairBusy() || plan.state()==RoadState.REMOVING) { ACTIVE.remove(id); return; }
+        if (plan.state() == RoadState.BUILT) {
+            ACTIVE.remove(id);
+            CLOSING.remove(id);
+            return;
+        }
+        // Work order first: while a builder order is still in the manager the
+        // road is being built, and blocks matching early (the builder may
+        // finish the visible layer first) must NOT flip it to BUILT.
+        final boolean workOrder = hasWorkOrder(plan);
+        if (workOrder) {
+            if (plan.state() != RoadState.BUILDING) {
+                setStateAndIndex(watch.level(),plan,RoadState.BUILDING);
+                watch.level().players().forEach(Network::sendRoads);
+                Crossroads.LOGGER.info("Road {} picked up by a builder work order", id);
+            }
+            // A builder work order can run for a long time; keep watching
+            // instead of timing out and never migrating the controller.
+            ACTIVE.put(id, new Watch(watch.level(), now + TIMEOUT_MS, watch.blueprint()));
+            return;
+        }
+
+        // No order left. Finish with one block check either way: an order can
+        // also be cancelled or replaced, and migrating the controller onto a
+        // shape that was never placed would be worse than missing a beat.
+        if (isBuilt(watch.level(), plan, watch.blueprint())) {
+            if (plan.state() == RoadState.BUILDING) {
+                Crossroads.LOGGER.info("Road {} work order finished; marking built", id);
+            }
+            markBuilt(watch.level(), plan);
+            return;
+        }
+        if (plan.state() == RoadState.BUILDING) {
+            // Fast path (completion signal): the shape may still be settling one tick
+            // after the order vanished. Never interpret that as a cancellation here;
+            // the periodic sweep keeps that verdict, exactly as before this batch.
+            if (fast) {
+                if (Crossroads.LOGGER.isDebugEnabled()) {
+                    Crossroads.LOGGER.debug("Road {} signalled complete but not fully placed yet; retrying", id);
+                }
+                return;
+            }
+            // The order is gone but the shape is not there: it was cancelled.
+            // A confirmed start that never finished goes back to PLANNED with
+            // its proposal and the already-placed blocks kept — the design
+            // only returns a road to DRAFT when the player opened the tool and
+            // never confirmed, which the persistent repair session owns
+            // (RoadRepair.cancel restores session.previousState).
+            setStateAndIndex(watch.level(),plan,RoadState.PLANNED);
+            ACTIVE.remove(id);
+            CLOSING.remove(id);
+            watch.level().players().forEach(Network::sendRoads);
+            Crossroads.LOGGER.info("Road {} lost its work order before completion; back to planned", id);
+            return;
+        }
+
+        final Long closeAt = CLOSING.get(id);
+        if (closeAt != null && now > closeAt) {
+            // The tool closed without finishing: unlock the plan UI, but
+            // keep watching. A large Paste can still be draining its queue
+            // at this point and must be allowed to complete and migrate.
+            //
+            // The state only says "no longer locked by an open window": the
+            // queue may still be draining and the full check below turns it
+            // BUILT when the shape lands. A player who opened the tool and
+            // closed it without confirming never reaches here with an
+            // unconfirmed session — RoadRepair cancels that case and restores
+            // the session's previousState (DRAFT).
+            setStateAndIndex(watch.level(),plan,RoadState.PLANNED);
+            CLOSING.remove(id);
+            watch.level().players().forEach(Network::sendRoads);
+            Crossroads.LOGGER.info("Road {} native placement closed; kept planned and still watching", id);
+        } else if (closeAt == null && now > watch.deadline()) {
+            ACTIVE.remove(id);
+            CLOSING.remove(id);
+            Crossroads.LOGGER.info("Road {} native placement timed out; blueprint kept", id);
+        }
+    }
+
+    /**
+     * Runs one plan's check on the tick after its builder order completed, instead of
+     * waiting for the next 20-tick sweep.
+     *
+     * @return {@code true} while the plan is still watched, i.e. the caller may try again.
+     */
+    public static boolean pollNow(final ServerLevel level, final RoadPlan plan) {
+        if (!level.equals(ACTIVE.get(plan.id()))) {
+            return false;
+        }
+        pollOne(plan.id(), System.currentTimeMillis(), true);
+        return level.equals(ACTIVE.get(plan.id()));
     }
 
     /**
