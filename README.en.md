@@ -65,6 +65,7 @@ All three items appear on this mod's creative tab. "Native build tool" below mea
 4. The anchor row is always flat, with the road surface one block below the anchor; the other rows accumulate step height. The Y you clicked for A/B is not a height target.
 5. Right-click air to open the wand panel and adjust mirroring, lamp spacing (1–8; 1 means no lamps) and auto planning. The road is still an unstarted plan at this point.
 6. Click "Create blueprint / Open build tool": the native tool opens on `generated/` with the blueprint just generated **already selected**; you can still pick another one.
+7. The tool also lists `units → original → streets`: the mod's road / stair / lamp unit previews. They are for reference and manual placement only; the road flow uses the generated blueprint.
 
 Construction uses the three native modes (Complete / Pretty / Survival): in creative it finishes instantly and consumes no materials, while in survival a colony builder works through the order. A wrong blueprint, a moved anchor or a rotated blueprint are refused.
 

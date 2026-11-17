@@ -23,6 +23,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.ldtteam.structurize.blueprints.v1.BlueprintUtil;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -34,11 +36,18 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.server.level.ServerLevel;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
-/** Immutable bundled templates; never reads or slices a live style pack. */
+/**
+ * Road unit templates: the pack copy under {@code units/<风格包>/<系列>/} wins, the
+ * bundled jar resources are the fallback and the seed.
+ *
+ * <p>The pack copy is what the native build tool shows as a preview category, so the
+ * same file a player can look at is the one the generator places.</p>
+ */
 @EventBusSubscriber(modid=Crossroads.MODID)
 public final class RoadUnitLibrary {
     private static final String ROOT="/assets/rp_crossroads/blueprints/units/original/";
@@ -77,24 +86,40 @@ public final class RoadUnitLibrary {
         return "street".equals(variant) && isKnownPack(pack) && width==declaredWidth();
     }
 
-    public static synchronized UnitTemplate get(final String kind,final HolderLookup.Provider registries) {
+    public static synchronized UnitTemplate get(final String kind,final ServerLevel level) {
+        final HolderLookup.Provider registries=level.registryAccess();
         return CACHE.computeIfAbsent(registries,ignored -> new HashMap<>())
-                .computeIfAbsent(kind,ignored -> load(kind,registries));
+                .computeIfAbsent(kind,ignored -> load(kind,level,registries));
     }
     private static InputStream resource(final String name) {
         final InputStream stream=RoadUnitLibrary.class.getResourceAsStream(ROOT+name);
         if(stream==null) throw new IllegalStateException("Missing road unit resource: "+name);
         return stream;
     }
-    private static UnitTemplate load(final String kind,final HolderLookup.Provider registries) {
-        try(final var input=new InputStreamReader(resource("units.json"),StandardCharsets.UTF_8)) {
+    /** Pack copy of the unit directory, or {@code null} when this world has none yet. */
+    private static Path packUnitDir(final ServerLevel level) {
+        try {
+            final Path dir=com.YLFXM.rp.crossroads.CustomRoadPack.unitDir(level.getServer());
+            return Files.isDirectory(dir) ? dir : null;
+        } catch(final RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static UnitTemplate load(final String kind,final ServerLevel level,final HolderLookup.Provider registries) {
+        final Path dir=packUnitDir(level);
+        try(final var input=new InputStreamReader(dir==null ? resource("units.json")
+                : Files.newInputStream(dir.resolve("units.json")),StandardCharsets.UTF_8)) {
             final JsonObject manifest=JsonParser.parseReader(input).getAsJsonObject();
             if(manifest.get("schemaVersion").getAsInt()!=1) throw new IllegalStateException("Unsupported road unit schema");
             final var spec=manifest.getAsJsonObject("units").getAsJsonObject(kind);
             if(spec==null || !"x".equals(spec.get("axis").getAsString())) throw new IllegalStateException("Unsupported road unit: "+kind);
             final String file=spec.get("file").getAsString();
-            if(!file.equals("street_"+kind+".blueprint")) throw new IllegalStateException("Invalid road unit resource path");
-            try(final var stream=resource(file)) {
+            if(!file.endsWith(".blueprint") || file.contains("/") || file.contains("\\"))
+                throw new IllegalStateException("Invalid road unit file name: "+file);
+            final InputStream chosen=dir!=null && Files.isRegularFile(dir.resolve(file))
+                    ? Files.newInputStream(dir.resolve(file)) : resource(file);
+            try(final var stream=chosen) {
                 final var data=NbtIo.readCompressed(stream,NbtAccounter.unlimitedHeap());
                 final var required=data.getList("required_mods",8);
                 for(int i=0;i<required.size();i++) if(!"minecraft".equals(required.getString(i))

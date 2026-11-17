@@ -156,6 +156,22 @@ public final class RoadRepair {
         return openPrepared(level,player,plan,session,blueprint);
     }
     private static boolean openPrepared(ServerLevel level,ServerPlayer player,RoadPlan plan,RoadRepairSession session,Blueprint blueprint) {
+        // Every native build tool open funnels through here (first build and repair
+        // alike). Checking the preview assets now means a deleted or half-written
+        // unit file heals before the panel opens instead of on the next restart.
+        final CustomRoadPack.UnitCheck units=CustomRoadPack.ensureUnits(level.getServer());
+        if (units==CustomRoadPack.UnitCheck.FAILED) {
+            Crossroads.LOGGER.error("Refusing to open the road build tool for {}: unit previews are unreadable",
+                    player.getName().getString());
+            tell(player,"rp_crossroads.plan.units_missing");
+            return false;
+        }
+        if (units==CustomRoadPack.UnitCheck.REPAIRED) {
+            // Re-register before the tool opens so this open already lists the
+            // restored files, and bump the revision: clients holding a damaged copy
+            // would otherwise compare equal versions and never ask for it again.
+            CustomRoadPack.install(level.getServer(),true);
+        }
         try {RoadCrossingConsent.validate(level,player.getUUID(),session);}
         catch(IllegalArgumentException ex) {tellReason(player,ex);return false;}
         if(!RoadBlueprintStore.saveChecked(level,plan,blueprint)) {

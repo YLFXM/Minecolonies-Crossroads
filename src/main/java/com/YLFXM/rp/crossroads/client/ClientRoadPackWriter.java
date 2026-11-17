@@ -55,6 +55,12 @@ public final class ClientRoadPackWriter {
             return false;
         }
         final Minecraft minecraft = Minecraft.getInstance();
+        // Single-player has exactly one pack: the save's. The server already wrote
+        // the blueprint into it and this client reads the same list, so a second copy
+        // under blueprints/ would only shadow the save pack by name.
+        if (minecraft.getSingleplayerServer() != null) {
+            return true;
+        }
         final Path root = minecraft.gameDirectory.toPath()
                 .resolve("blueprints").resolve(CustomRoadPack.PACK_NAME);
         try {
@@ -96,6 +102,38 @@ public final class ClientRoadPackWriter {
                   "pack-format": 1
                 }
                 """.formatted(CustomRoadPack.PACK_NAME, version);
+    }
+
+    /**
+     * Deletes the single-player copy of the road pack under {@code blueprints/}.
+     *
+     * <p>Both that copy and the save pack are named "Crossroads", and structurize's
+     * meta map is keyed by name — whichever registers last wins. The copy only ever
+     * held pushed blueprints and no unit previews, so once it shadowed the save pack
+     * the build tool lost the {@code units/} category. Nothing writes it any more;
+     * this clears what older builds left behind.</p>
+     */
+    public static void dropLocalCopyInSingleplayer() {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.getSingleplayerServer() == null) {
+            return;
+        }
+        final Path root = minecraft.gameDirectory.toPath()
+                .resolve("blueprints").resolve(CustomRoadPack.PACK_NAME);
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try (var paths = Files.walk(root)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (final IOException ignored) {
+                }
+            });
+            Crossroads.LOGGER.info("Removed the single-player copy of the road pack at {}", root);
+        } catch (final IOException ex) {
+            Crossroads.LOGGER.warn("Could not remove the single-player road pack copy", ex);
+        }
     }
 
     /**

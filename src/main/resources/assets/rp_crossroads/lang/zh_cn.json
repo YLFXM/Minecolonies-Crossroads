@@ -82,6 +82,7 @@
   "rp_crossroads.plan.processed": "已处理 %s 条道路。",
   "rp_crossroads.plan.upgrade_todo": "道路升级尚未实现。",
   "rp_crossroads.plan.no_build_tool": "背包里没有建造工具。",
+  "rp_crossroads.plan.units_missing": "道路单元蓝图损坏且无法自动修复，请检查模组文件是否完整后重启。",
   "rp_crossroads.plan.colony_gone": "该殖民地已不存在。",
   "rp_crossroads.plan.orders_cancelled": "已取消 %s 个工单。",
   "rp_crossroads.edit.enabled": "已允许修改蓝图。",

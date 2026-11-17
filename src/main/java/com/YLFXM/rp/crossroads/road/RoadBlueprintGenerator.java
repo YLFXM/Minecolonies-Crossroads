@@ -106,13 +106,13 @@ public final class RoadBlueprintGenerator {
         if(!RoadUnitLibrary.supports(plan.pack(),plan.variant(),plan.width()))
             throw new IllegalArgumentException("No bundled road unit matches this plan's style, variant and width.");
         final RoadUnit unit = DEFAULT_UNIT;
-        final UnitTemplate template=RoadUnitLibrary.get("road",level.registryAccess());
+        final UnitTemplate template=RoadUnitLibrary.get("road",level);
 
         if(plan.segments().isEmpty()) throw new IllegalArgumentException("Select road endpoints first.");
         final BlockPos anchorPos=resolveAnchor(level,plan);
         final RoadHeightProfile profile=RoadHeightProfile.of(plan);
-        final UnitTemplate stair=RoadUnitLibrary.get("stair",level.registryAccess());
-        final UnitTemplate lamp=RoadUnitLibrary.get("lamp",level.registryAccess());
+        final UnitTemplate stair=RoadUnitLibrary.get("stair",level);
+        final UnitTemplate lamp=RoadUnitLibrary.get("lamp",level);
         final RoadBounds horizontal=RoadBounds.ofRoadOnly(plan,0);
         int originY=profile.minBase()-template.surfaceY();
         int maxY=profile.maxBase()+Math.max(lampReserveHeight,

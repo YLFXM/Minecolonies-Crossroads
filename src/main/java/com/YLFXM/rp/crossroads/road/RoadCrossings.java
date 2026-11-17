@@ -342,7 +342,7 @@ public final class RoadCrossings {
     public static void decorate(ServerLevel level,RoadPlan plan,Blueprint out) {
         var origin=BlueprintCells.origin(plan,out);var own=RoadHeightProfile.of(plan);List<String> issues=new ArrayList<>();
         final BlockState skip=com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get().defaultBlockState();
-        BlockState pavement=RoadUnitLibrary.get("road",level.registryAccess()).entries().stream()
+        BlockState pavement=RoadUnitLibrary.get("road",level).entries().stream()
                 .filter(e -> e.pos().getY()==1 && e.pos().getZ()==plan.walkRange().from()).findFirst().orElseThrow().state();
         for(var n:neighbors(level,plan)) {
             try { validate(plan,n); } catch(IllegalArgumentException ex) {issues.add(RoadNotices.reasonKey(ex));}

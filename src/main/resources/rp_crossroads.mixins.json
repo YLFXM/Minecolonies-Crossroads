@@ -8,7 +8,8 @@
     "ServerStructurePackLoaderMixin"
   ],
   "client": [
-    "WindowExtendedBuildToolAccessor"
+    "WindowExtendedBuildToolAccessor",
+    "WindowExtendedBuildToolNameMixin"
   ],
   "server": [],
   "injectors": {

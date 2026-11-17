@@ -32,6 +32,9 @@ public final class ClientRoadSessionEvents {
         // Demolition snapshots never reach the client any more; the folder older
         // versions left behind only shows up as an empty category in the build tool.
         ClientRoadPackWriter.dropLeftoverRemovalFolder();
+        // Single-player keeps one pack (the save's); a copy under blueprints/ would
+        // shadow it by name and hide the unit previews.
+        ClientRoadPackWriter.dropLocalCopyInSingleplayer();
     }
 
     @SubscribeEvent public static void logout(final ClientPlayerNetworkEvent.LoggingOut event) {

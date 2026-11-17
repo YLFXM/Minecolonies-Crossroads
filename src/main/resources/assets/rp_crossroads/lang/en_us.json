@@ -82,6 +82,7 @@
   "rp_crossroads.plan.processed": "Processed %s road(s).",
   "rp_crossroads.plan.upgrade_todo": "Road upgrades are not implemented yet.",
   "rp_crossroads.plan.no_build_tool": "No build tool in your inventory.",
+  "rp_crossroads.plan.units_missing": "The road unit blueprints are damaged and could not be restored. Verify the mod files and restart.",
   "rp_crossroads.plan.colony_gone": "That colony no longer exists.",
   "rp_crossroads.plan.orders_cancelled": "Cancelled %s work order(s).",
   "rp_crossroads.edit.enabled": "Blueprint editing enabled.",
