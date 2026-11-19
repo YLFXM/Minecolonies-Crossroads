@@ -13,8 +13,8 @@ Requires Minecraft 1.21.1 · NeoForge 21.1.259 · MineColonies 1.1.1403-1.21.1 �
 ## Prerequisites and Installation
 
 1. Install MineColonies and its dependencies (Structurize, BlockUI, Domum Ornamentum), and make sure they run on 1.21.1 / NeoForge 21.1.259.
-2. Put `rp_crossroads-0.2.0.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
-3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (13) is rejected at login.
+2. Put `rp_crossroads-0.3.0.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
+3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (14) is rejected at login.
 
 For single-player, steps 1–2 are enough. On a server, ship the same jar to the server and to all players.
 
@@ -22,7 +22,7 @@ For single-player, steps 1–2 are enough. On a server, ship the same jar to the
 
 ### Completion status
 
-The basic gameplay loop works, but treat this as a preview. Only the classic `street` style at 4 blocks wide is supported; any other style or width is refused when generating.
+The basic gameplay loop works, but treat this as a preview. Units are picked by style / series / tier: only the bundled `original` style ships today, with streets (4 blocks wide, tiers 1–3) and main roads (5 blocks wide, tiers 1–4). A style without a unit folder is not offered.
 
 Saved data is still unstable: the road data file was renamed and the row state layout changed, so **saves from the old-named version cannot be read**, and later versions may change it again without migration. Test on a new world, keep backups, and do not use it on a main save.
 
@@ -75,6 +75,7 @@ Closing the window before confirming rolls back to unstarted the first time; an 
 
 - Point the wand at any block of this road to outline the whole row and show `Row N · current → next` under the crosshair (N counts from the start of the road, not a coordinate), coloured by type (flat white / step up cyan / step down orange).
 - Shift-right-click a non-controller block of this road to switch it between flat / step up / step down. The anchor row and any active same-level junction must stay flat. For a road that is already built, enable "Edit Blueprint" in the controller panel first.
+- A road that already shares a junction cannot switch style / series / tier (the shared cells are written by both roads); remove the relation first.
 - A confirmed road can only be extended or shortened along its axis; it cannot be moved sideways. Editing never touches the world.
 - Repair is unavailable before construction starts. It freezes the target again and runs the same native build; editing is blocked while it runs, and the edited/lost counters reset on success.
 - When someone else is building or removing this road, the controller panel's second line names them (`Building: X (preparing/building)`, `Removing: X`) and a rejected Repair says who holds the session; wait, or ask them to close their window or finish.
@@ -121,12 +122,14 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 | Key | Default | Purpose |
 |---|---|---|
-| `roadAnchorBlock` | `minecraft:stone_bricks` | Initial anchor and controller anchor detection. |
+| `roadAnchorBlock` | `minecraft:dirt` | Initial anchor and controller anchor detection. |
 | `lampSpacing` | 4 | Default lamp spacing; the config allows 0–8, ≤1 means no lamps, and the panel offers 1–8. |
 | `defaultLampReserveHeight` | 6 | Reserved height for the range and the blueprint. |
 | `maxRoadLength` | 256 | Maximum road length; config range 1–2048. |
 | `wildernessWorkerMaxDistance` | 256 | For wilderness demolition, the maximum distance from a builder's hut to each target; range 16–2048. |
 | `maxGeneratedBlueprintVolume` | 1048576 | Volume cap checked before generating a blueprint; world height is validated as well. |
+| `maxTerrainOrderVolume` | 32768 | Volume cap for one dig / fill selection. |
+| `ghostRenderDistance` | 64 | Client side: maximum distance (16–256) at which ghost previews are drawn. |
 | `debugLog` | false | Extra diagnostic logging for road generation and completion. |
 
 ## Known Limitations
@@ -137,7 +140,7 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 The documents below are written in Chinese.
 
-- [Design document](docs/阡陌纵横-设计文档-0.2.0.md) — the rules currently in effect and future boundaries.
+- [Design document](docs/阡陌纵横-设计文档-0.3.0.md) — the rules currently in effect and future boundaries.
 - [Implementation progress](docs/阡陌纵横-实现进度.md) — stage completion and acceptance records.
 - [Code structure and mechanics](docs/代码结构与机制.md) — how sources, regression tests and scripts are split, call traces and change scope.
 - [Contributing and porting](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).

@@ -40,15 +40,16 @@ public final class RoadStage7Round5Regression {
         check(RoadCrossingConsent.shape(candidate).equals(RoadCrossingConsent.shape(main)),"valid preview and stored draft share the request shape");
 
         var stair=new RoadJointWork.Cell(Blocks.STONE_STAIRS.defaultBlockState(),null);var kerb=new RoadJointWork.Cell(Blocks.DIRT_PATH.defaultBlockState(),null);
-        check(RoadJointWork.sharedCell(stair,kerb).equals(stair),"native shared approach chooses the actual stair over flat kerb");
-        check(RoadJointWork.sharedCell(kerb,stair).equals(stair),"merge order does not change shared stairs");
+        check(RoadJointWork.sharedCell(stair,kerb,true).equals(stair),"native shared approach chooses the actual stair over flat kerb");
+        check(RoadJointWork.sharedCell(kerb,stair,false).equals(stair),"merge order does not change shared stairs");
         var material=new net.minecraft.nbt.CompoundTag();material.putString("material","minecraft:dirt");
         var dom=new RoadJointWork.Cell(Blocks.STONE_STAIRS.defaultBlockState(),material);
-        check(RoadJointWork.sharedCell(kerb,dom).tile().equals(material),"shared stair selection retains block-entity material data");
+        check(RoadJointWork.sharedCell(kerb,dom,false).tile().equals(material),"shared stair selection retains block-entity material data");
         var support=new RoadJointWork.Cell(fill.defaultBlockState(),null);var air=new RoadJointWork.Cell(Blocks.AIR.defaultBlockState(),null);
-        check(RoadJointWork.sharedCell(air,support).equals(support),"shared fill is not cleared by the other road's background AIR");
-        boolean denied=false;try{RoadJointWork.sharedCell(kerb,new RoadJointWork.Cell(Blocks.GOLD_BLOCK.defaultBlockState(),null));}catch(IllegalArgumentException ex){denied=true;}
-        check(denied,"incompatible concrete targets still fail instead of silently overwriting materials");
+        check(RoadJointWork.sharedCell(air,support,true).equals(support),"shared fill is not cleared by the other road's background AIR");
+        var gold=new RoadJointWork.Cell(Blocks.GOLD_BLOCK.defaultBlockState(),null);
+        check(RoadJointWork.sharedCell(kerb,gold,true).equals(kerb) && RoadJointWork.sharedCell(kerb,gold,false).equals(gold),
+                "two different pavements are decided by the owning road, not aborted");
 
         var rawMain=image(registry);var nativeMain=image(registry);var rawPeer=image(registry);var nativePeer=image(registry);
         var corner=new BlockPos(2,0,0);var ownFill=new BlockPos(0,0,1);
@@ -66,7 +67,7 @@ public final class RoadStage7Round5Regression {
         var fallback=RoadPlanningActions.chooseMode(1,2,m->{if(m==2)throw new IllegalArgumentException("no room");return "same";});
         check(fallback.mode()==0,"overpass can skip infeasible underpass and choose same level when authorized");
         var direct=RoadPlanningActions.chooseMode(2,0,m->m);check(direct.mode()==0 && !direct.fallback(),"next feasible relation is preferred");
-        denied=false;tried.clear();try{RoadPlanningActions.chooseMode(0,1,m->{tried.add(m);throw new IllegalArgumentException("cannot connect");});}catch(IllegalArgumentException ex){denied=true;}
+        boolean denied=false;tried.clear();try{RoadPlanningActions.chooseMode(0,1,m->{tried.add(m);throw new IllegalArgumentException("cannot connect");});}catch(IllegalArgumentException ex){denied=true;}
         check(denied && tried.equals(List.of(1,2)),"both unavailable alternatives reject without selecting another state");
 
         var actualMain=RoadPlan.load(main.save());var actualPeer=RoadPlan.load(peer.save());

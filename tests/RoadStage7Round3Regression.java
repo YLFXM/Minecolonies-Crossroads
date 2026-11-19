@@ -71,7 +71,7 @@ public final class RoadStage7Round3Regression {
         check(!RoadCrossings.adjacentLamp(origin,new BlockPos(12,64,0),64,70,64,70),"two-block-separated lamps remain");
         check(!RoadCrossings.adjacentLamp(origin,new BlockPos(11,64,0),64,70,71,77),"nonoverlapping bridge lamp heights remain");
         check(RoadCrossings.adjacentLamp(origin,new BlockPos(9,64,0),64,70,70,76),"a shared occupied height is an overlap");
-        var lamp=new UnitTemplate(1,8,2,1,Direction.Axis.X);
+        var lamp=new UnitTemplate(1,8,2,1,0,Direction.Axis.X);
         lamp.add(new BlockPos(0,1,0),Blocks.OAK_FENCE.defaultBlockState(),null);
         lamp.add(new BlockPos(0,7,0),Blocks.LANTERN.defaultBlockState(),null);
         lamp.add(new BlockPos(0,20,0),Blocks.AIR.defaultBlockState(),null);

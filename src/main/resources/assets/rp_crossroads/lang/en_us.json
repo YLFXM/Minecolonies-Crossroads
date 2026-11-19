@@ -276,5 +276,18 @@
   "rp_crossroads.gui.level_value": "Tier %s",
   "rp_crossroads.gui.tier_title": "Choose build tier",
   "rp_crossroads.gui.tier_hint": "Only the units used for this build; you can still upgrade afterwards.",
-  "rp_crossroads.gui.confirm": "Confirm"
+  "rp_crossroads.gui.confirm": "Confirm",
+  "rp_crossroads.gui.terrain_dig": "Dig selection",
+  "rp_crossroads.gui.terrain_fill": "Fill selection",
+  "rp_crossroads.terrain.too_large": "Selection volume %s exceeds the limit of %s.",
+  "rp_crossroads.terrain.no_colony": "Both corners must be inside the same colony.",
+  "rp_crossroads.terrain.failed": "Could not create the terrain order; see the log.",
+  "rp_crossroads.terrain.name_dig": "Dig %s×%s×%s",
+  "rp_crossroads.terrain.name_fill": "Fill %s×%s×%s",
+  "rp_crossroads.gui.wand_create_terrain": "Build terrain volume",
+  "rp_crossroads.terrain.mode_dig": "Dig selection: left-click the first corner, shift-left-click the opposite one.",
+  "rp_crossroads.terrain.mode_fill": "Fill selection: left-click the first corner, shift-left-click the opposite one.",
+  "rp_crossroads.gui.terrain_bound_dig": "Target: dig volume",
+  "rp_crossroads.gui.terrain_bound_fill": "Target: fill volume",
+  "rp_crossroads.terrain.not_prepared": "No prepared selection yet."
 }

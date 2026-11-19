@@ -276,5 +276,18 @@
   "rp_crossroads.gui.level_value": "%s 级",
   "rp_crossroads.gui.tier_title": "选择建造等级",
   "rp_crossroads.gui.tier_hint": "只影响这次建造使用的单元；建成后仍可升级。",
-  "rp_crossroads.gui.confirm": "确定"
+  "rp_crossroads.gui.confirm": "确定",
+  "rp_crossroads.gui.terrain_dig": "挖掘选区",
+  "rp_crossroads.gui.terrain_fill": "填充选区",
+  "rp_crossroads.terrain.too_large": "选区体积 %s，超过上限 %s。",
+  "rp_crossroads.terrain.no_colony": "两个角点必须在同一个殖民地内。",
+  "rp_crossroads.terrain.failed": "地形工单创建失败，详见日志。",
+  "rp_crossroads.terrain.name_dig": "挖掘 %s×%s×%s",
+  "rp_crossroads.terrain.name_fill": "填充 %s×%s×%s",
+  "rp_crossroads.gui.wand_create_terrain": "建造地形选区",
+  "rp_crossroads.terrain.mode_dig": "已切到挖掘选区：左键选第一个角，Shift+左键选对角。",
+  "rp_crossroads.terrain.mode_fill": "已切到填充选区：左键选第一个角，Shift+左键选对角。",
+  "rp_crossroads.gui.terrain_bound_dig": "目标：挖掘选区",
+  "rp_crossroads.gui.terrain_bound_fill": "目标：填充选区",
+  "rp_crossroads.terrain.not_prepared": "还没有准备好的选区。"
 }

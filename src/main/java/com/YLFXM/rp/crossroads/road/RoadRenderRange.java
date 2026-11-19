@@ -22,9 +22,11 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public final class RoadRenderRange {
-    public static final double DISTANCE = 64.0;
     public static boolean contains(final AABB bounds, final Vec3 camera) {
-        return bounds.distanceToSqr(camera) <= DISTANCE * DISTANCE;
+        // Read the setting every time: it is a plain int getter, and caching it
+        // would need invalidation when the config is reloaded.
+        final double distance = com.YLFXM.rp.crossroads.Config.ghostRenderDistance();
+        return bounds.distanceToSqr(camera) <= distance * distance;
     }
     private RoadRenderRange() { }
 }

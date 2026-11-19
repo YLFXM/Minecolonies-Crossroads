@@ -54,6 +54,9 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
     private final Button clearButton;
     private final Button autoButton;
     private final Button crossingButton;
+    /** Terrain orders reuse the wand's A/B selection; they need no controller. */
+    private final Button terrainDigButton;
+    private final Button terrainFillButton;
     private final Text planningText;
     /** Read-only display of the current lamp spacing between the -/+ buttons. */
     private final Button lampValueButton;
@@ -72,6 +75,14 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         this.autoButton=this.findPaneOfTypeByID("autoPlan",Button.class);
         this.crossingButton=this.findPaneOfTypeByID("crossings",Button.class);
         this.planningText=this.findPaneOfTypeByID("planning",Text.class);
+        this.terrainDigButton=this.findPaneOfTypeByID("terrainDig",Button.class);
+        this.terrainFillButton=this.findPaneOfTypeByID("terrainFill",Button.class);
+        this.terrainDigButton.setColors(0x000000,0x9A9A9A,0x000000);
+        this.terrainFillButton.setColors(0x000000,0x9A9A9A,0x000000);
+        // These switch what the wand is selecting, not what it dispatches. The
+        // build button below then follows the mode.
+        this.registerButton("terrainDig", button -> this.switchTerrainMode(TerrainClientState.Mode.DIG));
+        this.registerButton("terrainFill", button -> this.switchTerrainMode(TerrainClientState.Mode.FILL));
         this.autoButton.setColors(0x000000,0x9A9A9A,0x000000);
         this.crossingButton.setColors(0x000000,0x9A9A9A,0x000000);
         this.registerButton("autoPlan",button -> sendPlanning(0,new java.util.UUID(0,0),0));
@@ -89,7 +100,13 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
             button.setColors(0x000000, 0x9A9A9A, 0x000000);
         }
 
-        this.registerButton("plan", button -> this.send(RoadPlacementMode.PLAN, -1));
+        this.registerButton("plan", button -> {
+            if (TerrainClientState.isTerrain()) {
+                this.sendTerrain();
+            } else {
+                this.send(RoadPlacementMode.PLAN, -1);
+            }
+        });
         this.registerButton("mirror", button -> {
             this.mirror = !this.mirror;
             RoadSelectionClient.setMirror(this.mirror);
@@ -155,10 +172,16 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         final RoadPlan plan = this.boundPlan(bound);
         if (plan != null) RoadSelectionClient.bindTo(plan);
         this.summaryText.setText(plan == null ? Component.literal("A=-  B=-") : RoadSelectionClient.summary());
-        this.boundText.setText(plan != null
-                ? Component.translatable("rp_crossroads.gui.bound_line", RoadNames.label(plan))
-                : bound == null ? Component.translatable("rp_crossroads.gui.unbound_line")
-                        : Component.translatable("rp_crossroads.gui.bound_no_plan"));
+        // The panel's "bound" line is the wand's target, and terrain mode is a
+        // target of its own: the road is still on the wand, but it is not what
+        // the next build will produce until a new road is bound.
+        this.boundText.setText(!TerrainClientState.isTerrain()
+                ? plan != null
+                        ? Component.translatable("rp_crossroads.gui.bound_line", RoadNames.label(plan))
+                        : bound == null ? Component.translatable("rp_crossroads.gui.unbound_line")
+                                : Component.translatable("rp_crossroads.gui.bound_no_plan")
+                : Component.translatable(TerrainClientState.mode() == TerrainClientState.Mode.DIG
+                        ? "rp_crossroads.gui.terrain_bound_dig" : "rp_crossroads.gui.terrain_bound_fill"));
         // The controller panel's edit switch unlocks a BUILT road: without this
         // the whole panel stays greyed out and the player cannot re-pick A/B at
         // all, even though the server would accept it.
@@ -175,11 +198,26 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
         // been confirmed yet (DRAFT) can open the native tool. Everything after
         // that goes through Repair — replanning a built road included, whose
         // state is PLANNED and would otherwise re-open this door.
-        this.planButton.setEnabled(plan != null
-                && RoadRules.canCreate(plan) && allowed);
-        this.mirrorButton.setEnabled(!locked && allowed);
+        // Mirror is a road concept; terrain boxes have no orientation to flip.
+        this.mirrorButton.setEnabled(!locked && allowed && !TerrainClientState.isTerrain());
         this.clearButton.setEnabled(!locked);
         this.autoButton.setEnabled(!locked && allowed && RoadSelectionClient.hasBoth());
+        // Terrain orders only need the two corners: the colony is resolved from
+        // the selection, so an unbound wand can still dig or fill.
+        final boolean terrain = TerrainClientState.isTerrain();
+        this.terrainDigButton.setEnabled(true);
+        this.terrainFillButton.setEnabled(true);
+        this.terrainDigButton.setText(Component.translatable("rp_crossroads.gui.terrain_dig")
+                .append(TerrainClientState.mode() == TerrainClientState.Mode.DIG ? "  ✔" : ""));
+        this.terrainFillButton.setText(Component.translatable("rp_crossroads.gui.terrain_fill")
+                .append(TerrainClientState.mode() == TerrainClientState.Mode.FILL ? "  ✔" : ""));
+        // In terrain mode the build button is the terrain one: it needs two
+        // corners, not a road plan.
+        this.planButton.setEnabled(terrain
+                ? RoadSelectionClient.hasBoth()
+                : plan != null && RoadRules.canCreate(plan) && allowed);
+        this.planButton.setText(Component.translatable(terrain
+                ? "rp_crossroads.gui.wand_create_terrain" : "rp_crossroads.gui.wand_create"));
         this.crossingButton.setEnabled(plan!=null && allowed && !plan.segments().isEmpty());
         this.planningText.setText(plan==null ? Component.literal("") : RoadNotices.issue(plan.planning().issue()));
 
@@ -195,6 +233,47 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
             this.lastPanelDebug = debug;
             com.YLFXM.rp.crossroads.Crossroads.LOGGER.info("Wand panel: {}", debug);
         }
+    }
+
+    /**
+     * Switches the wand from road selection to a terrain volume.
+     *
+     * <p>Clears A/B on purpose: the previous corners belong to a road, and
+     * carrying them over would make the first terrain box look like a leftover.
+     * Clicking the active mode again returns to road selection.</p>
+     */
+    private void switchTerrainMode(final TerrainClientState.Mode mode) {
+        // No toggle: switching between dig and fill keeps the corners' role but
+        // clears them (a box picked for one is rarely right for the other).
+        // Leaving terrain mode is done by binding a road, which is what the panel
+        // shows as "bound".
+        if (TerrainClientState.mode() == mode) {
+            return;
+        }
+        TerrainClientState.setMode(mode);
+        RoadSelectionClient.clear();
+        if (this.mc.player != null) {
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(this.mc.player,
+                    mode == TerrainClientState.Mode.DIG
+                            ? "rp_crossroads.terrain.mode_dig"
+                            : "rp_crossroads.terrain.mode_fill");
+        }
+        this.refreshMirrorButton();
+    }
+
+    /** Terrain build: the two corners become a blueprint and the native tool. */
+    private void sendTerrain() {
+        if (!RoadSelectionClient.hasBoth()) {
+            if (this.mc.player != null) {
+                com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(this.mc.player,
+                        "rp_crossroads.select.endpoints_first");
+            }
+            return;
+        }
+        PacketDistributor.sendToServer(new com.YLFXM.rp.crossroads.network.TerrainOrderPayload(
+                RoadSelectionClient.a(), RoadSelectionClient.b(),
+                TerrainClientState.mode() == TerrainClientState.Mode.FILL));
+        this.close();
     }
 
     private void send(final RoadPlacementMode mode, final int lampSpacingOverride) {

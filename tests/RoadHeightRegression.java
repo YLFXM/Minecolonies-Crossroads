@@ -14,11 +14,11 @@ public final class RoadHeightRegression {
         p.setTravelDir(direction); p.setState(RoadState.PLANNED); return p;
     }
     public static void main(String[] args) {
-        check(RoadUnitLibrary.supports("minecolonies","street",4),"historical logical pack resolves bundled classic unit");
-        check(RoadUnitLibrary.supports("Crossroads","street",4),"generated pack alias resolves bundled classic unit");
-        check(RoadUnitLibrary.supports("Minecolonies Original","street",4),"native classic pack resolves bundled unit");
-        check(!RoadUnitLibrary.supports("foreign","street",4) && !RoadUnitLibrary.supports("minecolonies","other",4)
-                && !RoadUnitLibrary.supports("minecolonies","street",3),"unsupported style or dimensions do not silently select a different unit");
+        check(RoadUnitLibrary.supports("minecolonies","original","street",4),"historical logical pack resolves bundled classic unit");
+        check(RoadUnitLibrary.supports("Crossroads","original","street",4),"generated pack alias resolves bundled classic unit");
+        check(RoadUnitLibrary.supports("Minecolonies Original","original","street",4),"native classic pack resolves bundled unit");
+        check(!RoadUnitLibrary.supports("foreign","original","street",4) && !RoadUnitLibrary.supports("minecolonies","original","other",4)
+                && !RoadUnitLibrary.supports("minecolonies","original","street",3),"unsupported style or dimensions do not silently select a different unit");
         for(var axis:List.of(Direction.Axis.X,Direction.Axis.Z)) for(int direction:List.of(-1,1)) for(int side:List.of(-1,1)) {
             var p=plan(axis,direction,side); int a=RoadHeightProfile.anchorAlong(p);
             var flat=RoadHeightProfile.of(p);

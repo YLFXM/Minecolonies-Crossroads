@@ -130,6 +130,10 @@ public final class ClientPayloadHandlers {
             if (player != null) {
                 RoadWandBinding.rebind(
                         player.getInventory(), payload.previousPos(), payload.controllerPos());
+                // Binding a road is how the wand leaves terrain mode: the panel's
+                // "bound" line goes back to the road, and A/B start over.
+                TerrainClientState.clear();
+                RoadSelectionClient.clear();
             }
         });
     }
@@ -186,9 +190,21 @@ public final class ClientPayloadHandlers {
             // "ten blocks in front of the player", which is why the box used to
             // drift off in whatever direction the player was facing.
             try {
-                if (payload.repairToken().equals(com.YLFXM.rp.crossroads.road.RoadNativeBuildTool.NO_SESSION))
-                    throw new IllegalArgumentException("Road build tool requires an authorized construction session");
-                new WindowRoadRepairBuildTool(payload,minecraft.level.registryAccess()).open();
+                if (payload.repairToken().equals(com.YLFXM.rp.crossroads.road.RoadNativeBuildTool.NO_SESSION)) {
+                    // Terrain selection: no session, no callback. Confirming this
+                    // window goes through Structurize's own placement message, so
+                    // MineColonies creates the order — the mod only supplied the
+                    // blueprint.
+                    TerrainClientState.clear();
+                    new com.ldtteam.structurize.client.gui.WindowExtendedBuildTool(payload.anchorPos(),
+                            com.ldtteam.structurize.api.constants.Constants.GROUNDSTYLE_RELATIVE,
+                            null,
+                            blueprint -> payload.blueprintPath()
+                                    .endsWith("/" + blueprint.getFileName() + ".blueprint"),
+                            minecraft.level.registryAccess()).open();
+                } else {
+                    new WindowRoadRepairBuildTool(payload,minecraft.level.registryAccess()).open();
+                }
             } catch (final RuntimeException ex) {
                 Crossroads.LOGGER.error("Could not open native road build tool",ex);
                 ClientNativeBuildTracker.abort(payload.planId(),payload.repairToken());

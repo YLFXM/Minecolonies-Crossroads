@@ -48,8 +48,8 @@ public final class RoadPackIdentityRegression {
         check(CustomRoadPack.PACK_NAME.equals(plan(CustomRoadPack.PACK_NAME).save().getString("pack")),"a current plan keeps the current name");
 
         // Units, work orders and repair selections all compare one spelling now.
-        check(RoadUnitLibrary.supports(CustomRoadPack.PACK_NAME,"street",4),"current name supports the bundled unit");
-        check(!RoadUnitLibrary.supports(CustomRoadPack.STALE_PACK_NAME,"street",4),"the pre-rename name supports nothing");
+        check(RoadUnitLibrary.supports(CustomRoadPack.PACK_NAME,"original","street",4),"current name supports the bundled unit");
+        check(!RoadUnitLibrary.supports(CustomRoadPack.STALE_PACK_NAME,"original","street",4),"the pre-rename name supports nothing");
 
         var p=plan(CustomRoadPack.PACK_NAME);
         check(RoadWorkOrders.matches(p,order(CustomRoadPack.PACK_NAME,RoadTemporaryPack.pathFor(p),WorkOrderType.BUILD)),"current build order matches its road");

@@ -125,6 +125,9 @@ public final class DecorationControllerHandler {
             final ItemStack wand = findWand(player);
             if (!wand.isEmpty()) {
                 RoadWandBinding.bind(wand, plan.controllerPos());
+                // Binding to another road means the player moved on: drop the
+                // terrain blueprints generated while the wand pointed elsewhere.
+                com.YLFXM.rp.crossroads.road.TerrainOrders.clearFor(level.getServer(), player.getUUID());
                 if (wand == player.getMainHandItem()) {
                     player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, wand);
                 } else if (wand == player.getOffhandItem()) {

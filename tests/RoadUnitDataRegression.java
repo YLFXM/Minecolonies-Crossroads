@@ -44,10 +44,16 @@ public final class RoadUnitDataRegression {
                     expectedInJar.add(JAR_ROOT+id+"/"+file);
                     final CompoundTag unit=NbtIo.readCompressed(path,NbtAccounter.unlimitedHeap());
                     units++;
-                    // The pack copy is replaced when its bytes differ, so the
-                    // manifest hash has to describe the shipped file exactly.
-                    final byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
-                            .digest(Files.readAllBytes(path));
+                    // The pack copy is replaced when its content differs, so the
+                    // manifest hash covers the decompressed NBT, not the gzip
+                    // container (deflate bytes depend on the zlib build).
+                    final byte[] digest;
+                    try(var in=new java.util.zip.GZIPInputStream(Files.newInputStream(path))) {
+                        final var md=java.security.MessageDigest.getInstance("SHA-256");
+                        final byte[] buffer=new byte[8192];int read;
+                        while((read=in.read(buffer))>0) md.update(buffer,0,read);
+                        digest=md.digest();
+                    }
                     final StringBuilder hex=new StringBuilder();
                     for(byte value:digest) hex.append(String.format("%02x",value));
                     check(hex.toString().equals(spec.get("sha256").getAsString()),"unit hash matches the manifest "+label);

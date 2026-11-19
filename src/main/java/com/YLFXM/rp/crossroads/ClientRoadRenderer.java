@@ -108,6 +108,56 @@ public final class ClientRoadRenderer {
     }
 
     /**
+     * Draws the terrain volume the player is currently selecting.
+     *
+     * <p>Reads the wand's A/B live, so the box grows as the second corner moves.
+     * A subscriber of its own, not part of the plan-bounds pass: that pass returns
+     * early unless a preview mode is active, while the terrain box has to follow
+     * the selection from the first click. Dig and fill get different colours so
+     * the two are never confused.</p>
+     */
+    @SubscribeEvent
+    public static void onRenderTerrain(final RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
+            return;
+        }
+        final com.YLFXM.rp.crossroads.client.TerrainClientState.Mode mode =
+                com.YLFXM.rp.crossroads.client.TerrainClientState.mode();
+        if (mode == com.YLFXM.rp.crossroads.client.TerrainClientState.Mode.NONE) {
+            return;
+        }
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null) {
+            return;
+        }
+        final net.minecraft.core.BlockPos a = com.YLFXM.rp.crossroads.client.RoadSelectionClient.a();
+        if (a.equals(net.minecraft.core.BlockPos.ZERO)) {
+            return;
+        }
+        final net.minecraft.core.BlockPos b = com.YLFXM.rp.crossroads.client.RoadSelectionClient.b();
+        final net.minecraft.core.BlockPos other = b.equals(net.minecraft.core.BlockPos.ZERO) ? a : b;
+        final net.minecraft.core.BlockPos min = new net.minecraft.core.BlockPos(
+                Math.min(a.getX(), other.getX()), Math.min(a.getY(), other.getY()), Math.min(a.getZ(), other.getZ()));
+        final net.minecraft.core.BlockPos max = new net.minecraft.core.BlockPos(
+                Math.max(a.getX(), other.getX()), Math.max(a.getY(), other.getY()), Math.max(a.getZ(), other.getZ()));
+        final AABB box = new AABB(min.getX(), min.getY(), min.getZ(),
+                max.getX() + 1.0, max.getY() + 1.0, max.getZ() + 1.0);
+        final PoseStack pose = event.getPoseStack();
+        final Vec3 camera = event.getCamera().getPosition();
+        pose.pushPose();
+        pose.translate(-camera.x, -camera.y, -camera.z);
+        final MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
+        final VertexConsumer lines = buffers.getBuffer(RenderType.lines());
+        if (mode == com.YLFXM.rp.crossroads.client.TerrainClientState.Mode.FILL) {
+            LevelRenderer.renderLineBox(pose, lines, box, 0.35F, 1.0F, 0.45F, 1.0F);
+        } else {
+            LevelRenderer.renderLineBox(pose, lines, box, 1.0F, 0.8F, 0.25F, 1.0F);
+        }
+        buffers.endBatch(RenderType.lines());
+        pose.popPose();
+    }
+
+    /**
      * Outlines the whole row the wand is aimed at.
      *
      * <p>A separate subscriber from the plan-bounds pass on purpose: that pass

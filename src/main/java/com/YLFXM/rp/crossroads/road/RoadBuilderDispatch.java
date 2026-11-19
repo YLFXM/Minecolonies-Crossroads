@@ -45,18 +45,11 @@ final class RoadBuilderDispatch {
         return accepted;
     }
     static boolean admit(IColony colony,IServerWorkOrder order) {
-        var manager=colony.getWorkManager();
-        try {
-            // Same restoration admission as road demolition: bypass only colony-space rejection,
-            // then run the native new-order hook for tape/notifications.
-            manager.addWorkOrder(order,true);
-            if(manager.getWorkOrder(order.getID())!=order)return false;
-            order.onAdded(colony,false);
-            return true;
-        } catch(RuntimeException ex) {
-            if(manager.getWorkOrder(order.getID())==order)manager.removeWorkOrder(order.getID());
-            throw ex;
-        }
+        // Shared with the terrain dig/fill order: both are decoration orders with
+        // a blueprint this mod generated, and both need the same admission.
+        // Trusted: the road plan was validated against this colony already, so the
+        // native space check would only reject long roads that reach past it.
+        return com.YLFXM.rp.crossroads.road.common.TrustedOrderDispatch.admit(colony,order,true);
     }
     private RoadBuilderDispatch() { }
 }

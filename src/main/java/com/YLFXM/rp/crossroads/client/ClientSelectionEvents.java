@@ -37,6 +37,40 @@ public final class ClientSelectionEvents {
         if (!event.getEntity().getMainHandItem().is(ModRegistry.ROAD_WAND.get())) {
             return;
         }
+        // Terrain mode owns the corners: a terrain volume has nothing to do with
+        // the bound road's axis, so none of the road checks below may run. This is
+        // exactly what blocked picking ground off a built road's line.
+        if (TerrainClientState.isTerrain()) {
+            final BlockPos terrainPos = event.getPos();
+            if (event.getEntity().isShiftKeyDown()) {
+                RoadSelectionClient.setB(terrainPos);
+            } else {
+                RoadSelectionClient.setA(terrainPos);
+            }
+            // Keep A on the box's minimum corner. The blueprint's origin is the
+            // anchor and a blueprint cannot grow towards negative coordinates, so
+            // ordering the corners here is what lets origin and marker be the same
+            // point no matter which corner was clicked first.
+            final BlockPos first = RoadSelectionClient.a();
+            final BlockPos second = RoadSelectionClient.b();
+            if (!first.equals(BlockPos.ZERO) && !second.equals(BlockPos.ZERO)) {
+                final BlockPos low = new BlockPos(Math.min(first.getX(), second.getX()),
+                        Math.min(first.getY(), second.getY()), Math.min(first.getZ(), second.getZ()));
+                final BlockPos high = new BlockPos(Math.max(first.getX(), second.getX()),
+                        Math.max(first.getY(), second.getY()), Math.max(first.getZ(), second.getZ()));
+                if (!low.equals(first)) {
+                    RoadSelectionClient.setA(low);
+                    RoadSelectionClient.setB(high);
+                }
+            }
+            // Report the clicked cell, not the reordered corner: the box is what
+            // matters and the labels only say which key was used.
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
+                    event.getEntity().isShiftKeyDown() ? "rp_crossroads.select.endpoint_b" : "rp_crossroads.select.endpoint_a",
+                    terrainPos.getX(), terrainPos.getY(), terrainPos.getZ());
+            event.setCanceled(true);
+            return;
+        }
         // A/B belong to the BOUND controller, so the lock is decided by that
         // plan — not by what the click happens to hit. Re-planning a built road
         // normally means clicking ground outside the old footprint, so testing

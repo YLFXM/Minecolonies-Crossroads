@@ -51,6 +51,14 @@ public final class Config {
 
     public static int maxGeneratedBlueprintVolume() { return MAX_GENERATED_BLUEPRINT_VOLUME.get(); }
 
+    private static final ModConfigSpec.IntValue GHOST_RENDER_DISTANCE = BUILDER
+            .comment("Maximum distance (blocks) at which road ghost previews are drawn. Client side.")
+            .defineInRange("ghostRenderDistance", 64, 16, 256);
+
+    private static final ModConfigSpec.IntValue MAX_TERRAIN_ORDER_VOLUME = BUILDER
+            .comment("Maximum volume of one terrain dig/fill work order.")
+            .defineInRange("maxTerrainOrderVolume", 32768, 64, 1048576);
+
     private static final ModConfigSpec.BooleanValue DEBUG_LOG = BUILDER
             .comment("Log road plan/AABB generation details.")
             .define("debugLog", false);
@@ -75,6 +83,18 @@ public final class Config {
 
     public static boolean debugLog() {
         return DEBUG_LOG.get();
+    }
+
+    public static int ghostRenderDistance() {
+        // RoadRenderRange is a plain geometry predicate also exercised by the
+        // regression harness, where no config is loaded yet; fall back to the
+        // declared default instead of throwing.
+        if (!SPEC.isLoaded()) return (Integer) GHOST_RENDER_DISTANCE.getDefault();
+        return GHOST_RENDER_DISTANCE.get();
+    }
+
+    public static int maxTerrainOrderVolume() {
+        return MAX_TERRAIN_ORDER_VOLUME.get();
     }
 
     private Config() {

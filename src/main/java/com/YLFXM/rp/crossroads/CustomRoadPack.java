@@ -199,16 +199,29 @@ public final class CustomRoadPack {
         return java.util.List.of(UNIT_STYLE_ORIGINAL);
     }
 
-    /** True when the file exists and holds exactly the bytes the manifest declares. */
+    /**
+     * True when the file exists and its uncompressed NBT matches the manifest.
+     *
+     * <p>The digest covers the decompressed tree, not the gzip container: the
+     * bytes of a deflate stream depend on the zlib build that produced it, so a
+     * container hash would call an identical unit stale whenever the assets
+     * were re-exported with another Python. Content is what has to match.</p>
+     */
     private static boolean matchesHash(final Path file, final String sha256) {
         if (sha256 == null || sha256.isEmpty() || !Files.isRegularFile(file)) {
             return false;
         }
-        try {
-            final byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(Files.readAllBytes(file));
-            final StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (final byte value : digest) {
+        try (var in = new java.util.zip.GZIPInputStream(
+                     new java.io.BufferedInputStream(Files.newInputStream(file)))) {
+            final var digest = java.security.MessageDigest.getInstance("SHA-256");
+            final byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                digest.update(buffer, 0, read);
+            }
+            final byte[] sum = digest.digest();
+            final StringBuilder hex = new StringBuilder(sum.length * 2);
+            for (final byte value : sum) {
                 hex.append(Character.forDigit((value >> 4) & 0xF, 16))
                         .append(Character.forDigit(value & 0xF, 16));
             }

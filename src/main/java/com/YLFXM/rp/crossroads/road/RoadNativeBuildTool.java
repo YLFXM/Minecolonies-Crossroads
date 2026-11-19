@@ -40,5 +40,17 @@ public final class RoadNativeBuildTool {
         PacketDistributor.sendToPlayer(player,new OpenBuildToolPayload(plan.id(),RoadTemporaryPack.pathFor(plan),
                 BlueprintUtil.writeBlueprintToNBT(blueprint),version,plan.anchorPos(),token,RoadJointWork.impact(player.serverLevel(),plan.repairSession())));
     }
+    /**
+     * Opens the native tool on a terrain blueprint.
+     *
+     * <p>Uses {@link #NO_SESSION} as the token on purpose: the client reads that
+     * as "no road session, run the plain native tool", whose confirm goes through
+     * Structurize's own placement message instead of our authorized repair flow.</p>
+     */
+    public static void openTerrain(final ServerPlayer player, final TerrainOrders.Prepared prepared) {
+        PacketDistributor.sendToPlayer(player, new OpenBuildToolPayload(prepared.id(), prepared.relative(),
+                prepared.blueprint(), prepared.packVersion(), prepared.anchor(), NO_SESSION));
+    }
+
     private RoadNativeBuildTool() { }
 }

@@ -116,7 +116,14 @@ def read_nbt(raw):
     return read(10)
 
 
-def encode_nbt(data):
+def nbt_payload(data):
+    """Uncompressed NBT bytes.
+
+    Hashing these instead of the gzip container keeps the manifest hashes
+    stable across Python/zlib builds: two interpreters compress the same tree
+    into different bytes, so a container hash would make `--verify` depend on
+    whichever interpreter produced the assets.
+    """
     stream = io.BytesIO()
 
     def number(fmt, value): stream.write(struct.pack('>' + fmt, value))
@@ -149,7 +156,11 @@ def encode_nbt(data):
             for item in value: number('i', item)
         else: raise ValueError(kind)
     number('B', 10); string(''); write(10, data)
-    return gzip.compress(stream.getvalue(), mtime=0)
+    return stream.getvalue()
+
+
+def encode_nbt(data):
+    return gzip.compress(nbt_payload(data), mtime=0)
 
 
 def state_at(data, x, y, z):
@@ -459,7 +470,7 @@ def build(archive):
                     # Byte hash of the encoded file. The pack copy is compared
                     # against it on every open so an older or hand-edited unit
                     # cannot survive next to a newer one in the same folder.
-                    'sha256': hashlib.sha256(encode_nbt(blueprint)).hexdigest(),
+                    'sha256': hashlib.sha256(nbt_payload(blueprint)).hexdigest(),
                     'width': spec['width'], 'anchorColumn': spec['anchorColumn'],
                     'walkRange': spec['walkRange'],
                     'writeCells': [list(pos) for pos in sorted(entries)],

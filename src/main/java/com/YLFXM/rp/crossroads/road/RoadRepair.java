@@ -491,6 +491,9 @@ public final class RoadRepair {
     }
 
     private static void completeCommit(ServerLevel level,RoadPlan plan,RoadRepairSession session) {
+        // The player has finished with this road's build, so the terrain orders
+        // they generated in the same session are no longer needed on disk.
+        TerrainOrders.clearFor(level.getServer(),session.owner());
         plan.setInterruptedConstruction(null);session.commitRows(plan);plan.setAllowBlueprintEdit(false);plan.setRepairSession(null);
         RoadBuildWatcher.markBuiltAfterSnapshot(level,plan);
         RoadCrossingUpdates.reconcileApplied(level,plan);
@@ -572,6 +575,12 @@ public final class RoadRepair {
         }
     }
     @SubscribeEvent public static void tick(final ServerTickEvent.Post event) {
+        // Terrain blueprints live on disk only until a builder order references
+        // them; every five seconds is often enough and costs one pass over the
+        // colony order maps.
+        if (event.getServer().getTickCount() % 100 == 0) {
+            TerrainOrders.sweep(event.getServer());
+        }
         if(event.getServer().getTickCount()%20!=0) return;
         for(final var entry:java.util.List.copyOf(ACTIVE.entrySet())) {
             final RoadPlan plan=RoadManager.get(entry.getValue()).get(entry.getKey());

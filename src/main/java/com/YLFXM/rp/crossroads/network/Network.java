@@ -72,7 +72,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 public final class Network {
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("13");
+        final var registrar = event.registrar("14");
         registrar.playToServer(RoadPlanningPayload.TYPE,RoadPlanningPayload.CODEC,(payload,context) ->
                 context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
                     com.YLFXM.rp.crossroads.road.RoadPlanningActions.handle(player,payload); }));
@@ -98,6 +98,8 @@ public final class Network {
                 Network::handleEditCell);
         registrar.playToServer(ToggleBlueprintEditPayload.TYPE, ToggleBlueprintEditPayload.CODEC,
                 Network::handleToggleBlueprintEdit);
+        registrar.playToServer(TerrainOrderPayload.TYPE, TerrainOrderPayload.CODEC,
+                Network::handleTerrainOrder);
         // Client-bound handlers live in a client-only class; see the class javadoc.
         // The same registrar is reused so the channel version is declared once.
         if (net.neoforged.fml.loading.FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
@@ -859,6 +861,40 @@ public final class Network {
             }
             sendRoads(player, IColonyManager.getInstance()
                     .getColonyByPosFromWorld(level, plan.controllerPos()));
+        });
+    }
+
+    /**
+     * Turns the wand's two selected corners into a terrain dig or fill order.
+     *
+     * <p>Both corners must sit in the same colony: the order is admitted there,
+     * and the builder who executes it comes from that colony.</p>
+     */
+    private static void handleTerrainOrder(final TerrainOrderPayload payload, final IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            final ServerLevel level = player.serverLevel();
+            // The colony comes from the blueprint anchor (the box's minimum
+            // corner). Whether the rest of the box is inside is the native
+            // work-order check's business, not ours.
+            final com.minecolonies.api.colony.IColony colony = IColonyManager.getInstance()
+                    .getColonyByPosFromWorld(level, com.YLFXM.rp.crossroads.road.TerrainOrders.anchor(payload.a(), payload.b()));
+            if (colony == null) {
+                RoadNotices.chat(player, null, "terrain_colony", "rp_crossroads.terrain.no_colony");
+                return;
+            }
+            if (!com.YLFXM.rp.crossroads.RoadPermissions.canManage(player, colony)) {
+                com.YLFXM.rp.crossroads.RoadPermissions.notifyDenied(player);
+                return;
+            }
+            // Prepare and open in one step: the box the player saw was drawn from
+            // their own A/B, so there is nothing for the server to confirm first.
+            if (com.YLFXM.rp.crossroads.road.TerrainOrders.prepare(level, player,
+                    payload.a(), payload.b(), payload.fill()) != null) {
+                com.YLFXM.rp.crossroads.road.TerrainOrders.openTool(level, player);
+            }
         });
     }
 

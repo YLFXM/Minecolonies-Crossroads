@@ -1,5 +1,31 @@
 # 更新记录
 
+## 0.3.0 — 2026-11-19 地形工单、幽灵距离与 P3 阶段收尾
+
+### 新增
+
+- **地形改造工单**：「挖掘 / 填充选区」把绘制器的目标从道路换成地形选区（面板「已绑定」行显示目标，绑定另一条道路即切回）；选点时客户端按 A/B 实时绘制 AABB 框（挖=黄色、填=绿色），且跳过道路模式的轴线限制，点面板「建造地形选区」才生成蓝图并打开原生 `WindowExtendedBuildTool`（`selectionCallback=null`），确认后由 Structurize 的放置消息创建装饰工单；蓝图原点与锚点是同一点（选区最小角）；显式写入 `primary_offset = A − 最小角`，避开 Structurize 在无锚点方块时默认取 `(sizeX/2, 0, sizeZ/2)` 造成的半箱体错位。挖掘 = 全 air 蓝图，填充 = 全 `structurize:blocksolidsubstitution` 占位符，由建筑工按 `getSolidSubstitution()` 解析成建造工小屋设置里的「填充方块」，材料从殖民地仓库出。
+- `Config.maxTerrainOrderVolume`（默认 32768）限制单次选区体积；单边上限 256、越界高度直接拒绝。
+- `Config.ghostRenderDistance`（16–256，默认 64）：幽灵蓝图渲染距离由 `RoadRenderRange` 读配置，不再硬编码。
+- `road/common/TrustedOrderDispatch`：工单入队（`addWorkOrder` + `onAdded`）的单一实现；当前只服务道路工单（传 `readingFromNbt=true`，蓝图已按殖民地校验过）。地形工单不再走它——由原版放置消息创建。
+
+### 修复
+
+- 地形临时蓝图（`generated/terrain_<uuid>.blueprint`）：`TerrainOrders.sweep` 每 100 tick 删除已有工单引用的文件（工单自带蓝图副本）；取消不产生工单，因此取消保留文件。另在生成新选区、道路蓝图应用、重新绑定时清理，只删本人生成的。
+- **单元清单哈希改为内容哈希**：`units.json` 的 `sha256` 覆盖解压后的 NBT，不再取 gzip 容器字节——deflate 输出依赖 zlib 版本，换解释器导出会让 `export_road_units.py --verify` 全项失配。`CustomRoadPack.matchesHash` 与 `RoadUnitDataRegression` 同步改为先解压再摘要。
+- `Config.ghostRenderDistance()` 在配置未加载时回落到声明默认值（64），回归进程可直接调用 `RoadRenderRange.contains`，不再抛 `Cannot get config value before config is loaded`。
+- 回归调用点随 0.2.2 的签名变更同步：`RoadUnitLibrary.supports` 增加风格参数、`UnitTemplate` 增加 `anchorColumn`、`RoadJointWork.sharedCell` 增加 `aWins`（原「两种铺装冲突即抛异常」的断言改为「由主导路裁决」）。
+
+### 文档
+
+- 新增 `output/P3/任务4/地形与体验项.md`：CLEAR 阶段依据、入口复用、填充方块来源、清理时机与测试项；P3 实施计划同步任务 4 的最终范围（Q1 / Q8 不做）。
+- README 中英补地形工单与幽灵距离配置；结构文档补 `TerrainOrders`、`TrustedOrderDispatch`、`TerrainOrderPayload` 与绘制器面板新按钮。
+- 设计文档随中版本改名 `docs/阡陌纵横-设计文档-0.3.0.md`：新增「系列、等级与风格包」「升级与换单元」「地形挖填」三章，修正单元存放形态、控制器面板 Upgrade、共享格裁决、幽灵显示距离四处旧结论。
+- `docs/代码结构与机制.md`：补 `WindowRoadStyle`、`RoadDevMode` 两个源文件与新资源清单，新增风格切换与地形派单两条调用链，更新回归断言口径（25 套 3153 条 + 导出校验）。
+- README 中英：版本号、系列/等级支持范围、与交叉关系相关的切换限制、`roadAnchorBlock` 默认值（`minecraft:dirt`）与两项配置。
+- 协议版本 13 → 14（`ConfigureRoadPayload.tier`、`SetRoadStylePayload.level`、新增 `TerrainOrderPayload`）。
+- 验证：构建通过（产物 545,208 B / sha256 `18D9A99C0646…`）；`tests/run.ps1` 25 个程序 3153 条断言 + `export_road_units.py --verify`（21 份单元、80 个非空气调色板项）全绿；游戏内验收覆盖地形模式切换、实时选区框、挖/填工单、锚点对齐、占位符填充与临时蓝图清理。
+
 ## 0.2.2 — 2026-11-19 多系列与升级
 
 ### 新增
