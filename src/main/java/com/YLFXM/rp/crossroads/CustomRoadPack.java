@@ -107,25 +107,28 @@ public final class CustomRoadPack {
      * names come from the window's own lang keys; the folder only needs to be
      * stable.
      */
-    private static final String UNIT_STYLE = "original";
-    private static final String UNIT_SERIES = "streets";
-    /** Localized names an earlier build shipped; the tree is moved on sight. */
+    public static final String UNIT_STYLE_ORIGINAL = "original";
+    private static final String UNIT_STYLE = UNIT_STYLE_ORIGINAL;
+    /** Localized names an earlier build shipped; the tree is deleted on sight. */
     private static final String LEGACY_UNIT_STYLE = "原版";
-    private static final String LEGACY_UNIT_SERIES = "街道";
     /** Classpath root of the bundled unit blueprints and manifest. */
-    private static final String UNIT_RESOURCE_ROOT = "/assets/rp_crossroads/blueprints/units/original/";
-    /** Role -> bundled resource name; the pack copy carries the level suffix instead. */
-    private static final String[][] UNIT_FILES = {
-            {"road", "street_road.blueprint"},
-            {"stair", "street_stair.blueprint"},
-            {"lamp", "street_lamp.blueprint"},
-    };
-    /** Level shipped as unit level 1; higher levels arrive with the multi-series task. */
-    private static final int UNIT_LEVEL = 1;
+    private static final String UNIT_RESOURCE_ROOT = "/assets/rp_crossroads/blueprints/units/";
+    /** File name of one unit: `<role>_<level>.blueprint`. */
+    private static final String UNIT_MANIFEST = "units.json";
 
-    /** Where this save's unit previews live. */
-    public static Path unitDir(final MinecraftServer server) {
-        return packRoot(server).resolve(UNIT_ROOT).resolve(UNIT_STYLE).resolve(UNIT_SERIES);
+    /** Root of this save's unit previews: one sub-folder per style, then per series. */
+    public static Path unitRoot(final MinecraftServer server) {
+        return packRoot(server).resolve(UNIT_ROOT);
+    }
+
+    /** One style folder, e.g. {@code units/original/}. */
+    public static Path styleDir(final MinecraftServer server, final String style) {
+        return unitRoot(server).resolve(style);
+    }
+
+    /** One series' preview folder, e.g. {@code units/original/streets/}. */
+    public static Path unitDir(final MinecraftServer server, final String style, final String series) {
+        return styleDir(server, style).resolve(series);
     }
 
     /**
@@ -139,6 +142,80 @@ public final class CustomRoadPack {
      */
     public static String unitFileName(final String role, final int level) {
         return role + "_" + level + ".blueprint";
+    }
+
+    /**
+     * One bundled unit: its path inside the style folder and the bytes the jar
+     * ships for it.
+     *
+     * <p>{@code sha256} is what makes the pack copy upgradeable. A unit is
+     * generated data, not a player asset, so the only correct behaviour when an
+     * older build left one behind is to replace it — and comparing bytes is the
+     * one check that also catches a half-written or hand-edited file.</p>
+     */
+    public record UnitFile(String relative, String sha256) { }
+
+    /**
+     * Every unit file the jar ships, as {@code <series>/<file>}.
+     *
+     * <p>Read from the bundled manifest instead of a table: the manifest is what
+     * the generator loads, so a unit that exists only in one of the two lists
+     * would be a preview without a road (or the reverse).</p>
+     */
+    public static java.util.List<UnitFile> bundledUnitFiles() {
+        final var result = new java.util.ArrayList<UnitFile>();
+        for (final String style : availableStyles()) {
+            final byte[] raw = bundled(style + "/" + UNIT_MANIFEST);
+            if (raw == null) {
+                Crossroads.LOGGER.warn("Missing bundled road unit manifest for style {}", style);
+                continue;
+            }
+            final var json = com.google.gson.JsonParser
+                    .parseString(new String(raw, StandardCharsets.UTF_8)).getAsJsonObject();
+            for (final var seriesEntry : json.getAsJsonObject("series").entrySet()) {
+                final String series = seriesEntry.getKey();
+                for (final var roleEntry : seriesEntry.getValue().getAsJsonObject()
+                        .getAsJsonObject("units").entrySet()) {
+                    for (final var levelEntry : roleEntry.getValue().getAsJsonObject().entrySet()) {
+                        final var spec = levelEntry.getValue().getAsJsonObject();
+                        result.add(new UnitFile(
+                                style + "/" + series + "/" + unitFileName(roleEntry.getKey(),
+                                        Integer.parseInt(levelEntry.getKey())),
+                                spec.has("sha256") ? spec.get("sha256").getAsString() : ""));
+                    }
+                }
+            }
+        }
+        return java.util.List.copyOf(result);
+    }
+
+    /**
+     * Unit styles the jar ships, in the order a new save should register them.
+     *
+     * <p>Only the shipped set is listed here. Discovered styles from other packs
+     * are added through the series index, not by scanning at runtime.</p>
+     */
+    public static java.util.List<String> availableStyles() {
+        return java.util.List.of(UNIT_STYLE_ORIGINAL);
+    }
+
+    /** True when the file exists and holds exactly the bytes the manifest declares. */
+    private static boolean matchesHash(final Path file, final String sha256) {
+        if (sha256 == null || sha256.isEmpty() || !Files.isRegularFile(file)) {
+            return false;
+        }
+        try {
+            final byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(Files.readAllBytes(file));
+            final StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (final byte value : digest) {
+                hex.append(Character.forDigit((value >> 4) & 0xF, 16))
+                        .append(Character.forDigit(value & 0xF, 16));
+            }
+            return hex.toString().equalsIgnoreCase(sha256);
+        } catch (final IOException | java.security.NoSuchAlgorithmException ex) {
+            return false;
+        }
     }
 
     /**
@@ -188,98 +265,114 @@ public final class CustomRoadPack {
             return UnitCheck.OK;
         }
         final boolean repaired = seedUnits(packRoot);
-        final Path dir = unitDir(server);
-        for (final String[] entry : UNIT_FILES) {
-            if (!isReadableBlueprint(dir.resolve(unitFileName(entry[0], UNIT_LEVEL)))) {
+        final Path root = packRoot.resolve(UNIT_ROOT);
+        for (final UnitFile unit : bundledUnitFiles()) {
+            if (!isReadableBlueprint(root.resolve(unit.relative()))) {
                 return UnitCheck.FAILED;
             }
         }
-        final Path manifest = dir.resolve("units.json");
-        try {
-            if (!Files.isRegularFile(manifest) || Files.size(manifest) <= 0) {
+        for (final String style : availableStyles()) {
+            final Path manifest = root.resolve(style).resolve(UNIT_MANIFEST);
+            try {
+                if (!Files.isRegularFile(manifest) || Files.size(manifest) <= 0) {
+                    return UnitCheck.FAILED;
+                }
+            } catch (final IOException ex) {
                 return UnitCheck.FAILED;
             }
-        } catch (final IOException ex) {
-            return UnitCheck.FAILED;
         }
         return repaired ? UnitCheck.REPAIRED : UnitCheck.OK;
     }
 
     /**
-     * Moves the unit previews out of the old localized folders.
+     * Deletes the preview trees earlier builds shipped.
      *
-     * <p>An earlier build shipped {@code units/原版/街道/}. Those names cannot be
-     * translated by the tool (it prints them verbatim) and travel badly through zip,
-     * so the tree now uses ASCII and the display names come from the window. Files
-     * are moved rather than rewritten so a player-adjusted preview survives.</p>
+     * <p>Two generations are gone and neither can be migrated: {@code units/原版/街道/}
+     * used localized folder names the tool prints verbatim, and the flat
+     * {@code units/original/street_*.blueprint} files predate the series/level
+     * naming. Their replacement has different names and a different manifest
+     * schema, so keeping them would only add duplicate categories to the list.</p>
      *
-     * @return true when something was moved
+     * @return true when something was deleted
      */
-    private static boolean migrateLegacyUnitTree(final Path packRoot) {
-        final Path legacyRoot = packRoot.resolve(UNIT_ROOT).resolve(LEGACY_UNIT_STYLE);
-        final Path legacy = legacyRoot.resolve(LEGACY_UNIT_SERIES);
-        if (!Files.isDirectory(legacy)) {
-            return false;
+    private static boolean cleanupLegacyUnits(final Path packRoot) {
+        boolean changed = false;
+        final Path localized = packRoot.resolve(UNIT_ROOT).resolve(LEGACY_UNIT_STYLE);
+        if (Files.isDirectory(localized)) {
+            deleteRecursively(localized);
+            changed = true;
+            Crossroads.LOGGER.info("Removed the localized road unit preview tree");
         }
-        final Path target = packRoot.resolve(UNIT_ROOT).resolve(UNIT_STYLE).resolve(UNIT_SERIES);
-        try {
-            Files.createDirectories(target);
-            try (var files = Files.list(legacy)) {
+        final Path root = packRoot.resolve(UNIT_ROOT).resolve(UNIT_STYLE);
+        if (Files.isDirectory(root)) {
+            try (var files = Files.list(root)) {
                 for (final Path file : files.toList()) {
-                    final Path dest = target.resolve(file.getFileName().toString());
-                    if (!Files.exists(dest)) {
-                        Files.move(file, dest);
+                    final String name = file.getFileName().toString();
+                    // Blueprints directly under the style folder are all from an
+                    // older layout: every current unit lives in a series folder,
+                    // so one left here would show up as a duplicate category.
+                    if (Files.isRegularFile(file) && name.endsWith(".blueprint")) {
+                        Files.delete(file);
+                        changed = true;
                     }
                 }
+            } catch (final IOException ex) {
+                Crossroads.LOGGER.warn("Could not delete the flat road unit previews", ex);
             }
-            deleteRecursively(legacyRoot);
-            Crossroads.LOGGER.info("Moved road unit previews to {}/{}", UNIT_STYLE, UNIT_SERIES);
-            return true;
-        } catch (final IOException ex) {
-            Crossroads.LOGGER.warn("Could not move the localized road unit previews", ex);
-            return false;
+            // Per-series manifests from before the series tree was introduced.
+            try (var dirs = Files.list(root)) {
+                for (final Path dir : dirs.toList()) {
+                    final Path stale = dir.resolve(UNIT_MANIFEST);
+                    if (Files.isDirectory(dir) && Files.isRegularFile(stale)) {
+                        Files.delete(stale);
+                        changed = true;
+                    }
+                }
+            } catch (final IOException ex) {
+                Crossroads.LOGGER.warn("Could not delete the per-series unit manifests", ex);
+            }
         }
+        return changed;
     }
 
     /**
      * Seeds {@code units/<风格包>/<系列>/} from the jar when the pack copy is missing.
      *
-     * <p>Files are written as {@code <role>_1.blueprint} (see {@link #unitFileName}).
-     * The older {@code <role>1.blueprint} spelling is renamed in place rather than
-     * rewritten, so a player's edited preview survives the change. The manifest is
-     * patched field by field — only the {@code file} entry is touched, everything
-     * else in it stays as the player left it.</p>
+     * <p>Only unreadable files are rewritten, so an edited preview survives a
+     * restart. The manifest is replaced only when it is absent or still on the
+     * pre-series schema — patching a v2 manifest field by field would mean
+     * duplicating the exporter's structure here.</p>
      *
-     * @return true when at least one file was created, renamed or rewritten
+     * @return true when at least one file was created or rewritten
      */
     public static boolean seedUnits(final Path packRoot) {
-        final Path dir = packRoot.resolve(UNIT_ROOT).resolve(UNIT_STYLE).resolve(UNIT_SERIES);
-        boolean changed = migrateLegacyUnitTree(packRoot);
+        final Path root = packRoot.resolve(UNIT_ROOT);
+        boolean changed = cleanupLegacyUnits(packRoot);
         try {
-            Files.createDirectories(dir);
-            for (final String[] entry : UNIT_FILES) {
-                final String role = entry[0];
-                final Path target = dir.resolve(unitFileName(role, UNIT_LEVEL));
-                final Path legacy = dir.resolve(role + UNIT_LEVEL + ".blueprint");
-                if (!Files.isRegularFile(target) && Files.isRegularFile(legacy)) {
-                    Files.move(legacy, target);
-                    changed = true;
-                    Crossroads.LOGGER.info("Renamed road unit preview {} to level suffix naming", role);
-                }
-                if (isReadableBlueprint(target)) {
+            Files.createDirectories(root);
+            for (final UnitFile unit : bundledUnitFiles()) {
+                final Path target = root.resolve(unit.relative());
+                // Byte-for-byte, not "readable": a unit left behind by an older
+                // build is readable too, and that is exactly the case this has
+                // to catch (a level-1 preview eight blocks tall next to level-2
+                // previews two blocks tall).
+                if (matchesHash(target, unit.sha256())) {
                     continue;
                 }
-                final byte[] data = bundled(entry[1]);
+                final byte[] data = bundled(unit.relative());
                 if (data == null) {
-                    Crossroads.LOGGER.warn("Missing bundled road unit {}", entry[1]);
+                    Crossroads.LOGGER.warn("Missing bundled road unit {}", unit.relative());
                     continue;
                 }
+                Files.createDirectories(target.getParent());
                 Files.write(target, data);
                 changed = true;
             }
-            changed |= normalizeUnitManifest(dir.resolve("units.json"));
+            for (final String style : availableStyles()) {
+                changed |= ensureUnitManifest(root.resolve(style), style);
+            }
             if (changed) {
-                Crossroads.LOGGER.info("Seeded road unit previews into {}", dir);
+                Crossroads.LOGGER.info("Seeded road unit previews into {}", root);
             }
         } catch (final IOException ex) {
             Crossroads.LOGGER.warn("Could not seed road unit previews", ex);
@@ -310,67 +403,39 @@ public final class CustomRoadPack {
     }
 
     /**
-     * Points the manifest at the current preview file names.
+     * Writes the bundled manifest unless the pack already holds a v2 one.
      *
-     * <p>Only the {@code file} field of each unit is rewritten: the rest of the
-     * manifest (widths, write cells, source hashes) is authored data and may have
-     * been adjusted by hand. A missing manifest is created from the bundled copy.</p>
+     * <p>The pre-series manifest (schema 1) cannot be patched into schema 2: its
+     * unit table is keyed by role alone, with no series or level. It is replaced
+     * outright, and a world that had one simply loses nothing — the units it
+     * described are the ones the jar ships.</p>
      *
      * @return true when the manifest was written
      */
-    private static boolean normalizeUnitManifest(final Path manifest) throws IOException {
-        final com.google.gson.JsonObject json;
-        if (Files.isRegularFile(manifest) && Files.size(manifest) > 0) {
-            try (var reader = Files.newBufferedReader(manifest, StandardCharsets.UTF_8)) {
-                json = com.google.gson.JsonParser.parseReader(reader).getAsJsonObject();
-            } catch (final RuntimeException ex) {
-                // Corrupt manifest: fall through to the bundled one.
-                return writeBundledManifest(manifest);
-            }
-        } else {
-            return writeBundledManifest(manifest);
-        }
-        boolean changed = false;
-        final var units = json.getAsJsonObject("units");
-        if (units == null) {
-            return writeBundledManifest(manifest);
-        }
-        for (final String[] entry : UNIT_FILES) {
-            final var unit = units.getAsJsonObject(entry[0]);
-            if (unit == null) {
-                return writeBundledManifest(manifest);
-            }
-            final String expected = unitFileName(entry[0], UNIT_LEVEL);
-            final var file = unit.get("file");
-            if (file == null || !expected.equals(file.getAsString())) {
-                unit.addProperty("file", expected);
-                changed = true;
-            }
-        }
-        if (changed) {
-            try (var writer = Files.newBufferedWriter(manifest, StandardCharsets.UTF_8)) {
-                new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(json, writer);
-            }
-        }
-        return changed;
-    }
-
-    /** Writes the bundled manifest, with the preview file names applied. */
-    private static boolean writeBundledManifest(final Path manifest) throws IOException {
-        final byte[] raw = bundled("units.json");
+    private static boolean ensureUnitManifest(final Path root, final String style) throws IOException {
+        final Path manifest = root.resolve(UNIT_MANIFEST);
+        // The manifest lives inside the style folder: the resource root is the
+        // parent of every style, so a bare "units.json" resolves to a file that
+        // does not exist and the pack copy would never be refreshed.
+        final byte[] raw = bundled(style + "/" + UNIT_MANIFEST);
         if (raw == null) {
-            Crossroads.LOGGER.warn("Missing bundled road unit manifest");
+            Crossroads.LOGGER.warn("Missing bundled road unit manifest for style {}", style);
             return false;
         }
-        final var json = com.google.gson.JsonParser
-                .parseString(new String(raw, StandardCharsets.UTF_8)).getAsJsonObject();
-        final var units = json.getAsJsonObject("units");
-        for (final String[] entry : UNIT_FILES) {
-            units.getAsJsonObject(entry[0]).addProperty("file", unitFileName(entry[0], UNIT_LEVEL));
+        // Byte comparison, not "schema version is 2": surfaceY, anchorColumn and
+        // the per-unit hashes all live in here, so a manifest left over from an
+        // earlier build silently pins every unit to the old placement.
+        if (Files.isRegularFile(manifest) && Files.size(manifest) > 0) {
+            try {
+                if (java.util.Arrays.equals(Files.readAllBytes(manifest), raw)) {
+                    return false;
+                }
+            } catch (final IOException ignored) {
+                // Unreadable: replaced below.
+            }
         }
-        try (var writer = Files.newBufferedWriter(manifest, StandardCharsets.UTF_8)) {
-            new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(json, writer);
-        }
+        Files.createDirectories(root);
+        Files.write(manifest, raw);
         return true;
     }
 

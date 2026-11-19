@@ -160,19 +160,13 @@ public final class RoadJointWork {
                     // really carry content here, the junction places it once and both targets agree.
                     var ra=cell(raw.get(a.id()),info.getPos());var rb=cell(raw.get(b.id()),bp);
                     if(!skip(ra.state()) && !skip(rb.state()) && !ra.state().isAir() && !rb.state().isAir()) {
-                        try {var resolved=sharedCell(ra,rb);writeCell(ai,info.getPos(),resolved);writeCell(bi,bp,resolved);}
-                        catch(IllegalArgumentException ignored) { }
+                        var resolved=sharedCell(ra,rb,RoadCrossings.higher(a,b)==a);
+                        writeCell(ai,info.getPos(),resolved);writeCell(bi,bp,resolved);
                     }
                     continue;
                 }
-                try {var shared=sharedCell(ac,bc);writeCell(ai,info.getPos(),shared);writeCell(bi,bp,shared);}
-                catch(IllegalArgumentException ex) {
-                    // The panel shows a reason key; the world position stays in the log.
-                    com.YLFXM.rp.crossroads.Crossroads.LOGGER.debug(
-                            "Joint cell conflict at {}: {}",world.toShortString(),ex.getMessage());
-                    if(validate)throw ex;
-                    a.planning().crossingIssue(RoadNotices.reasonKey(ex));b.planning().crossingIssue(RoadNotices.reasonKey(ex));
-                }
+                var shared=sharedCell(ac,bc,RoadCrossings.higher(a,b)==a);
+                writeCell(ai,info.getPos(),shared);writeCell(bi,bp,shared);
             }
             ai.setCachePrimaryOffset(a.anchorPos().subtract(ao));bi.setCachePrimaryOffset(b.anchorPos().subtract(bo));
         }
@@ -181,14 +175,21 @@ public final class RoadJointWork {
         }
         return new Images(raw,result);
     }
-    static Cell sharedCell(Cell a,Cell b) {
+    /**
+     * Resolves one cell two roads both want.
+     *
+     * @param aWins road {@code a} owns the junction when neither state rule can
+     *              decide. Without it two different pavements (gravel vs
+     *              dirt_path) reached this point and aborted the whole merge.
+     */
+    static Cell sharedCell(Cell a,Cell b,boolean aWins) {
         if(equal(a,b))return a;
         if(RoadBlocks.isStair(a.state()) && !RoadBlocks.isStair(b.state()))return a;
         if(RoadBlocks.isStair(b.state()) && !RoadBlocks.isStair(a.state()))return b;
         if(a.state().isAir())return b;if(b.state().isAir())return a;
         if(RoadBlocks.isSolidFill(a.state()) && RoadBlocks.isConcrete(b.state()))return b;
         if(RoadBlocks.isSolidFill(b.state()) && RoadBlocks.isConcrete(a.state()))return a;
-        throw new IllegalArgumentException("Conflicting native work targets: "+a.state()+" / "+b.state());
+        return aWins ? a : b;
     }
     private static Cell visibleCell(Blueprint image,Blueprint raw,RoadPlan model,BlockPos local) {
         var cell=cell(image,local);

@@ -1,0 +1,22 @@
+<window size="260 150" lightbox="true">
+    <text id="title" size="220 12" pos="20 14" textalign="MIDDLE" color="white" textscale="1.1"
+          label="$(rp_crossroads.gui.tier_title)"/>
+    <text id="hint" size="220 10" pos="20 26" textalign="MIDDLE" color="white" textscale="0.8"
+          label="$(rp_crossroads.gui.tier_hint)"/>
+
+    <button id="tier0" size="200 17" pos="30 40"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
+    <button id="tier1" size="200 17" pos="30 60"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
+    <button id="tier2" size="200 17" pos="30 80"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
+    <button id="tier3" size="200 17" pos="30 100"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
+
+    <button id="confirm" size="100 17" pos="20 126"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.confirm)" color="black"/>
+    <button id="cancel" size="100 17" pos="140 126"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.cancel)" color="black"/>
+</window>

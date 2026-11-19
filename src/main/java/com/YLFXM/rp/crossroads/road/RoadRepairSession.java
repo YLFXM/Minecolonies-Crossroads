@@ -27,6 +27,14 @@ public final class RoadRepairSession {
     private final UUID token;
     private final UUID owner;
     private final RoadState previousState;
+    /**
+     * Tier the road was on before this session froze it.
+     *
+     * <p>The live plan carries the new tier while the order is in flight, so a
+     * cancelled upgrade has to put the old one back explicitly; the target
+     * geometry alone cannot say what the road used to be.</p>
+     */
+    private final int originLevel;
     private CompoundTag target;
     private CompoundTag dependencies=new CompoundTag();
     private CompoundTag primaryBlueprint=new CompoundTag(),neighborUpdates=new CompoundTag();
@@ -43,7 +51,7 @@ public final class RoadRepairSession {
     public void setWorkBlueprint(CompoundTag blueprint) {if(phase!=Phase.PREPARED)throw new IllegalStateException("Frozen work");workBlueprint=blueprint.copy();workDigest=null;}
     public static RoadRepairSession retry(RoadRepairSession old,UUID owner,long now) {
         if(old.phase()==Phase.PREPARED || old.committing())throw new IllegalArgumentException("Not an interrupted native operation");
-        var next=new RoadRepairSession(UUID.randomUUID(),owner,RoadState.PLANNED,old.target,Phase.PREPARED,now,false);
+        var next=new RoadRepairSession(UUID.randomUUID(),owner,RoadState.PLANNED,old.target,Phase.PREPARED,now,false,old.originLevel());
         next.dependencies=old.dependencies.copy();next.primaryBlueprint=old.primaryBlueprint.copy();next.neighborUpdates=old.neighborUpdates.copy();
         next.workBlueprint=old.workBlueprint.copy();next.setCrossingGrants(old.crossingGrants);next.clearTargets=old.clearTargets;return next;
     }
@@ -73,27 +81,39 @@ public final class RoadRepairSession {
     }
 
     private RoadRepairSession(UUID token, UUID owner, RoadState previousState, CompoundTag target,
-                              Phase phase, long changedAt, boolean orderObserved) {
+                              Phase phase, long changedAt, boolean orderObserved, int originLevel) {
         this.token=token; this.owner=owner; this.previousState=previousState;
+        this.originLevel=originLevel;
         this.target=target.copy(); this.phase=phase; this.changedAt=changedAt; this.orderObserved=orderObserved;
     }
     public static RoadRepairSession prepare(final RoadPlan plan, final UUID player, final long now) {
-        return prepare(plan,player,now,plan.state());
+        return prepare(plan,plan,plan.state(),player,now);
+    }
+    /**
+     * Freezes {@code targetPlan} while remembering {@code origin} as the state to
+     * fall back to. Used by upgrades, where the live plan is moved to the new
+     * tier before the order exists.
+     */
+    public static RoadRepairSession prepareForTier(final RoadPlan targetPlan, final RoadPlan origin,
+                                                   final UUID player, final long now) {
+        return prepare(targetPlan,origin,origin.state(),player,now);
     }
     public static RoadRepairSession prepareInitial(final RoadPlan plan, final UUID player, final long now) {
-        return prepare(plan,player,now,RoadState.DRAFT);
+        return prepare(plan,plan,RoadState.DRAFT,player,now);
     }
-    private static RoadRepairSession prepare(final RoadPlan plan, final UUID player, final long now,
-                                             final RoadState previousState) {
+    private static RoadRepairSession prepare(final RoadPlan plan, final RoadPlan origin, final RoadState previousState,
+                                             final UUID player, final long now) {
         final RoadPlan frozen = RoadPlan.load(plan.save());
         frozen.setRepairSession(null);
         frozen.pruneOutOfRangeRows();
         // The frozen target is the intended end state, not a diff of its own.
         frozen.setAppliedGeometry(frozen.geometrySnapshot());
-        return new RoadRepairSession(UUID.randomUUID(),player,previousState,frozen.save(),Phase.PREPARED,now,false);
+        return new RoadRepairSession(UUID.randomUUID(),player,previousState,frozen.save(),Phase.PREPARED,now,false,
+                origin.unitLevel());
     }
     public UUID token() { return token; }
     public UUID owner() { return owner; }
+    public int originLevel() { return originLevel; }
     public RoadState previousState() { return previousState; }
     public Phase phase() { return phase; }
     public long changedAt() { return changedAt; }
@@ -118,6 +138,10 @@ public final class RoadRepairSession {
         if (phase==Phase.PREPARED) throw new IllegalStateException("Unconfirmed repair cannot commit rows");
         plan.adoptRows(target().rows());
         plan.adoptPlanning(target().planning());
+        // The tier is part of the intended end state, so an upgrade only becomes
+        // real here. Until this point the plan keeps its old tier, which is what
+        // makes a cancelled upgrade a no-op.
+        plan.setUnitLevel(target().unitLevel());
         plan.planning().externalChanges(false);
         // The new applied table is the proposal itself, so both derived counts fall to zero
         // on their own: no counter to clear here.
@@ -130,6 +154,7 @@ public final class RoadRepairSession {
         tag.put("workBlueprint",workBlueprint.copy());
         tag.put("crossingGrants",crossingGrants.copy());
         tag.putBoolean("orderObserved",orderObserved);
+        tag.putInt("originLevel",originLevel);
         if(!clearTargets.isEmpty()) {
             final var list=new net.minecraft.nbt.ListTag();
             for(final var pos:clearTargets) {
@@ -141,7 +166,9 @@ public final class RoadRepairSession {
     }
     public static RoadRepairSession load(final CompoundTag tag) {
         final var session=new RoadRepairSession(tag.getUUID("token"),tag.getUUID("owner"),RoadState.valueOf(tag.getString("previous")),
-                tag.getCompound("target"),Phase.valueOf(tag.getString("phase")),tag.getLong("changedAt"),tag.getBoolean("orderObserved"));
+                tag.getCompound("target"),Phase.valueOf(tag.getString("phase")),tag.getLong("changedAt"),tag.getBoolean("orderObserved"),
+                tag.contains("originLevel") ? tag.getInt("originLevel")
+                        : tag.getCompound("target").getInt("unitLevel"));
         final var positions=new java.util.ArrayList<net.minecraft.core.BlockPos>();
         final var list=tag.getList("clearTargets",10);
         for(int i=0;i<list.size();i++) {

@@ -219,10 +219,30 @@ public class WindowRoadWand extends AbstractWindowSkeleton {
             }
             return;
         }
+        // Creative hands the blocks to the player, and the native build tool has no
+        // tier picker for our unit files, so the tier has to be asked for now.
+        // Survival roads start at tier 1 and are upgraded by a builder later.
+        if (mode == RoadPlacementMode.PLAN && this.mc.player != null && this.mc.player.isCreative()
+                && com.YLFXM.rp.crossroads.road.RoadUnitLibrary
+                        .maxLevel(plan.unitStyle(), plan.series()) > 1) {
+            WindowRoadTier.open(this, plan, tier -> this.sendPlan(mode, controller, plan, lampSpacingOverride, tier));
+            return;
+        }
+        this.sendPlan(mode, controller, plan, lampSpacingOverride, -1);
+    }
+
+    /**
+     * @param tier the tier picked in the creative prompt, or -1 to keep the
+     *             plan's current one. It rides on the same packet instead of a
+     *             separate style switch: two packets would make the server
+     *             regenerate and republish the ghost before throwing it away.
+     */
+    private void sendPlan(final RoadPlacementMode mode, final BlockPos controller, final RoadPlan plan,
+                          final int lampSpacingOverride, final int tier) {
         PacketDistributor.sendToServer(new ConfigureRoadPayload(controller, 1, plan.width(),
                 lampSpacingOverride >= 0 ? lampSpacingOverride : plan.lampSpacing(),
                 RoadSelectionClient.a(), RoadSelectionClient.b(),
-                this.mirror, mode));
+                this.mirror, mode, tier));
         // The selection is deliberately kept. The plan now exists in PLANNED
         // state and the ghost preview is still what the player wants to look
         // at; clearing A/B here dropped them straight back to the plain outline

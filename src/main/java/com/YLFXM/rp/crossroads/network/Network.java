@@ -81,6 +81,8 @@ public final class Network {
         registrar.playToServer(RoadBulkActionPayload.TYPE, RoadBulkActionPayload.CODEC, Network::handleBulkAction);
         registrar.playToServer(RoadControllerActionPayload.TYPE, RoadControllerActionPayload.CODEC,
                 Network::handleControllerAction);
+        registrar.playToServer(SetRoadStylePayload.TYPE, SetRoadStylePayload.CODEC,
+                Network::handleSetRoadStyle);
         registrar.playToServer(ConfirmRoadRepairPayload.TYPE,ConfirmRoadRepairPayload.CODEC,(payload,context) ->
                 context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player) RoadRepair.confirm(player,payload); }));
         registrar.playToServer(NativeBuildClosedPayload.TYPE, NativeBuildClosedPayload.CODEC,
@@ -140,20 +142,26 @@ public final class Network {
             final com.minecolonies.api.colony.IColony colony = IColonyManager.getInstance()
                     .getColonyByPosFromWorld(level, controllerPos);
             if (!com.YLFXM.rp.crossroads.RoadPermissions.canManage(player, colony)) {
+                Crossroads.LOGGER.info("[rp-preview] refused: permission, controller={}", payload.controllerPos());
                 return;
             }
 
             final RoadPlan boundPlan = RoadManager.get(level).findByController(controllerPos);
-            if (boundPlan == null || !boundPlan.id().equals(payload.roadId())) return;
+            if (boundPlan == null || !boundPlan.id().equals(payload.roadId())) {
+                Crossroads.LOGGER.info("[rp-preview] refused: plan/id mismatch, controller={} bound={} asked={}",
+                        payload.controllerPos(), boundPlan == null ? "-" : boundPlan.id(), payload.roadId());
+                return;
+            }
             if (boundPlan != null && (!canManageRoad(level, player, boundPlan)
                     || !RoadRules.canEdit(boundPlan) || findBoundWand(player, controllerPos) == null)) {
-                Crossroads.LOGGER.info("Road preview refused: bound/state/permission check at {}", controllerPos);
+                Crossroads.LOGGER.info("[rp-preview] refused: canManage/canEdit/wand, controller={} state={}",
+                        controllerPos, boundPlan.state());
                 return;
             }
             try {
                 if (boundPlan != null) RoadReplanning.validate(boundPlan, payload.a(), payload.b());
             } catch (final IllegalArgumentException ex) {
-                Crossroads.LOGGER.info("Road preview refused: {}", ex.getMessage());
+                Crossroads.LOGGER.info("[rp-preview] refused: validate {}", ex.getMessage());
                 return;
             }
             final int width = boundPlan == null ? Math.max(1, payload.width()) : boundPlan.width();
@@ -183,6 +191,7 @@ public final class Network {
                             Math.max(0, Math.min(8, payload.lampSpacing())))) {
                 final RoadPlan rebuilt = rebuildPlannedRoad(level, player, payload, existing);
                 if (rebuilt == null) {
+                    Crossroads.LOGGER.info("[rp-preview] refused: rebuildPlannedRoad returned null");
                     return;
                 }
                 plan = rebuilt;
@@ -191,10 +200,24 @@ public final class Network {
                 plan = existing;
             } else {
                 try {
+                    // The series has to come from the plan, not a literal: a main
+                    // road asked for a preview here would be rebuilt as streets and
+                    // rejected by the width check, which looks like "no ghost".
+                    final String series = boundPlan == null
+                            ? com.YLFXM.rp.crossroads.road.RoadUnitLibrary.STREETS
+                            : boundPlan.series();
+                    final String style = boundPlan == null
+                            ? com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL
+                            : boundPlan.unitStyle();
+                    final var seriesWalk = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWalkRange(style,series);
+                    final int seriesWidth = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWidth(style,series);
                     final RoadPlanBuilder.Result result = RoadPlanBuilder.build(level, boundPlan == null ? payload.anchorPos() : boundPlan.anchorPos(),
                             controllerPos, facing, a, b,
-                            com.YLFXM.rp.crossroads.CustomRoadPack.STYLE_PACK, "street",
-                            width, Math.min(2, width), effectiveWidthSide,
+                            com.YLFXM.rp.crossroads.CustomRoadPack.STYLE_PACK,
+                            series,
+                            seriesWidth > 0 ? seriesWidth : width,
+                            seriesWalk != null ? seriesWalk.width() : Math.min(2, width),
+                            effectiveWidthSide,
                             Math.max(0, payload.lampSpacing()));
                     plan = result.plan();
                     RoadReplanning.draftPreview(boundPlan,plan,player.getUUID(),mirror);
@@ -218,6 +241,8 @@ public final class Network {
             final Blueprint blueprint = RoadBlueprintGenerator.generateQuiet(plan, level,
                     Config.defaultLampReserveHeight(),player);
             if (blueprint == null) {
+                Crossroads.LOGGER.warn("[rp-preview] refused: generation returned null, series={} width={} state={}",
+                        plan.series(), plan.width(), plan.state());
                 return;
             }
             // A valid DRAFT re-pick must refresh the pending-row count too.
@@ -496,6 +521,7 @@ public final class Network {
             final BlockPos controllerPos = payload.controllerPos();
             final IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, controllerPos);
             if (!com.YLFXM.rp.crossroads.RoadPermissions.canManage(player, colony)) {
+                Crossroads.LOGGER.info("[rp-preview] refused: permission, controller={}", payload.controllerPos());
                 return;
             }
             final RoadPlan plan = RoadManager.get(level).findByController(controllerPos);
@@ -572,7 +598,8 @@ public final class Network {
                     : (payload.hasEndpoints() ? directionBetween(a, b) : Direction.NORTH);
             final BlockPos anchorPos = old != null ? old.anchorPos() : controllerPos;
             final String pack = old != null ? old.pack() : com.YLFXM.rp.crossroads.CustomRoadPack.STYLE_PACK;
-            final String variant = old != null ? old.variant() : "street";
+            final String variant = old != null ? old.variant()
+                    : com.YLFXM.rp.crossroads.road.RoadUnitLibrary.STREETS;
             final int widthSide = old != null ? old.widthSide() : 1;
             final boolean mirror = payload.mirror();
 
@@ -616,6 +643,15 @@ public final class Network {
             }
 
             RoadReplanning.handoff(level,old,plan,player.getUUID(),mode==RoadPlacementMode.CONFIGURE);
+            // Creative picks the tier before the first build, and it has to be set
+            // after handoff (which carries the old tier over) but before the
+            // blueprint is generated. Clamped here as well: the client's list is
+            // only a hint about what the series ships.
+            if (payload.tier() > 0) {
+                final int highest = com.YLFXM.rp.crossroads.road.RoadUnitLibrary
+                        .maxLevel(plan.unitStyle(), plan.series());
+                plan.setUnitLevel(Math.max(1, Math.min(payload.tier(), highest)));
+            }
             if (RoadRules.canCreate(old) && RoadReplanning.clearRowsOnAxisChange(old,plan))RoadReplanning.noticeAxisChanged(player);
             reportRemap(player, old, plan);
             if (!old.displayName().isBlank()) {
@@ -799,12 +835,194 @@ public final class Network {
             switch (payload.action()) {
                 case REMOVE -> com.YLFXM.rp.crossroads.road.RoadRemover.remove(level,player,plan,false);
                 case REMOVE_INSTANT -> com.YLFXM.rp.crossroads.road.RoadRemover.remove(level,player,plan,true);
-                case REPAIR -> RoadRepair.begin(level,player,plan);
-                case UPGRADE -> RoadNotices.chat(player, null, "upgrade", "rp_crossroads.plan.upgrade_todo");
+                // Repair and Upgrade are the same order with a different target
+                // tier: a colony builder replaces the road from a freshly
+                // generated blueprint. The developer switch keeps the old
+                // "freeze, then place it yourself in the build tool" flow for
+                // testing, which is also how creative play uses it.
+                case REPAIR -> {
+                    if (com.YLFXM.rp.crossroads.road.RoadDevMode.enabled()) {
+                        RoadRepair.begin(level,player,plan);
+                    } else {
+                        RoadRepair.beginSurvival(level,player,plan,plan.unitLevel());
+                    }
+                }
+                case UPGRADE -> {
+                    final int max = com.YLFXM.rp.crossroads.road.RoadUnitLibrary
+                            .maxLevel(plan.unitStyle(),plan.series());
+                    if (plan.unitLevel() >= max) {
+                        RoadNotices.chat(player,null,"upgrade_max","rp_crossroads.plan.upgrade_max");
+                    } else {
+                        RoadRepair.beginSurvival(level,player,plan,plan.unitLevel()+1);
+                    }
+                }
             }
             sendRoads(player, IColonyManager.getInstance()
                     .getColonyByPosFromWorld(level, plan.controllerPos()));
         });
+    }
+
+    /**
+     * Applies a style/series switch and, for a road that already exists in the
+     * world, rebuilds it through the normal repair path.
+     *
+     * <p>Width is a series property (streets 4, main 5) and the units only exist
+     * for the declared width, so the width has to follow the series. Endpoints
+     * are left alone: they decide where the road runs and how long it is, not
+     * how wide it is.</p>
+     */
+    private static void handleSetRoadStyle(final SetRoadStylePayload payload, final IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            final ServerLevel level = player.serverLevel();
+            final RoadPlan plan = RoadManager.get(level).findByController(payload.controllerPos());
+            if (plan == null) {
+                return;
+            }
+            if (!canManageRoad(level, player, plan)) {
+                Crossroads.LOGGER.debug("Denied style switch for {} (no manage-huts)",
+                        player.getName().getString());
+                return;
+            }
+            // A road with a session or an open build order is mid-flight; letting
+            // its units change under it would mix two styles in one build.
+            if (plan.isRepairBusy() || com.YLFXM.rp.crossroads.road.RoadBuildWatcher.hasWorkOrder(plan)
+                    || com.YLFXM.rp.crossroads.road.RoadBuildWatcher.isWatching(plan)) {
+                RoadNotices.chat(player, plan.id(), "style_busy", "rp_crossroads.style.busy");
+                return;
+            }
+            if (!com.YLFXM.rp.crossroads.road.RoadUnitLibrary.styles().contains(payload.style())) {
+                RoadNotices.chat(player, plan.id(), "style_unknown", "rp_crossroads.style.unknown", payload.style());
+                return;
+            }
+            final String style = payload.style();
+            final String series = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.normalizeSeries(payload.series());
+            final int width = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWidth(style,series);
+            final com.YLFXM.rp.crossroads.road.WalkRange range =
+                    com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWalkRange(style,series);
+            final int maxLevel = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.maxLevel(style,series);
+            if (width <= 0 || range == null || maxLevel <= 0) {
+                RoadNotices.chat(player, plan.id(), "series_unknown", "rp_crossroads.style.unknown", payload.series());
+                return;
+            }
+            // A series may ship fewer tiers than the road is currently on, so the
+            // tier is clamped against the pair being applied, not the old one.
+            final int tier = Math.max(1, Math.min(payload.level(), maxLevel));
+            if (width == plan.width() && series.equals(plan.series())
+                    && tier == plan.unitLevel() && style.equals(plan.unitStyle())) {
+                return;
+            }
+            // Only a width change reaches cells outside this road's own footprint.
+            // A tier change keeps the footprint and is reconciled per junction cell
+            // like any other repair, so it does not need the crossing refusal.
+            final boolean widthChanged = width != plan.width();
+            // A crossing is a shared cell contract: the junction cell is written
+            // by both roads, and a series switch changes that cell's block. Letting
+            // the switch through would either silently rewrite the neighbour's
+            // junction or abort deep inside the merge with "conflicting native work
+            // targets". Refuse up front and say why.
+            if (crossesAnotherRoad(level, plan)) {
+                RoadNotices.chat(player, plan.id(), "style_crossing", "rp_crossroads.style.crossing");
+                return;
+            }
+            final int previousLevel = plan.unitLevel();
+            Crossroads.LOGGER.info("Road {} unit switch: style {} series {} -> {} width {} -> {} tier {} -> {} state {}",
+                    plan.id(), style, plan.series(), series, plan.width(), width, previousLevel, tier, plan.state());
+            plan.setUnitStyle(style);
+            plan.setVariant(series);
+            plan.setWidth(width);
+            plan.setWalkRange(range);
+            plan.setUnitLevel(tier);
+            RoadManager.get(level).add(plan);
+            // Re-plan first: it samples the world and uses the stored geometry as
+            // the terrain baseline, so it has to run while that geometry still
+            // exists. A tier change keeps the footprint, so the plan stands.
+            if (widthChanged && !plan.segments().isEmpty()) {
+                try {
+                    com.YLFXM.rp.crossroads.road.RoadAutoPlanning.initialize(level, plan, true);
+                } catch (final IllegalArgumentException ex) {
+                    Crossroads.LOGGER.warn("Unit switch could not re-plan road {}: {}", plan.id(), ex.getMessage());
+                    RoadNotices.chat(player, plan.id(), "style_replan", "rp_crossroads.style.replan_failed",
+                            RoadNotices.reason(ex));
+                    return;
+                }
+            }
+            if (widthChanged) {
+                // The old units describe a road of another width, so their applied
+                // snapshot is no longer this road's target. The blueprint file
+                // stays: it is what the world currently holds, and cancelling the
+                // order has to be able to point back at it.
+                plan.setAppliedGeometry(null);
+                plan.setAppliedBounds(null);
+                RoadManager.get(level).add(plan);
+            }
+            if (com.YLFXM.rp.crossroads.road.RoadRules.canRepair(plan)) {
+                // An existing road is re-laid by a builder, whether the player only
+                // changed the tier or also the series.
+                if (!RoadRepair.beginSurvival(level, player, plan, tier, previousLevel)) {
+                    RoadNotices.chat(player, plan.id(), "style_repair", "rp_crossroads.style.repair_refused");
+                }
+            } else if (plan.state() == com.YLFXM.rp.crossroads.road.RoadState.DRAFT) {
+                republishDraft(level, player, plan);
+            }
+            sendRoads(player, IColonyManager.getInstance()
+                    .getColonyByPosFromWorld(level, plan.controllerPos()));
+        });
+    }
+
+    /**
+     * Regenerates the ghost of a road that has not been built yet.
+     *
+     * <p>The draft ghost is the published proposal, not the generator's return
+     * value, so generating alone leaves the previous proposal on disk and the
+     * change looks like "nothing happened". {@code generated/} is deliberately
+     * outside the pack's content hash, hence the revision bump at the end.</p>
+     */
+    private static void republishDraft(final ServerLevel level, final ServerPlayer player, final RoadPlan plan) {
+        final com.ldtteam.structurize.blueprints.v1.Blueprint proposal =
+                com.YLFXM.rp.crossroads.road.RoadBlueprintGenerator.generate(
+                        plan, level, com.YLFXM.rp.crossroads.Config.defaultLampReserveHeight(), player);
+        Crossroads.LOGGER.info("[rp-style] draft proposal generated={} series={} tier={} width={} state={}",
+                proposal != null, plan.series(), plan.unitLevel(), plan.width(), plan.state());
+        if (proposal == null) {
+            return;
+        }
+        final com.minecolonies.api.colony.IColony colony = IColonyManager.getInstance()
+                .getColonyByPosFromWorld(level, plan.controllerPos());
+        com.YLFXM.rp.crossroads.road.common.RoadProposal.save(level, plan, proposal,
+                com.YLFXM.rp.crossroads.road.common.RoadProposal.Save.CHECKED);
+        com.YLFXM.rp.crossroads.road.common.RoadProposal.pack(level, plan, plan, proposal);
+        com.YLFXM.rp.crossroads.road.common.RoadProposal.index(level, plan,
+                com.YLFXM.rp.crossroads.road.common.RoadProposal.Audience.ALL, player, colony);
+        // generated/ is outside contentVersion: without a bump the client keeps
+        // the old file until it restarts, which reads as a failed switch.
+        com.YLFXM.rp.crossroads.CustomRoadPack.install(level.getServer(), true);
+    }
+
+    /**
+     * True when any other road shares a cell with this one.
+     *
+     * <p>Crossings are the one case a series switch cannot handle on its own: the
+     * junction cell belongs to both roads, so changing the primary's units would
+     * contradict the neighbour's blueprint. Refusing beats writing a half-merged
+     * target and failing later.</p>
+     */
+    private static boolean crossesAnotherRoad(final ServerLevel level, final RoadPlan plan) {
+        if (plan.segments().isEmpty()) {
+            return false;
+        }
+        final var body = com.YLFXM.rp.crossroads.road.RoadCrossingGeometry.body(plan);
+        for (final RoadPlan other : RoadManager.get(level).all()) {
+            if (other.id().equals(plan.id()) || other.segments().isEmpty()) {
+                continue;
+            }
+            if (body.intersect(com.YLFXM.rp.crossroads.road.RoadCrossingGeometry.body(other)) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static void sendWorkOrders(final ServerPlayer player,

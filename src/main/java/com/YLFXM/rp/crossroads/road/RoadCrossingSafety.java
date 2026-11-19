@@ -26,7 +26,7 @@ import com.YLFXM.rp.crossroads.road.common.RoadAxisMath;
 /** Resource-derived reservations for a foreign road that must remain untouched. */
 public final class RoadCrossingSafety {
     public static int lampHeight(ServerLevel level,RoadPlan road) {
-        var lamp=RoadUnitLibrary.get("lamp",level);
+        var lamp=RoadUnitLibrary.get(road.unitStyle(),road.series(),RoadUnitLibrary.LAMP,road.unitLevel(),level);
         return lamp.entries().stream().filter(e -> !e.placeholder() && RoadBlocks.isConcrete(e.state()))
                 .mapToInt(e -> e.pos().getY()-lamp.surfaceY()).max().orElse(0);
     }

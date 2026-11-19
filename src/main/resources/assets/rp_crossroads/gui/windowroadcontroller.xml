@@ -8,6 +8,10 @@
     <text id="state" size="260 10" pos="10 38" textalign="MIDDLE" color="black"/>
     <text id="detail" size="260 10" pos="10 52" textalign="MIDDLE" color="black"/>
 
+    <button id="style" size="260 17" pos="10 64"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.style_entry)" color="black"/>
+
     <button id="upgrade" size="80 17" pos="10 86"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.upgrade)" color="black"/>

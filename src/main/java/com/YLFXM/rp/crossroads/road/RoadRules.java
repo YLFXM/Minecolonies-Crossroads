@@ -65,6 +65,18 @@ public final class RoadRules {
                 && (plan.state()==RoadState.PLANNED || plan.state()==RoadState.BUILT) && !plan.segments().isEmpty();
     }
 
+    /**
+     * Whether the panel may offer the next tier.
+     *
+     * <p>Same gate as repair: an upgrade is a repair that also changes which unit
+     * set the road is rebuilt from, so anything that blocks a repair blocks this
+     * too. {@code maxLevel} comes from the manifest, which is also what the
+     * upgrade itself validates against.</p>
+     */
+    public static boolean canUpgrade(final RoadPlan plan,final int maxLevel) {
+        return canRepair(plan) && plan.unitLevel() < maxLevel;
+    }
+
     public static boolean canRemove(final RoadPlan plan) {
         return plan != null && plan.state()!=RoadState.REMOVING && plan.state()!=RoadState.REMOVED;
     }

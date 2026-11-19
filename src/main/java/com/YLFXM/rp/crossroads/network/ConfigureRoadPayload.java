@@ -33,7 +33,7 @@ import net.minecraft.resources.ResourceLocation;
  */
 public record ConfigureRoadPayload(BlockPos controllerPos, int length, int width, int lampSpacing,
                                    BlockPos a, BlockPos b, boolean mirror,
-                                   RoadPlacementMode mode) implements CustomPacketPayload {
+                                   RoadPlacementMode mode, int tier) implements CustomPacketPayload {
     public static final Type<ConfigureRoadPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Crossroads.MODID, "configure_road"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ConfigureRoadPayload> CODEC = StreamCodec.of(
@@ -46,6 +46,7 @@ public record ConfigureRoadPayload(BlockPos controllerPos, int length, int width
                 buf.writeBlockPos(payload.b());
                 buf.writeBoolean(payload.mirror());
                 buf.writeByte(payload.mode().ordinal());
+                buf.writeVarInt(payload.tier());
             },
             buf -> {
                 final BlockPos controllerPos = buf.readBlockPos();
@@ -56,6 +57,7 @@ public record ConfigureRoadPayload(BlockPos controllerPos, int length, int width
                 final BlockPos b = buf.readBlockPos();
                 final boolean mirror = buf.readBoolean();
                 final int ordinal = buf.readUnsignedByte();
+                final int tier = buf.readVarInt();
                 final RoadPlacementMode mode = modeOf(ordinal);
                 if (mode == null) {
                     // A legacy client (0.1.7 and older) sent COMPLETE/PRETTY/SURVIVAL.
@@ -63,7 +65,7 @@ public record ConfigureRoadPayload(BlockPos controllerPos, int length, int width
                     // lamp spacing"; drop the connection instead.
                     throw new DecoderException("Unsupported road placement mode " + ordinal);
                 }
-                return new ConfigureRoadPayload(controllerPos, length, width, lampSpacing, a, b, mirror, mode);
+                return new ConfigureRoadPayload(controllerPos, length, width, lampSpacing, a, b, mirror, mode, tier);
             });
 
     /** Decoded mode, or {@code null} when the sender used a mode this version no longer has. */

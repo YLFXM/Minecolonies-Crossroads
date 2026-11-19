@@ -108,7 +108,12 @@ public final class ClientRoadPreview {
                 && RoadCrossingGeometry.body(preview).intersect(RoadCrossingGeometry.body(p))!=null)
                 .sorted(java.util.Comparator.comparing(RoadPlan::id)).map(p -> p.id()+":"+RoadAutoPlanning.geometryKey(p)+":"+RoadHeightProfile.editSignature(p)+":"+base.syncedJunctions().get(p.id())+":"+base.planning().access(p.id()))
                 .collect(java.util.stream.Collectors.joining(";"));
-        final String key = base.id()+":"+a+":"+b+":"+mirror+":"+base.lampSpacing()+":"+RoadHeightProfile.editSignature(preview)+":"+jointPeer(base.id())+":"+peerRevision+":"+relations;
+        // Series, tier and width belong in the key: switching them changes which
+        // units build the road while nothing else in this signature moves, so
+        // without them the ghost would keep asking for the previous shape.
+        final String key = base.id()+":"+a+":"+b+":"+mirror+":"+base.unitStyle()+":"+base.variant()
+                +":"+base.unitLevel()+":"+base.width()
+                +":"+base.lampSpacing()+":"+RoadHeightProfile.editSignature(preview)+":"+jointPeer(base.id())+":"+peerRevision+":"+relations;
         final long now = mc.level.getGameTime();
         if (!key.equals(lastKey) || (!ClientRoadPreviewRenderer.isLoaded() && now-requestedAt >= 40)) {
             lastKey = key; requestedAt = now;

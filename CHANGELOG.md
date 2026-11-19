@@ -1,5 +1,55 @@
 # 更新记录
 
+## 0.2.2 — 2026-11-19 多系列与升级
+
+### 新增
+
+- **单元资产**：`units/original/{streets,main}/` 共 21 份单元蓝图（road / stair / lamp × 街道 3 级 / 主路 4 级），清单升 `schemaVersion: 2`（`series.<系列>.units.<角色>.<等级>`），新增 `sha256`、`anchorColumn`、`surfaceY` 与 `canonicalFacing` 字段。`tools/export_road_units.py` 重写：直接解析源包 NBT（每 int 打包两个 palette 索引，按 y→z→x 展开），完成切割/转置/镜像/派生台阶/重建栅栏连接，`--verify` 保证导出幂等。
+- **单元风格维度**：`RoadPlan.unitStyle`（NBT `unitStyle`，旧档读 `original`），路径参数化为 `units/<style>/<series>/`，`RoadUnitLibrary` 的 `get` / `supports` / `seriesWidth` / `seriesWalkRange` / `seriesIds` / `maxLevel` 全部带 style；为后续多风格包留出入口。
+- **控制器面板「风格包 / 系列 / 等级」**：`WindowRoadStyle` 三列选择（等级列 4 槽，超出系列实有等级隐藏），按钮文案显示当前「风格 · 系列 · 等级 N/M」；草案切换即时重发提案刷新幽灵，已规划/已建成改走派单重建；宽度变化且有交叉时拒绝并说明原因。
+- **创造模式建造前选等级**：`WindowRoadTier` 在点「建造」时询问等级，结果随 `ConfigureRoadPayload.tier` 一次送达服务端。
+- **修复与升级改派单**：`RoadRepair.beginSurvival(level, player, plan, targetLevel[, originLevel])`，不再要求背包持有建筑工具、不做「一人只开一个会话」检查；工单经 `RoadBuilderDispatch` 直接进殖民地。升级 = 目标等级 +1 的同一操作，按钮按 `RoadUnitLibrary.maxLevel` 门控。计划拆成 `prepareJoint` / `publish` / 打开工具三段，派单复用前两段。
+- **等级回滚**：`RoadRepairSession.originLevel`（NBT `originLevel`）。面板切换会先把新等级写到 plan 上，取消或工单被拒时据此恢复；`commitRows` 才把目标等级写回。
+- **开发者模式**：`/mcrcross dev [on|off]`（权限 2，仅内存），开启后「修复」回到「冻结 + 建筑工具自行放置」的旧流程。
+
+### 修复
+
+- 交叉口共享格冲突：`RoadJointWork.sharedCell(a, b, aWins)` 在规则用尽后由主导路裁决，`RoadCrossings.higher` 统一判定（等级高者胜，同级 `main` 胜 `streets`），`decorate` 的路面同源，不再抛 `Conflicting native work targets`。
+- 灯具叠加改为按整个矩形遍历：有方块的格写入，空格不写（路面上方照常由建筑工清空），不再把灯伸出的列当挖掘目标。
+- 主路路灯改为单边悬挑 2 宽（`anchorColumn=0`），不再需要把蓝图横向撑宽；灯柱落在路沿列。
+- 主路路灯底座：单元 y0 空、y1 底座（1 `structurize:blocksolidsubstitution`、2 `minecraft:oak_planks`、3 `minecraft:stone_bricks`、4 取同级 `road` 的路沿材质），`surfaceY=1`、高 7，与街道灯同构。
+- `domum_ornamentum` 方块必须连同方块实体复制（材质在 `textureData`），否则 3/4 级路灯渲染为空。
+- `ensureUnitManifest` 读 jar 清单时漏了风格包前缀，存档 `units.json` 因而从未刷新，单元新增格（底座）不进入道路蓝图。
+- 幽灵缓存键补 `unitStyle` / `unitLevel` / `width`，切换后不再复用旧预览。
+- 建造工具的预览分类回归 `units/original/{streets,main}` 两组，旧扁平文件与旧清单在进入世界时清除。
+
+### 文档
+
+- 新增 `output/P3/任务2/多系列与升级.md`（切割规格与数据模型）、`交叉口与升级方案.md`、`全局等级与多风格包.md`（搁置）、`提示词-风格包支持判定.md`。
+- 结构文档补 `beginSurvival` 派单链路、`RoadDevMode`、`WindowRoadTier`、`SetRoadStylePayload` 的等级字段与新增窗口。
+- README 中英补修复/升级派单、面板等级显示、创造模式建造前选等级。
+- 验证：构建通过；`RoadUnitDataRegression` 1638 条断言 + `export_road_units.py --verify` 全绿；人工验收覆盖方案切换、等级选择、修复/升级派单、dev 模式、交叉口材质与路灯底座。
+
+## 0.2.1 — 2026-11-17 单元预览入包与开面板自愈
+
+### 新增
+
+- 单元预览分类：`<world>/rp_crossroads/structurepack/units/original/streets/` 下的 `road_1` / `stair_1` / `lamp_1` 三份蓝图，`CustomRoadPack.seedUnits` 启动时从 jar 落地并改写清单 `file` 字段；`RoadUnitLibrary` 先读包内、缺失时回退 jar。
+- 内容版本哈希由「只算 `initial/`」扩为「`initial/` + `units/`」，单元资产变化能到达客户端。
+- `pack.json` 新增 `revision` 字段：预览资产被修复时 +1 并据此改变版本号，让持有坏副本的客户端重新拉包。
+- 自愈检查 `CustomRoadPack.ensureUnits`：每次开原生建造工具前校验单元与清单，用 `NbtIo` 真实解析，缺失/空/截断/乱码都从 jar 补齐。
+- `WindowExtendedBuildToolNameMixin`（客户端桶）+ `client/RoadUnitNames`：列表显示剥掉 `_<等级>` 后缀，为多等级分组出原生 `Level:` 行做准备。
+
+### 修复
+
+- 单人存档里存在两份同名 `Crossroads` 包（存档包与 `blueprints/Crossroads` 副本），structurize 的 `packMetas` 按名覆盖，客户端启动先扫到副本就会顶掉存档包：单人不再写客户端副本，登录时删除残留目录。
+- 构建工具里残留的空 `removal` 分类：登录时整棵删除客户端旧目录。
+- 单元预览目录由 `units/原版/街道/` 改为 ASCII `units/original/streets/`，旧目录由 `migrateLegacyUnitTree` 移动文件后删除。
+
+### 文档
+
+- README 中英补 `units` 预览分类说明；结构文档补命名/自愈/修订号与 name mixin；进度清空任务 1 的第 4 节。
+
 ## 0.2.0 — 2026-11-16 P3 基础：Mixin 引入与体验批次
 
 ### 新增

@@ -95,7 +95,8 @@ public final class DecorationControllerHandler {
                 return;
             }
             plan = new RoadPlan(java.util.UUID.randomUUID(), level.dimension(), anchorPos, pos,
-                    Direction.NORTH, false, CustomRoadPack.PACK_NAME, "street",
+                    Direction.NORTH, false, CustomRoadPack.PACK_NAME,
+                    com.YLFXM.rp.crossroads.road.RoadUnitLibrary.STREETS,
                     4, com.YLFXM.rp.crossroads.road.WalkRange.centered(4, 2), 1, Config.lampSpacing());
             plan.setState(com.YLFXM.rp.crossroads.road.RoadState.DRAFT);
             final com.YLFXM.rp.crossroads.road.RoadNames.Name roadName =

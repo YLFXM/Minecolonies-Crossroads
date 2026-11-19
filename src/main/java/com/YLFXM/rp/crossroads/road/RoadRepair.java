@@ -107,6 +107,60 @@ public final class RoadRepair {
         return prepareAndOpen(level,player,plan,RoadRepairSession.prepareInitial(plan,player.getUUID(),System.currentTimeMillis()));
     }
 
+    /**
+     * Freezes the road at {@code targetLevel} and hands it straight to a colony
+     * builder, without the native build tool.
+     *
+     * <p>This is what the panel's Repair and Upgrade buttons use. Both are the
+     * same operation from the world's point of view — replace the road with a
+     * freshly generated blueprint — so the only difference is the tier the
+     * blueprint is generated from. The plan's own tier is untouched until the
+     * build commits, so cancelling an upgrade leaves the road at its old tier
+     * with nothing to roll back.</p>
+     *
+     * <p>No build tool is required in the player's inventory: the order goes to
+     * the colony, exactly like any other decoration order.</p>
+     */
+    public static boolean beginSurvival(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
+                                        final int targetLevel) {
+        return beginSurvival(level,player,plan,targetLevel,plan.unitLevel());
+    }
+
+    /**
+     * @param originLevel the tier to fall back to if this order is cancelled. The
+     *                    live plan may already carry the new tier (a panel switch
+     *                    writes it before asking for the rebuild), so the caller
+     *                    has to say what it was.
+     */
+    public static boolean beginSurvival(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
+                                        final int targetLevel, final int originLevel) {
+        if (!RoadPermissions.canManage(level,player,plan) || !RoadRules.canRepair(plan)) return false;
+        if (RoadBuildWatcher.hasWorkOrder(plan) || RoadBuildWatcher.isWatching(plan)) {
+            tellSessionOpen(player,plan); return false;
+        }
+        final int maxLevel=RoadUnitLibrary.maxLevel(plan.unitStyle(),plan.series());
+        // A repair asks for the tier the road already has; only an upgrade moves
+        // it, and only within what the series actually ships.
+        if (targetLevel!=plan.unitLevel() && (targetLevel<1 || targetLevel>maxLevel)) {
+            tell(player,"rp_crossroads.plan.upgrade_unavailable"); return false;
+        }
+        if(plan.interruptedConstruction()!=null) {
+            final var interrupted=RoadRepairSession.load(plan.interruptedConstruction());
+            // A half-written commit has a redo journal; finishing it needs no tool.
+            if(interrupted.resumableCommit()) return resumeCommit(level,player,plan,interrupted);
+            // Anything else is a stale plan for work nobody started: drop it and
+            // freeze a fresh target instead of resuming a shape that may be wrong.
+            plan.setInterruptedConstruction(null);
+            RoadManager.get(level).add(plan);
+        }
+        RoadBlueprintStore.preserveBuilt(level,plan);
+        final RoadPlan target=RoadPlan.load(plan.save());
+        target.setRepairSession(null);
+        target.setUnitLevel(targetLevel);
+        return prepareAndDispatch(level,player,plan,
+                RoadRepairSession.prepareForTier(target,plan,player.getUUID(),System.currentTimeMillis()));
+    }
+
     private static boolean canPrepare(final ServerPlayer player, final RoadPlan plan) {
         if (RoadBuildWatcher.hasWorkOrder(plan) || RoadBuildWatcher.isWatching(plan)) {
             tellSessionOpen(player,plan); return false;
@@ -138,33 +192,100 @@ public final class RoadRepair {
         tell(player,"rp_crossroads.road.session_open_by",owner.getGameProfile().getName());
     }
 
-    private static boolean prepareAndOpen(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
+    /**
+     * Freezes both this road and every neighbouring road it touches, and returns
+     * the blueprint the build will place.
+     *
+     * <p>Shared by the tool and the order paths: a junction cell has to be
+     * resolved the same way whether a player is about to place the blocks or a
+     * builder is.</p>
+     *
+     * @return the work blueprint, or {@code null} when preparation was refused
+     */
+    private static Blueprint prepareJoint(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
                                           final RoadRepairSession session) {
         final RoadPlan target=session.target();
         final RoadJointWork.Prepared joint;
         try {
-            var authorized=RoadCrossingConsent.prepare(level,player,target);if(authorized==null)return false;
+            var authorized=RoadCrossingConsent.prepare(level,player,target);if(authorized==null)return null;
             joint=authorized.work();session.setCrossingGrants(authorized.grants());
         }
-        catch(IllegalArgumentException ex) {Crossroads.LOGGER.warn("Road preparation refused: road={} reason={}",plan.id(),ex.getMessage());tellReason(player,ex);return false;}
+        catch(IllegalArgumentException ex) {Crossroads.LOGGER.warn("Road preparation refused: road={} reason={}",plan.id(),ex.getMessage());tellReason(player,ex);return null;}
         RoadCrossings.freeze(level,session,target);
         RoadCrossings.extendFrozen(level,session,joint.updates());
         session.setJointBlueprints(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(joint.primary()),joint.updates());
         final Blueprint blueprint=joint.work();
         session.setWorkBlueprint(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint));
         session.setClearTargets(joint.clearTargets());
+        return blueprint;
+    }
+
+    private static boolean prepareAndOpen(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
+                                          final RoadRepairSession session) {
+        final Blueprint blueprint=prepareJoint(level,player,plan,session);
+        if (blueprint==null) return false;
         return openPrepared(level,player,plan,session,blueprint);
     }
-    private static boolean openPrepared(ServerLevel level,ServerPlayer player,RoadPlan plan,RoadRepairSession session,Blueprint blueprint) {
+
+    /**
+     * Publishes an already frozen blueprint and opens the native tool on it.
+     *
+     * <p>Also the resume path: a session recovered from the journal arrives with
+     * its joint blueprints intact, so only publishing and opening are left.</p>
+     */
+    private static boolean openPrepared(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
+                                        final RoadRepairSession session, final Blueprint blueprint) {
+        final long version=publish(level,player,plan,session,blueprint);
+        if (version<0) { cancel(level,plan,"publishing the prepared road failed"); return false; }
+        RoadNativeBuildTool.open(player,plan,blueprint,version,session.token());
+        Crossroads.LOGGER.info("Road construction prepared: road={} session={} owner={} previous={}",plan.id(),session.token(),player.getUUID(),session.previousState());
+        return true;
+    }
+
+    /**
+     * Same preparation, but the order is placed by the colony instead of a player.
+     *
+     * <p>Used by Repair and Upgrade. The session starts as PREPARED, is admitted
+     * through {@link RoadBuilderDispatch}, and only then becomes SURVIVAL — a
+     * rejected order never leaves the road in BUILDING.</p>
+     */
+    private static boolean prepareAndDispatch(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
+                                             final RoadRepairSession session) {
+        final Blueprint blueprint=prepareJoint(level,player,plan,session);
+        if (blueprint==null) return false;
+        if (publish(level,player,plan,session,blueprint)<0) {
+            cancel(level,plan,"publishing the prepared road failed"); return false;
+        }
+        try {
+            if(!session.acceptBuilder(RoadBuilderDispatch.dispatch(level,player,plan,blueprint),System.currentTimeMillis()))
+                throw new IllegalStateException("The native builder order was not accepted.");
+        } catch(RuntimeException ex) {
+            Crossroads.LOGGER.warn("Road builder dispatch failed: road={} session={} reason={}",plan.id(),session.token(),ex.getMessage());
+            cancel(level,plan,"builder order rejected before construction");
+            tell(player,"rp_crossroads.repair.order_rejected",RoadNotices.reason(ex));return false;
+        }
+        RoadCrossingConsent.consume(session);
+        plan.setState(RoadState.BUILDING); RoadManager.get(level).add(plan); sync(level);
+        Crossroads.LOGGER.info("Road order dispatched: road={} level={} session={}",plan.id(),session.target().unitLevel(),session.token());
+        return true;
+    }
+
+    /**
+     * Writes the frozen blueprint to the pack and parks the plan in PLANNED.
+     *
+     * @return the published pack version, or -1 when anything refused
+     */
+    private static long publish(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
+                                final RoadRepairSession session, final Blueprint blueprint) {
         // Every native build tool open funnels through here (first build and repair
         // alike). Checking the preview assets now means a deleted or half-written
         // unit file heals before the panel opens instead of on the next restart.
         final CustomRoadPack.UnitCheck units=CustomRoadPack.ensureUnits(level.getServer());
         if (units==CustomRoadPack.UnitCheck.FAILED) {
-            Crossroads.LOGGER.error("Refusing to open the road build tool for {}: unit previews are unreadable",
+            Crossroads.LOGGER.error("Refusing to prepare a road build for {}: unit previews are unreadable",
                     player.getName().getString());
             tell(player,"rp_crossroads.plan.units_missing");
-            return false;
+            return -1;
         }
         if (units==CustomRoadPack.UnitCheck.REPAIRED) {
             // Re-register before the tool opens so this open already lists the
@@ -173,19 +294,17 @@ public final class RoadRepair {
             CustomRoadPack.install(level.getServer(),true);
         }
         try {RoadCrossingConsent.validate(level,player.getUUID(),session);}
-        catch(IllegalArgumentException ex) {tellReason(player,ex);return false;}
+        catch(IllegalArgumentException ex) {tellReason(player,ex);return -1;}
         if(!RoadBlueprintStore.saveChecked(level,plan,blueprint)) {
-            tell(player,"rp_crossroads.repair.save_failed");return false;
+            tell(player,"rp_crossroads.repair.save_failed");return -1;
         }
         final long version=RoadTemporaryPack.replace(level,plan,session.target(),blueprint);
-        if (version<0) { tell(player,"rp_crossroads.repair.publish_failed"); return false; }
+        if (version<0) { tell(player,"rp_crossroads.repair.publish_failed"); return -1; }
         RoadBuildWatcher.stop(plan);
         plan.setRepairSession(session); plan.setState(RoadState.PLANNED);
         RoadManager.get(level).add(plan); ACTIVE.put(plan.id(),level);
         sync(level);
-        RoadNativeBuildTool.open(player,plan,blueprint,version,session.token());
-        Crossroads.LOGGER.info("Road construction prepared: road={} session={} owner={} previous={}",plan.id(),session.token(),player.getUUID(),session.previousState());
-        return true;
+        return version;
     }
 
     public static void confirm(final ServerPlayer player, final ConfirmRoadRepairPayload payload) {
@@ -423,6 +542,10 @@ public final class RoadRepair {
         if(unconfirmed && !"tool closed before confirm".equals(reason))RoadCrossingConsent.consume(session);
         if(!unconfirmed)plan.setInterruptedConstruction(session.save());
         plan.setRepairSession(null); ACTIVE.remove(plan.id());
+        // An upgrade writes the new tier onto the live plan before the order
+        // exists, so cancelling has to put the old one back; otherwise the panel
+        // would claim a tier the pavement does not have.
+        plan.setUnitLevel(session.originLevel());
         plan.setState(unconfirmed ? session.previousState() : RoadState.PLANNED);
         RoadManager.get(level).add(plan);
         if (plan.state()==RoadState.BUILT) RoadTemporaryPack.delete(level,plan);

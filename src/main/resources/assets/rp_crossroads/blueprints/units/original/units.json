@@ -1,177 +1,1301 @@
 {
-  "schemaVersion": 1,
-  "units": {
-    "road": {
-      "file": "street_road.blueprint",
-      "axis": "x",
-      "surfaceY": 1,
+  "schemaVersion": 2,
+  "series": {
+    "streets": {
+      "units": {
+        "road": {
+          "1": {
+            "file": "streets/road_1.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "282fe798a484281a10e1ccd589cee199fda40d7448856ae8001e94e5d46cfb88",
+            "width": 4,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              2
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ]
+            ],
+            "skipCells": []
+          },
+          "2": {
+            "file": "streets/road_2.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "668d061c53ef8e54fe81246927a63b31845384a25ca0754e8260193b117bd442",
+            "width": 4,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              2
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ]
+            ],
+            "skipCells": []
+          },
+          "3": {
+            "file": "streets/road_3.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "7dd9afff24d27aa737d53a0a2271d491f24fc17697e26c019cbe01532a04a55b",
+            "width": 4,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              2
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ]
+            ],
+            "skipCells": []
+          }
+        },
+        "stair": {
+          "1": {
+            "file": "streets/stair_1.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "d7d27bc63e2fb77cd744cf30f717e3bfed32c0305850aa27ff0f0627f4be660a",
+            "width": 4,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              2
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ]
+            ],
+            "skipCells": [],
+            "canonicalFacing": "east"
+          },
+          "2": {
+            "file": "streets/stair_2.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "5d3a040083e1f4e553e7c39dea930765b70e5d4035ddffc07a27760c3c3ccf46",
+            "width": 4,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              2
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ]
+            ],
+            "skipCells": [],
+            "canonicalFacing": "east"
+          },
+          "3": {
+            "file": "streets/stair_3.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "10ed96aee38559ee9207465ccc0fe9d75d10fe9908f542d9f3c6c0f2a1af4994",
+            "width": 4,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              2
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ]
+            ],
+            "skipCells": [],
+            "canonicalFacing": "east"
+          }
+        },
+        "lamp": {
+          "1": {
+            "file": "streets/lamp_1.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "1d477e24efb71a4464ba2afdefbae0fa8096d0f1316ac929bb0135a734339720",
+            "width": 2,
+            "anchorColumn": 0,
+            "walkRange": null,
+            "writeCells": [
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                2,
+                1
+              ],
+              [
+                0,
+                3,
+                0
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ],
+              [
+                0,
+                6,
+                1
+              ]
+            ],
+            "skipCells": [
+              [
+                0,
+                1,
+                1
+              ]
+            ]
+          },
+          "2": {
+            "file": "streets/lamp_2.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "fe53f5e33805c4358d24c749f30b8830c345abdf78b48c1b9d2f376e4f3f437e",
+            "width": 2,
+            "anchorColumn": 0,
+            "walkRange": null,
+            "writeCells": [
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                2,
+                1
+              ],
+              [
+                0,
+                3,
+                0
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ],
+              [
+                0,
+                6,
+                0
+              ],
+              [
+                0,
+                6,
+                1
+              ]
+            ],
+            "skipCells": [
+              [
+                0,
+                1,
+                1
+              ]
+            ]
+          },
+          "3": {
+            "file": "streets/lamp_3.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "3bb5c8fd025b943f565486be8b564d3c7cba87e6c1b960526a48059a94e5e0b9",
+            "width": 2,
+            "anchorColumn": 0,
+            "walkRange": null,
+            "writeCells": [
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                2,
+                1
+              ],
+              [
+                0,
+                3,
+                0
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ],
+              [
+                0,
+                6,
+                0
+              ],
+              [
+                0,
+                6,
+                1
+              ]
+            ],
+            "skipCells": [
+              [
+                0,
+                1,
+                1
+              ]
+            ]
+          }
+        }
+      },
       "width": 4,
       "walkRange": [
         1,
         2
-      ],
-      "writeCells": [
-        [
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          1
-        ],
-        [
-          0,
-          0,
-          2
-        ],
-        [
-          0,
-          0,
-          3
-        ],
-        [
-          0,
-          1,
-          0
-        ],
-        [
-          0,
-          1,
-          1
-        ],
-        [
-          0,
-          1,
-          2
-        ],
-        [
-          0,
-          1,
-          3
-        ],
-        [
-          0,
-          7,
-          0
-        ]
-      ],
-      "skipCells": []
-    },
-    "lamp": {
-      "file": "street_lamp.blueprint",
-      "axis": "x",
-      "surfaceY": 1,
-      "width": 2,
-      "walkRange": null,
-      "writeCells": [
-        [
-          0,
-          1,
-          0
-        ],
-        [
-          0,
-          2,
-          0
-        ],
-        [
-          0,
-          2,
-          1
-        ],
-        [
-          0,
-          3,
-          0
-        ],
-        [
-          0,
-          4,
-          0
-        ],
-        [
-          0,
-          5,
-          0
-        ],
-        [
-          0,
-          5,
-          1
-        ],
-        [
-          0,
-          6,
-          1
-        ]
-      ],
-      "skipCells": [
-        [
-          0,
-          1,
-          1
-        ]
       ]
     },
-    "stair": {
-      "file": "street_stair.blueprint",
-      "axis": "x",
-      "surfaceY": 1,
-      "width": 4,
+    "main": {
+      "units": {
+        "road": {
+          "1": {
+            "file": "main/road_1.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "cc30bdbb048d4a438e7ad337a7f3745b0c4edbc02e52968845ae45257f73326f",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "curb": [
+              0,
+              4
+            ]
+          },
+          "2": {
+            "file": "main/road_2.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "1a31486feecb01a62cd8f8a8a5f233f506bcbe6ae040dc491e9d47001e7eed70",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "curb": [
+              0,
+              4
+            ]
+          },
+          "3": {
+            "file": "main/road_3.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "bea81599719674493634ff43fa75bd7b76f52ec7af4436492368bd9276191749",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "curb": [
+              0,
+              4
+            ]
+          },
+          "4": {
+            "file": "main/road_4.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "fa6a0c6d86ac75a46ac5f2b2c7e564cd4eb99b1938ce6f75250c9ab52e174377",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "curb": [
+              0,
+              4
+            ]
+          }
+        },
+        "stair": {
+          "1": {
+            "file": "main/stair_1.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "e3122549645626788d93663a6ed493b99e9369d3e8ad639a36f332a1a1111c31",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "canonicalFacing": "east"
+          },
+          "2": {
+            "file": "main/stair_2.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "403cbfa9af6d6c3beb211d460ecc86e2d3a3b83e2d6aa03dcc9bef7647ccea53",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "canonicalFacing": "east"
+          },
+          "3": {
+            "file": "main/stair_3.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "b2e64399b345fb91682f99e9430d15a9eb98c04b205cda65fba74723c7e518a3",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "canonicalFacing": "east"
+          },
+          "4": {
+            "file": "main/stair_4.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "6f53ad9e5038a255a1826be42bc8230c26ef2cca3559905e145e8c03a190e773",
+            "width": 5,
+            "anchorColumn": 0,
+            "walkRange": [
+              1,
+              3
+            ],
+            "writeCells": [
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                2
+              ],
+              [
+                0,
+                0,
+                3
+              ],
+              [
+                0,
+                0,
+                4
+              ],
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                1,
+                1
+              ],
+              [
+                0,
+                1,
+                2
+              ],
+              [
+                0,
+                1,
+                3
+              ],
+              [
+                0,
+                1,
+                4
+              ]
+            ],
+            "skipCells": [],
+            "canonicalFacing": "east"
+          }
+        },
+        "lamp": {
+          "1": {
+            "file": "main/lamp_1.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "38a5f4fd8738807d4b91a8fb47a4ca67344bec146c7c49fed5b7b298acd9447a",
+            "width": 2,
+            "anchorColumn": 0,
+            "walkRange": null,
+            "writeCells": [
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                3,
+                0
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ],
+              [
+                0,
+                6,
+                1
+              ]
+            ],
+            "skipCells": []
+          },
+          "2": {
+            "file": "main/lamp_2.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "02e8f6585d3cb129f794dab05a1a7755468bb2a020f60e018042f50a6af0198c",
+            "width": 2,
+            "anchorColumn": 0,
+            "walkRange": null,
+            "writeCells": [
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                3,
+                0
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                4,
+                1
+              ],
+              [
+                0,
+                5,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ]
+            ],
+            "skipCells": []
+          },
+          "3": {
+            "file": "main/lamp_3.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "3b21d792abb305ec94f9cac3f519d2bcc75317a0d19929fb79670ed6ee4111a3",
+            "width": 2,
+            "anchorColumn": 0,
+            "walkRange": null,
+            "writeCells": [
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                3,
+                0
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                0
+              ],
+              [
+                0,
+                6,
+                0
+              ],
+              [
+                0,
+                6,
+                1
+              ]
+            ],
+            "skipCells": []
+          },
+          "4": {
+            "file": "main/lamp_4.blueprint",
+            "axis": "x",
+            "surfaceY": 1,
+            "sha256": "be63f5b12755e8bcc845dc4eb4c955d30e1105475951462f68dfd98096eb6384",
+            "width": 2,
+            "anchorColumn": 0,
+            "walkRange": null,
+            "writeCells": [
+              [
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                3,
+                0
+              ],
+              [
+                0,
+                4,
+                0
+              ],
+              [
+                0,
+                5,
+                0
+              ],
+              [
+                0,
+                5,
+                1
+              ],
+              [
+                0,
+                6,
+                0
+              ],
+              [
+                0,
+                6,
+                1
+              ]
+            ],
+            "skipCells": []
+          }
+        }
+      },
+      "width": 5,
       "walkRange": [
         1,
-        2
-      ],
-      "writeCells": [
-        [
-          0,
-          0,
-          0
-        ],
-        [
-          0,
-          0,
-          1
-        ],
-        [
-          0,
-          0,
-          2
-        ],
-        [
-          0,
-          0,
-          3
-        ],
-        [
-          0,
-          1,
-          0
-        ],
-        [
-          0,
-          1,
-          1
-        ],
-        [
-          0,
-          1,
-          2
-        ],
-        [
-          0,
-          1,
-          3
-        ]
-      ],
-      "skipCells": [],
-      "canonicalFacing": "east"
+        3
+      ]
     }
   },
   "sources": {
     "blueprints/minecolonies/original/infrastructure/roads/streets/longroad1.blueprint": "9eedcf7dc4bcbd4db5f3b6ff8564e20eb02ddbc1330262667d203b508a904fc8",
-    "blueprints/minecolonies/original/infrastructure/roads/streets/smallstairs1.blueprint": "14af83ff38bef4a8c20cfb95f9cb63f6cb0b7caae03862a6ad8ece68f29d4623"
+    "blueprints/minecolonies/original/infrastructure/roads/streets/longroad2.blueprint": "5bc1be6946753e1f9e2c57d25fe0ed115c5a7e788b9c199099c9f0b454c9e681",
+    "blueprints/minecolonies/original/infrastructure/roads/streets/longroad3.blueprint": "0bd744f751794406bc6f312d63a8dd13ee35c67b85b736b88c758dda0c3098ef",
+    "blueprints/minecolonies/original/infrastructure/roads/streets/smallstairs1.blueprint": "14af83ff38bef4a8c20cfb95f9cb63f6cb0b7caae03862a6ad8ece68f29d4623",
+    "blueprints/minecolonies/original/infrastructure/roads/streets/smallstairs2.blueprint": "984aef4abc0e7a823e8ee2bb354a3cdf69d7c37e327bfee88e74948113f19bba",
+    "blueprints/minecolonies/original/infrastructure/roads/streets/smallstairs3.blueprint": "fe08f0cb090c16ae3bd0d48607b6ca38fc8e63ae3d3615fd37157b09d46caf22",
+    "blueprints/minecolonies/original/infrastructure/roads/poor/poorpathodd.blueprint": "2389b4d757a0bd6c40bbd948f9d3ed701ce619444864f07b211ea0c160a06f90",
+    "blueprints/minecolonies/original/infrastructure/roads/simple/simplepathodd.blueprint": "ba2686fdba71196234ecf7505fd460c50f044342b6b8ce8ad709bb03c341a206",
+    "blueprints/minecolonies/original/infrastructure/roads/nice/nicepathodd.blueprint": "1078b288f0df08083a5d47cf5960235831a5e9f1c150ea80f57d93b493865324",
+    "blueprints/minecolonies/original/infrastructure/roads/fancy/fancypathodd.blueprint": "d0c3ce5743abd5e4e2f93803744236f04168d58440371f42bac584348b4fb227",
+    "blueprints/minecolonies/original/infrastructure/roads/lampposts/poor.blueprint": "bdb7413118c807a48271555c81f73e4470126f85ad597edf3736b882184519b0",
+    "blueprints/minecolonies/original/infrastructure/roads/lampposts/simple.blueprint": "3bbec595b50e8dfcde5ddb84507c2de75efd17c2865ac54ffd7dc0570286cfd5",
+    "blueprints/minecolonies/original/infrastructure/roads/lampposts/nice.blueprint": "75f50b1989d6a9b0ebf2ed572dd37fef2016cec19c0dbc809a21765c8200fff1",
+    "blueprints/minecolonies/original/infrastructure/roads/lampposts/fancy.blueprint": "0fc4302abbd01f3ed775f589708cca1ed899c6ac43818c34cbde8836e20cd96a"
   }
 }

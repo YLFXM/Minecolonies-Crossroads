@@ -99,6 +99,11 @@ public final class RoadReplanning {
         plan.adoptPlanning(old.planning());
         plan.setState(keepDraft && RoadRules.canCreate(old) ? RoadState.DRAFT : RoadState.PLANNED);
         plan.setWalkRange(old.walkRange());
+        // Re-planning keeps the tier: changing the endpoints of a level-3 road
+        // must not silently rebuild it out of level-1 units. The unit style is
+        // the same kind of fact — which unit set the road is made of.
+        plan.setUnitLevel(old.unitLevel());
+        plan.setUnitStyle(old.unitStyle());
         plan.adoptRows(carriedRows(old));
         if (!plan.segments().isEmpty()) plan.stageRemap(plan.minAlong(), plan.maxAlong());
     }

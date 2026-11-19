@@ -48,6 +48,7 @@ public class WindowRoadController extends AbstractWindowSkeleton {
     private final Button repairButton;
     private final Button removeButton;
     private final Button editButton;
+    private final Button styleButton;
 
     public WindowRoadController(final BlockPos controllerPos) {
         super(ResourceLocation.fromNamespaceAndPath(Crossroads.MODID, "gui/windowroadcontroller.xml"));
@@ -59,16 +60,20 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         this.repairButton = this.findPaneOfTypeByID("repair", Button.class);
         this.removeButton = this.findPaneOfTypeByID("remove", Button.class);
         this.editButton = this.findPaneOfTypeByID("edit", Button.class);
+        this.styleButton = this.findPaneOfTypeByID("style", Button.class);
         // BlockUI derives the disabled colour from "color" when only that is set,
         // so disabled buttons would look identical to enabled ones. Force a grey.
         for (final Button button : new Button[]{this.upgradeButton, this.repairButton,
-                this.removeButton, this.editButton}) {
+                this.removeButton, this.editButton, this.styleButton}) {
             button.setColors(0x000000, 0x9A9A9A, 0x000000);
         }
 
         this.registerButton("upgrade", button -> this.send(RoadControllerActionPayload.Action.UPGRADE));
         this.registerButton("repair", button -> this.send(RoadControllerActionPayload.Action.REPAIR));
         this.registerButton("remove", button -> this.chooseRemoval());
+        // Style and series live here rather than on the wand: the player is
+        // already looking at this road when they decide it should look different.
+        this.registerButton("style", button -> WindowRoadStyle.open(this, this.controllerPos));
         // Deliberately not closing the window: the player usually flips it to
         // edit a few cells right after, and the panel is where they came from.
         this.registerButton("edit", button -> {
@@ -113,12 +118,28 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         }
         this.detailText.setText(detail);
         final boolean canManage = plan != null && ClientRoadCache.canManage(plan.id());
-        this.upgradeButton.setEnabled(false);
+        // The panel decides both the gate and the label from the series' shipped
+        // tiers, so a series with three tiers cannot offer a fourth.
+        final int maxLevel = plan == null ? 0
+                : com.YLFXM.rp.crossroads.road.RoadUnitLibrary.maxLevel(plan.unitStyle(), plan.series());
+        this.upgradeButton.setEnabled(canManage && RoadRules.canUpgrade(plan, maxLevel));
+        this.upgradeButton.setText(plan == null
+                ? Component.translatable("rp_crossroads.gui.upgrade")
+                : plan.unitLevel() >= maxLevel
+                        ? Component.translatable("rp_crossroads.gui.upgrade_max", plan.unitLevel())
+                        : Component.translatable("rp_crossroads.gui.upgrade_to", plan.unitLevel() + 1));
         this.repairButton.setEnabled(canManage && RoadRules.canRepair(plan));
         this.removeButton.setEnabled(canManage && RoadRules.canRemove(plan));
         this.editButton.setEnabled(canManage && RoadRules.canToggleEdit(plan));
         this.editButton.setText(Component.translatable(plan != null && plan.allowBlueprintEdit()
                 ? "rp_crossroads.gui.edit_blueprint_on" : "rp_crossroads.gui.edit_blueprint_off"));
+        this.styleButton.setEnabled(canManage);
+        this.styleButton.setText(plan == null
+                ? Component.translatable("rp_crossroads.gui.style_entry")
+                : Component.translatable("rp_crossroads.gui.style_current",
+                        Component.translatable("rp_crossroads.style." + plan.unitStyle()),
+                        Component.translatable("rp_crossroads.series." + plan.series()),
+                        plan.unitLevel(), maxLevel));
     }
 
     /**

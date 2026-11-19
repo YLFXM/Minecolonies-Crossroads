@@ -49,16 +49,30 @@ public final class UnitTemplate {
     private final int sizeY;
     private final int sizeZ;
     private final int surfaceY;
+    /**
+     * Lateral column the unit is anchored on: the lamp pole for a lamp, the
+     * first walkable column for a tile.
+     *
+     * <p>A lamp is two or three columns wide and the pole sits in the middle of
+     * the span, so the anchor cannot be assumed to be column 0. Without this a
+     * three-column lamp would have to hang entirely off one side of the road
+     * instead of spanning it.</p>
+     */
+    private final int anchorColumn;
     private final Direction.Axis axis;
     private boolean frozen;
 
     public UnitTemplate(final int sizeX, final int sizeY, final int sizeZ,
-                        final int surfaceY, final Direction.Axis axis) {
+                        final int surfaceY, final int anchorColumn, final Direction.Axis axis) {
         this.sizeX = sizeX;
         this.sizeY = sizeY;
         this.sizeZ = sizeZ;
         this.surfaceY = surfaceY;
+        this.anchorColumn = anchorColumn;
         this.axis = axis;
+        if (anchorColumn < 0 || anchorColumn >= sizeZ) {
+            throw new IllegalArgumentException("Unit anchor column outside its width");
+        }
     }
 
     public void add(final BlockPos pos, final BlockState state, final CompoundTag tileEntity) {
@@ -95,6 +109,10 @@ public final class UnitTemplate {
 
     public int surfaceY() {
         return surfaceY;
+    }
+
+    public int anchorColumn() {
+        return anchorColumn;
     }
 
     public Direction.Axis axis() {

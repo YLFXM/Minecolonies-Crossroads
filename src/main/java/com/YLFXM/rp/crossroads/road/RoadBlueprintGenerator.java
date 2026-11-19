@@ -103,17 +103,20 @@ public final class RoadBlueprintGenerator {
         Blueprint result=raw(plan,level,lampReserveHeight); RoadCrossings.decorate(level,plan,result); return result;
     }
     public static Blueprint raw(final RoadPlan plan, final ServerLevel level, final int lampReserveHeight) {
-        if(!RoadUnitLibrary.supports(plan.pack(),plan.variant(),plan.width()))
-            throw new IllegalArgumentException("No bundled road unit matches this plan's style, variant and width.");
+        if(!RoadUnitLibrary.supports(plan.pack(),plan.unitStyle(),plan.series(),plan.width()))
+            throw new IllegalArgumentException("No bundled road unit matches this plan's series, style and width.");
         final RoadUnit unit = DEFAULT_UNIT;
-        final UnitTemplate template=RoadUnitLibrary.get("road",level);
+        // Series and tier select the unit set; a level-3 street and a level-3 main
+        // road are different blueprints, so the key is the triple, not the role.
+        final int tier = plan.unitLevel();
+        final UnitTemplate template=RoadUnitLibrary.get(plan.unitStyle(),plan.series(),RoadUnitLibrary.ROAD,tier,level);
 
         if(plan.segments().isEmpty()) throw new IllegalArgumentException("Select road endpoints first.");
         final BlockPos anchorPos=resolveAnchor(level,plan);
         final RoadHeightProfile profile=RoadHeightProfile.of(plan);
-        final UnitTemplate stair=RoadUnitLibrary.get("stair",level);
-        final UnitTemplate lamp=RoadUnitLibrary.get("lamp",level);
-        final RoadBounds horizontal=RoadBounds.ofRoadOnly(plan,0);
+        final UnitTemplate stair=RoadUnitLibrary.get(plan.unitStyle(),plan.series(),RoadUnitLibrary.STAIR,tier,level);
+        final UnitTemplate lamp=RoadUnitLibrary.get(plan.unitStyle(),plan.series(),RoadUnitLibrary.LAMP,tier,level);
+        RoadBounds horizontal=RoadBounds.ofRoadOnly(plan,0);
         int originY=profile.minBase()-template.surfaceY();
         int maxY=profile.maxBase()+Math.max(lampReserveHeight,
                 plan.lampSpacing()>1 ? lamp.entries().stream().filter(e -> !e.placeholder())
@@ -148,15 +151,21 @@ public final class RoadBlueprintGenerator {
             for(int lateral=0;lateral<plan.width();lateral++) for(int y=originY;y<row.baseY();y++)
                 put(out,bounds,originY,RoadHeightProfile.position(plan,row.along(),lateral,y),filler,null);
             final UnitTemplate tile=row.type().isStair() ? stair : template;
+            final boolean sameAxis=plan.axis()==tile.axis();
             for(final var entry:tile.entries()) {
                 if(entry.placeholder()) continue;
                 final int lateral=entry.pos().getZ();
-                BlockState state=entry.state();
+                final BlockPos pos=RoadHeightProfile.position(plan,row.along(),lateral,
+                        row.baseY()+entry.pos().getY()-tile.surfaceY());
+                // Units are authored along +x. A road on the other axis, or a
+                // mirrored one, turns the slice — which matters for the stair
+                // curbs on the main series, the only tile blocks that face a
+                // direction. Uphill is overwritten below: it depends on the plan,
+                // not on how the unit was authored.
+                BlockState state=orient(entry.state(),tile.axis(),sameAxis,plan.widthSide(),level,pos);
                 if(row.type().isStair() && plan.walkRange().contains(lateral)
                         && state.hasProperty(BlockStateProperties.HORIZONTAL_FACING))
                     state=state.setValue(BlockStateProperties.HORIZONTAL_FACING,RoadHeightProfile.uphill(plan,row.type()));
-                final BlockPos pos=RoadHeightProfile.position(plan,row.along(),lateral,
-                        row.baseY()+entry.pos().getY()-tile.surfaceY());
                 put(out,bounds,originY,pos,state,entry.tileEntity());
             }
         }
@@ -234,6 +243,10 @@ public final class RoadBlueprintGenerator {
         final int anchorAlong = (roadAxis == Direction.Axis.X
                 ? anchorPos.getX() : anchorPos.getZ()) - minAlong;
         final int side = plan.widthSide() >= 0 ? 1 : -1;
+        final java.util.Map<BlockPos, UnitTemplate.Entry> lookup = new java.util.HashMap<>();
+        for (final UnitTemplate.Entry entry : lamp.entries()) {
+            lookup.put(entry.pos(), entry);
+        }
         BlockPos firstLamp = null;
         final java.util.Map<Integer,RowState.Lamp> lampRows = new java.util.TreeMap<>();
 
@@ -242,10 +255,17 @@ public final class RoadBlueprintGenerator {
             for (int i = 0; i < length; i++) {
                 // Lateral base is the anchor column (see the road block loop):
                 // the lamp pole is lateral 0, so it lands exactly on the anchor.
+                // Keep the whole lamp inside the paved width: a three-column span
+                // whose pole sits on the outer curb would hang one column past the
+                // road edge, and a blueprint has to grow to cover it. Moving the
+                // span inward keeps the footprint exact — the ghost then matches
+                // the build tool instead of being a column wider on both sides.
+                final int lampLateral = Math.max(0,
+                        Math.min(lamp.anchorColumn(), plan.width() - lamp.sizeZ()));
                 final int baseX = segment.axis() == Direction.Axis.X
-                        ? segment.start().getX() + i : anchorPos.getX();
+                        ? segment.start().getX() + i : anchorPos.getX() + side * lampLateral;
                 final int baseZ = segment.axis() == Direction.Axis.X
-                        ? anchorPos.getZ() : segment.start().getZ() + i;
+                        ? anchorPos.getZ() + side * lampLateral : segment.start().getZ() + i;
                 final int baseY = profile.row(RoadAxisMath.along(roadAxis,baseX,baseZ)).baseY();
                 final int along = (RoadAxisMath.along(roadAxis,baseX,baseZ)) - minAlong;
                 // floorMod, not %: the offset to the anchor is negative for the
@@ -264,43 +284,57 @@ public final class RoadBlueprintGenerator {
                 if (firstLamp == null) {
                     firstLamp = new BlockPos(baseX, baseY, baseZ);
                 }
-                for (final UnitTemplate.Entry entry : lamp.entries()) {
-                    if (entry.placeholder()) {
-                        continue;
-                    }
-                    final BlockPos local = entry.pos();
-                    final int worldX;
-                    final int worldZ;
-                    if (segment.axis() == lamp.axis()) {
-                        if (segment.axis() == Direction.Axis.X) {
-                            worldX = baseX;
-                            worldZ = baseZ + side * local.getZ();
-                        } else {
+                // Walk the whole lamp rectangle, not just its solid cells. A cell
+                // the lamp leaves empty must be a "keep what is here" placeholder:
+                // left as blueprint air the builder digs it out, which is what
+                // carved a trench wherever a lamp hangs over the verge. Cells the
+                // pavement already filled are skipped so the placeholder never
+                // erases a road block.
+                for (int localY = 0; localY < lamp.sizeY(); localY++) {
+                    for (int localZ = 0; localZ < lamp.sizeZ(); localZ++) {
+                        final UnitTemplate.Entry entry = lookup.get(new BlockPos(0, localY, localZ));
+                        // The pole sits on the anchor column, which is only column 0
+                        // for the two-column street lamp; a main lamp is three wide
+                        // and hangs one column to either side of the curb.
+                        final int across = localZ - lamp.anchorColumn();
+                        final int worldX;
+                        final int worldZ;
+                        if (segment.axis() == lamp.axis()) {
+                            if (segment.axis() == Direction.Axis.X) {
+                                worldX = baseX;
+                                worldZ = baseZ + side * across;
+                            } else {
+                                worldZ = baseZ;
+                                worldX = baseX + side * across;
+                            }
+                        } else if (lamp.axis() == Direction.Axis.X) {
                             worldZ = baseZ;
-                            worldX = baseX + side * local.getX();
+                            worldX = baseX + side * across;
+                        } else {
+                            worldX = baseX;
+                            worldZ = baseZ + side * across;
                         }
-                    } else if (lamp.axis() == Direction.Axis.X) {
-                        worldZ = baseZ;
-                        worldX = baseX + side * local.getZ();
-                    } else {
-                        worldX = baseX;
-                        worldZ = baseZ + side * local.getX();
-                    }
-                    final int worldY = baseY + local.getY() - lamp.surfaceY();
+                        final int worldY = baseY + localY - lamp.surfaceY();
 
-                    // put() drops out-of-range cells silently; counting them here
-                    // is what turns "the lamp is cut in half" into a log line.
-                    final int lx = worldX - bounds.minX();
-                    final int ly = worldY - originY;
-                    final int lz = worldZ - bounds.minZ();
-                    if (lx < 0 || ly < 0 || lz < 0
-                            || lx >= out.getSizeX() || ly >= out.getSizeY() || lz >= out.getSizeZ()) {
-                        throw new IllegalArgumentException("Lamp cell exceeds generated bounds: "+new BlockPos(worldX,worldY,worldZ));
+                        // put() drops out-of-range cells silently; counting them here
+                        // is what turns "the lamp is cut in half" into a log line.
+                        final int lx = worldX - bounds.minX();
+                        final int ly = worldY - originY;
+                        final int lz = worldZ - bounds.minZ();
+                        if (lx < 0 || ly < 0 || lz < 0
+                                || lx >= out.getSizeX() || ly >= out.getSizeY() || lz >= out.getSizeZ()) {
+                            throw new IllegalArgumentException("Lamp cell exceeds generated bounds: "+new BlockPos(worldX,worldY,worldZ));
+                        }
+                        final BlockPos world = new BlockPos(worldX, worldY, worldZ);
+                        if (entry != null && !entry.placeholder()) {
+                            put(out, bounds, originY, world,
+                                    orient(entry.state(), lamp.axis(), segment.axis() == lamp.axis(), side, level, world),
+                                    entry.tileEntity());
+                        }
+                        // Empty cells of the lamp are left untouched: at surface
+                        // height the pavement owns the cell and above it the air is
+                        // exactly what the finished road should have.
                     }
-                    put(out, bounds, originY, new BlockPos(worldX, worldY, worldZ),
-                            orient(entry.state(), lamp.axis(), segment.axis() == lamp.axis(), side, level,
-                                    new BlockPos(worldX, worldY, worldZ)),
-                            entry.tileEntity());
                 }
             }
         }

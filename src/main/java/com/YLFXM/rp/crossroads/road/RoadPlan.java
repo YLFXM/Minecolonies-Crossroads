@@ -50,6 +50,16 @@ public final class RoadPlan {
     private boolean mirror;
     private String pack;
     private String variant;
+    /**
+     * Unit style folder the road is built from ({@code units/<style>/<series>/}).
+     *
+     * <p>Separate from {@code pack}: that one is the Structurize pack the
+     * blueprint is filed under, this one is which pre-cut unit set the road is
+     * made of. Older saves have neither, and read back as the shipped style.</p>
+     */
+    private String unitStyle = com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL;
+    /** Which level of the series' unit set this road is built from. */
+    private int unitLevel = 1;
     private String displayName = "";
     /**
      * Road name without its ownership prefix. The prefix is not stored because
@@ -330,6 +340,49 @@ public final class RoadPlan {
         return variant;
     }
 
+    /** Switches the unit series. Width and walk range have to follow; see {@link #setWidth}. */
+    public void setVariant(final String variant) {
+        this.variant = variant;
+    }
+
+    /**
+     * Series this road is built from, normalized: {@code streets} or {@code main}.
+     *
+     * <p>Stored in {@code variant}, which older saves write as {@code "street"}.
+     * Normalizing on read keeps those plans loadable without an NBT rewrite, and
+     * leaves one persisted field for "which unit set" instead of two that can
+     * disagree.</p>
+     */
+    public String series() {
+        return RoadUnitLibrary.normalizeSeries(variant);
+    }
+
+    public String unitStyle() {
+        return unitStyle == null || unitStyle.isEmpty()
+                ? com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL : unitStyle;
+    }
+
+    public void setUnitStyle(final String style) {
+        this.unitStyle = style == null || style.isEmpty()
+                ? com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL : style;
+    }
+
+    /**
+     * Upgrade tier inside the series: 1-3 for streets, 1-4 (poor..fancy) for main.
+     *
+     * <p>Separate from {@link RowState#level()} on purpose — that one is how much
+     * authority a row's cell type has, this one is which blueprint the row is
+     * built from. Naming them the same thing is how an upgrade would silently
+     * look like a player edit.</p>
+     */
+    public int unitLevel() {
+        return unitLevel;
+    }
+
+    public void setUnitLevel(final int level) {
+        this.unitLevel = Math.max(1, level);
+    }
+
     public String displayName() {
         return displayName;
     }
@@ -349,6 +402,18 @@ public final class RoadPlan {
 
     public int width() {
         return width;
+    }
+
+    /**
+     * Sets the paved width. Used by the style switch, which changes the series
+     * and with it the width the series' units are authored for.
+     *
+     * <p>Endpoints are untouched: they only decide where the road runs and how
+     * long it is. The width grows sideways from the anchor, so re-selecting them
+     * would move the road instead of widening it.</p>
+     */
+    public void setWidth(final int width) {
+        this.width = Math.max(1, width);
     }
 
     public WalkRange walkRange() {
@@ -895,6 +960,8 @@ public final class RoadPlan {
         tag.putBoolean("mirror", mirror);
         tag.putString("pack", pack);
         tag.putString("variant", variant);
+        tag.putString("unitStyle", unitStyle());
+        tag.putInt("unitLevel", unitLevel);
         tag.putString("displayName", displayName);
         tag.putString("roadName", roadName);
         tag.putInt("width", width);
@@ -968,6 +1035,10 @@ public final class RoadPlan {
                 tag.getInt("widthSide"),
                 tag.getInt("lampSpacing"));
         plan.setTravelDir(tag.contains("travelDir") ? tag.getInt("travelDir") : 1);
+        // Saves from before the second series are all level 1 of the street set.
+        plan.setUnitLevel(tag.contains("unitLevel") ? tag.getInt("unitLevel") : 1);
+        plan.setUnitStyle(tag.contains("unitStyle") ? tag.getString("unitStyle")
+                : com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL);
         // Older saves predate the switch; a finished road stays frozen until the
         // player turns it on in the controller panel.
         plan.setAllowBlueprintEdit(tag.getBoolean("allowBlueprintEdit"));

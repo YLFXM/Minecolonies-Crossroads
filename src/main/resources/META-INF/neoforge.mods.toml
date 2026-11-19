@@ -4,7 +4,7 @@ license="GPL-3.0"
 
 [[mods]]
 modId="rp_crossroads"
-version="0.2.1"
+version="0.2.2"
 displayName="MineColonies: Crossroads"
 authors="YLFXM"
 description='''Reconstruction Plan series, module 1: build real, persistent colony roads with a Road Wand, manage them with a Road Surveyor and a Work Order Scroll, hand them to the native build tool, and shape the surrounding terrain with custom dig/fill orders.'''

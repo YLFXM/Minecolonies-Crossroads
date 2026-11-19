@@ -342,9 +342,14 @@ public final class RoadCrossings {
     public static void decorate(ServerLevel level,RoadPlan plan,Blueprint out) {
         var origin=BlueprintCells.origin(plan,out);var own=RoadHeightProfile.of(plan);List<String> issues=new ArrayList<>();
         final BlockState skip=com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get().defaultBlockState();
-        BlockState pavement=RoadUnitLibrary.get("road",level).entries().stream()
-                .filter(e -> e.pos().getY()==1 && e.pos().getZ()==plan.walkRange().from()).findFirst().orElseThrow().state();
-        for(var n:neighbors(level,plan)) {
+        // A flat junction cell belongs to both roads and both write it. If each
+        // one writes its own pavement, the two blueprints disagree on that cell
+        // and the joint merge aborts with "conflicting native work targets".
+        // Both sides therefore resolve the same winner: higher tier first, and
+        // the main series wins a tier tie.
+        final var neighbours=neighbors(level,plan);
+        BlockState pavement=junctionPavement(level,junctionDominant(plan,neighbours));
+        for(var n:neighbours) {
             try { validate(plan,n); } catch(IllegalArgumentException ex) {issues.add(RoadNotices.reasonKey(ex));}
             var profile=RoadHeightProfile.of(n.model());
             for(var info:out.getBlockInfoAsList()) {
@@ -365,7 +370,7 @@ public final class RoadCrossings {
                 }
             }
         }
-        for(var n:neighbors(level,plan)) {
+        for(var n:neighbours) {
             write(out,n.live().controllerPos().subtract(origin),skip);
             write(out,n.live().anchorPos().subtract(origin),skip);
         }
@@ -374,6 +379,44 @@ public final class RoadCrossings {
         out.setCachePrimaryOffset(plan.anchorPos().subtract(origin));
         plan.planning().crossingIssue(String.join(" ",new LinkedHashSet<>(issues)));
     }
+    /**
+     * Road whose units decide a shared junction cell.
+     *
+     * <p>Only flat junctions share cells; a layered crossing keeps each road on
+     * its own level, so it never enters this comparison. Ties inside the same
+     * series are already identical, so the first candidate stays.</p>
+     */
+    private static RoadPlan junctionDominant(final RoadPlan self,final List<Neighbor> neighbours) {
+        RoadPlan best=self;
+        for(final Neighbor n:neighbours) {
+            if(n.setting().layered()) continue;
+            if(n.model()!=null) best=higher(best,n.model());
+        }
+        return best;
+    }
+
+    /**
+     * Which of two roads owns a shared junction cell.
+     *
+     * <p>Tier first, then series: the main series is the wider/heavier build and
+     * wins a tier tie. Same tier and same series means both units are identical,
+     * so either answer is the same cell.</p>
+     */
+    public static RoadPlan higher(final RoadPlan a,final RoadPlan b) {
+        if(b.unitLevel()>a.unitLevel()) return b;
+        if(b.unitLevel()<a.unitLevel()) return a;
+        final boolean aMain=RoadUnitLibrary.MAIN.equals(a.series());
+        final boolean bMain=RoadUnitLibrary.MAIN.equals(b.series());
+        return bMain && !aMain ? b : a;
+    }
+
+    /** Pavement colour of one series/tier: the first walkable column of its road unit. */
+    private static BlockState junctionPavement(final ServerLevel level,final RoadPlan model) {
+        return RoadUnitLibrary.get(model.unitStyle(),model.series(),RoadUnitLibrary.ROAD,model.unitLevel(),level).entries().stream()
+                .filter(e -> e.pos().getY()==1 && e.pos().getZ()==model.walkRange().from())
+                .findFirst().orElseThrow().state();
+    }
+
     public static Set<Integer> suppressedLamps(ServerLevel level,RoadPlan plan,UnitTemplate lamp,RoadHeightProfile profile) {
         Set<Integer> suppressed=new HashSet<>();var neighbors=neighbors(level,plan);
         for(var row:profile.rows()) for(var n:neighbors) {

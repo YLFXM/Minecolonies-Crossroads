@@ -7,14 +7,6 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 package com.YLFXM.rp.crossroads.road;
 
@@ -23,13 +15,14 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.ldtteam.structurize.blueprints.v1.BlueprintUtil;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -42,30 +35,51 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
 /**
- * Road unit templates: the pack copy under {@code units/<风格包>/<系列>/} wins, the
- * bundled jar resources are the fallback and the seed.
+ * Road unit templates, keyed by series, role and level.
  *
- * <p>The pack copy is what the native build tool shows as a preview category, so the
- * same file a player can look at is the one the generator places.</p>
+ * <p>The pack copy under {@code units/<风格包>/<系列>/} wins, the bundled jar
+ * resources are the fallback and the seed. The pack copy is what the native
+ * build tool shows as a preview category, so the same file a player can look at
+ * is the one the generator places.</p>
+ *
+ * <p>Every unit is authored along +x with the road width on z, whichever axis
+ * the style pack happened to use; {@code tools/export_road_units.py} does the
+ * transposition offline and records the result in the manifest.</p>
  */
 @EventBusSubscriber(modid=Crossroads.MODID)
 public final class RoadUnitLibrary {
-    private static final String ROOT="/assets/rp_crossroads/blueprints/units/original/";
+    /** Series ids. The plan's {@code variant} stores the same spelling. */
+    public static final String STREETS="streets";
+    public static final String MAIN="main";
+    public static final String ROAD="road";
+    public static final String STAIR="stair";
+    public static final String LAMP="lamp";
+
+    private static final String ROOT="/assets/rp_crossroads/blueprints/units/";
+    private static final Map<HolderLookup.Provider,Map<String,Manifest>> MANIFESTS=new IdentityHashMap<>();
     private static final Map<HolderLookup.Provider,Map<String,UnitTemplate>> CACHE=new IdentityHashMap<>();
 
-    private static Integer declaredWidth;
+    /**
+     * The spelling a plan may hold for its series.
+     *
+     * <p>Roads planned before the second series existed store {@code "street"}.
+     * Mapping it here, instead of in a save fixer, keeps old plans loadable
+     * without rewriting their NBT.</p>
+     */
+    public static String normalizeSeries(final String variant) {
+        if(variant==null || variant.isEmpty() || "street".equals(variant)) return STREETS;
+        return variant;
+    }
 
-    /** Width the bundled manifest declares for the road unit; the only declaration of road width. */
-    private static synchronized int declaredWidth() {
-        if(declaredWidth==null) {
-            try(final var input=new InputStreamReader(resource("units.json"),StandardCharsets.UTF_8)) {
-                declaredWidth=JsonParser.parseReader(input).getAsJsonObject()
-                        .getAsJsonObject("units").getAsJsonObject("road").get("width").getAsInt();
-            } catch(final Exception ex) {
-                throw new IllegalStateException("Could not read the bundled road unit manifest",ex);
-            }
-        }
-        return declaredWidth;
+    /** A style folder name; empty means the shipped set. */
+    public static String normalizeStyle(final String style) {
+        return style==null || style.isEmpty()
+                ? com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL : style;
+    }
+
+    public static boolean isKnownSeries(final String variant) {
+        final String series=normalizeSeries(variant);
+        return STREETS.equals(series) || MAIN.equals(series);
     }
 
     private static boolean isKnownPack(final String pack) {
@@ -75,50 +89,154 @@ public final class RoadUnitLibrary {
     }
 
     /**
-     * Whether this mod ships a unit for the given pack alias, variant and road width.
+     * Whether this mod ships units for the series, pack and road width.
      *
-     * <p>The width comes from the bundled manifest, not a literal: units.json already
-     * declares how wide the road unit is and {@link #load} verifies the blueprint
-     * against it, so a constant here would be a second source of truth that can
-     * silently disagree with the file.</p>
+     * <p>The width comes from the manifest rather than a literal: the manifest
+     * already declares how wide each series is, and {@link #load} verifies the
+     * blueprint against it. A constant here would be a second source of truth.</p>
      */
-    public static boolean supports(final String pack,final String variant,final int width) {
-        return "street".equals(variant) && isKnownPack(pack) && width==declaredWidth();
+    public static synchronized boolean supports(final String pack,final String style,final String series,final int width) {
+        if(!isKnownPack(pack) || !isKnownSeries(series)) return false;
+        final Integer declared=manifestWidth(style,normalizeSeries(series));
+        return declared!=null && declared==width;
     }
 
-    public static synchronized UnitTemplate get(final String kind,final ServerLevel level) {
-        final HolderLookup.Provider registries=level.registryAccess();
-        return CACHE.computeIfAbsent(registries,ignored -> new HashMap<>())
-                .computeIfAbsent(kind,ignored -> load(kind,level,registries));
+    /** Declared width of a series, or -1 when the manifest has none. */
+    public static synchronized int seriesWidth(final String style,final String series) {
+        final Integer width=manifestWidth(style,normalizeSeries(series));
+        return width==null ? -1 : width;
     }
+
+    /** Walkable columns the series declares, or {@code null} when the manifest has none. */
+    public static synchronized WalkRange seriesWalkRange(final String style,final String series) {
+        final var node=bundledManifest(style).getAsJsonObject("series").getAsJsonObject(normalizeSeries(series));
+        if(node==null || !node.has("walkRange")) return null;
+        final var range=node.getAsJsonArray("walkRange");
+        return WalkRange.of(range.get(0).getAsInt(),range.get(1).getAsInt());
+    }
+
+    /**
+     * Highest tier the series ships, or 0 when the manifest has no road unit.
+     *
+     * <p>The road role decides: every tier has a road unit, while the stair role
+     * is allowed to point at a road file and the lamp role can stop earlier. The
+     * client reads this to label the upgrade button, so it only touches the jar
+     * manifest and never loads a blueprint.</p>
+     */
+    public static synchronized int maxLevel(final String style,final String series) {
+        final JsonObject node=bundledManifest(style).getAsJsonObject("series")
+                .getAsJsonObject(normalizeSeries(series));
+        if(node==null || !node.has("units")) return 0;
+        final JsonObject roads=node.getAsJsonObject("units").getAsJsonObject(ROAD);
+        if(roads==null) return 0;
+        int max=0;
+        for(final String key:roads.keySet()) {
+            try { max=Math.max(max,Integer.parseInt(key)); }
+            catch(final NumberFormatException ignored) { }
+        }
+        return max;
+    }
+
+    /** Series ids the manifest ships, in declaration order. */
+    public static synchronized java.util.List<String> seriesIds(final String style) {
+        final var result=new java.util.ArrayList<String>();
+        for(final var entry:bundledManifest(style).getAsJsonObject("series").entrySet()) result.add(entry.getKey());
+        return java.util.List.copyOf(result);
+    }
+
+    /**
+     * Unit style folders that exist in the jar.
+     *
+     * <p>A style folder is a whole separate set of units ({@code units/<style>/<series>/}),
+     * so adding one means running the exporter against another source pack and
+     * listing it here — there is nothing to discover at runtime.</p>
+     */
+    public static java.util.List<String> styles() {
+        return java.util.List.of(com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL);
+    }
+
+    private static final Map<String,Map<String,Integer>> bundledWidthCache=new HashMap<>();
+
+    private static Integer manifestWidth(final String style,final String series) {
+        final Map<String,Integer> widths=bundledWidthCache.computeIfAbsent(style,key -> {
+            final Map<String,Integer> parsed=new HashMap<>();
+            for(final var entry:bundledManifest(key).getAsJsonObject("series").entrySet()) {
+                final JsonObject node=entry.getValue().getAsJsonObject();
+                parsed.put(entry.getKey(),node.get("width").getAsInt());
+            }
+            return Map.copyOf(parsed);
+        });
+        return widths.get(series);
+    }
+
+    public static synchronized UnitTemplate get(final String style,final String series,final String role,final int level,final ServerLevel world) {
+        final String key=normalizeStyle(style)+"/"+normalizeSeries(series)+"/"+role+"/"+level;
+        final HolderLookup.Provider registries=world.registryAccess();
+        return CACHE.computeIfAbsent(registries,ignored -> new HashMap<>())
+                .computeIfAbsent(key,ignored -> load(key,world,registries));
+    }
+
     private static InputStream resource(final String name) {
         final InputStream stream=RoadUnitLibrary.class.getResourceAsStream(ROOT+name);
         if(stream==null) throw new IllegalStateException("Missing road unit resource: "+name);
         return stream;
     }
-    /** Pack copy of the unit directory, or {@code null} when this world has none yet. */
-    private static Path packUnitDir(final ServerLevel level) {
+
+    /** Root of the pack copy of the unit tree, or {@code null} when this world has none yet. */
+    private static Path packUnitRoot(final ServerLevel world) {
         try {
-            final Path dir=com.YLFXM.rp.crossroads.CustomRoadPack.unitDir(level.getServer());
+            final Path dir=com.YLFXM.rp.crossroads.CustomRoadPack.unitRoot(world.getServer());
             return Files.isDirectory(dir) ? dir : null;
         } catch(final RuntimeException ex) {
             return null;
         }
     }
 
-    private static UnitTemplate load(final String kind,final ServerLevel level,final HolderLookup.Provider registries) {
-        final Path dir=packUnitDir(level);
-        try(final var input=new InputStreamReader(dir==null ? resource("units.json")
-                : Files.newInputStream(dir.resolve("units.json")),StandardCharsets.UTF_8)) {
-            final JsonObject manifest=JsonParser.parseReader(input).getAsJsonObject();
-            if(manifest.get("schemaVersion").getAsInt()!=1) throw new IllegalStateException("Unsupported road unit schema");
-            final var spec=manifest.getAsJsonObject("units").getAsJsonObject(kind);
-            if(spec==null || !"x".equals(spec.get("axis").getAsString())) throw new IllegalStateException("Unsupported road unit: "+kind);
-            final String file=spec.get("file").getAsString();
-            if(!file.endsWith(".blueprint") || file.contains("/") || file.contains("\\"))
-                throw new IllegalStateException("Invalid road unit file name: "+file);
-            final InputStream chosen=dir!=null && Files.isRegularFile(dir.resolve(file))
-                    ? Files.newInputStream(dir.resolve(file)) : resource(file);
+    /**
+     * Parsed jar manifests, one per style.
+     *
+     * <p>Jar resources cannot change while the game runs, and the controller
+     * panel asks for the highest tier on every frame; parsing the JSON there
+     * would be a per-frame allocation for a constant answer.</p>
+     */
+    private static final Map<String,JsonObject> BUNDLED=new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Bundled manifest of one style; the pack copy is authoritative for file names but not for reading units. */
+    private static JsonObject bundledManifest(final String style) {
+        final String key=normalizeStyle(style);
+        final JsonObject cached=BUNDLED.get(key);
+        if(cached!=null) return cached;
+        try(final var input=new InputStreamReader(resource(key+"/units.json"),StandardCharsets.UTF_8)) {
+            final JsonObject parsed=JsonParser.parseReader(input).getAsJsonObject();
+            BUNDLED.put(key,parsed);
+            return parsed;
+        } catch(final Exception ex) {
+            throw new IllegalStateException("Could not read the bundled road unit manifest",ex);
+        }
+    }
+
+    private static UnitTemplate load(final String key,final ServerLevel world,final HolderLookup.Provider registries) {
+        final String[] parts=key.split("/");
+        if(parts.length!=4) throw new IllegalStateException("Invalid road unit key: "+key);
+        final String style=parts[0];
+        final String series=parts[1];
+        final String role=parts[2];
+        final int level;
+        try {
+            level=Integer.parseInt(parts[3]);
+        } catch(final NumberFormatException ex) {
+            throw new IllegalStateException("Invalid road unit level: "+key,ex);
+        }
+        final Path root=packUnitRoot(world);
+        final Path styleRoot=root==null ? null : root.resolve(style);
+        final Manifest manifest=MANIFESTS.computeIfAbsent(registries,ignored -> new HashMap<>())
+                .computeIfAbsent(style,ignored -> Manifest.read(styleRoot,style));
+        final Manifest.Spec spec=manifest.specs().get(series+"/"+role+"/"+level);
+        if(spec==null) throw new IllegalStateException("Unknown road unit: "+key);
+        final Path dir=styleRoot==null ? null : styleRoot.resolve(series);
+        try {
+            final InputStream chosen=dir!=null && Files.isRegularFile(dir.resolve(spec.file()))
+                    ? Files.newInputStream(dir.resolve(spec.file())) : resource(style+"/"+series+"/"+spec.file());
             try(final var stream=chosen) {
                 final var data=NbtIo.readCompressed(stream,NbtAccounter.unlimitedHeap());
                 final var required=data.getList("required_mods",8);
@@ -126,35 +244,107 @@ public final class RoadUnitLibrary {
                         && !net.neoforged.fml.ModList.get().isLoaded(required.getString(i)))
                     throw new IllegalStateException("Missing unit dependency: "+required.getString(i));
                 final var blueprint=BlueprintUtil.readBlueprintFromNBT(data,registries);
-                if(blueprint==null || blueprint.getSizeX()!=1 || blueprint.getSizeZ()!=spec.get("width").getAsInt())
-                    throw new IllegalStateException("Invalid road unit dimensions: "+kind);
-                final int surface=spec.get("surfaceY").getAsInt();
+                if(blueprint==null || blueprint.getSizeX()!=1 || blueprint.getSizeZ()!=spec.width())
+                    throw new IllegalStateException("Invalid road unit dimensions: "+key);
+                final int surface=spec.surfaceY();
                 if(surface<0 || surface>=blueprint.getSizeY()) throw new IllegalStateException("Invalid surface height");
-                final var unit=new UnitTemplate(1,blueprint.getSizeY(),blueprint.getSizeZ(),surface,Direction.Axis.X);
+                final var unit=new UnitTemplate(1,blueprint.getSizeY(),blueprint.getSizeZ(),surface,
+                        spec.anchorColumn(),Direction.Axis.X);
                 final var occupied=new HashSet<BlockPos>();
-                for(final var cell:spec.getAsJsonArray("writeCells")) {
-                    final var pos=coordinate(cell.getAsJsonArray(),blueprint.getSizeY(),blueprint.getSizeZ());
+                for(final var cell:spec.writeCells()) {
+                    final var pos=coordinate(cell,blueprint.getSizeY(),blueprint.getSizeZ());
                     if(!occupied.add(pos)) throw new IllegalStateException("Duplicate unit write cell");
                     unit.add(pos,blueprint.getBlockState(pos),blueprint.getTileEntities()[pos.getY()][pos.getZ()][pos.getX()]);
                 }
-                for(final var cell:spec.getAsJsonArray("skipCells")) {
-                    final var pos=coordinate(cell.getAsJsonArray(),blueprint.getSizeY(),blueprint.getSizeZ());
+                for(final var cell:spec.skipCells()) {
+                    final var pos=coordinate(cell,blueprint.getSizeY(),blueprint.getSizeZ());
                     if(!occupied.add(pos)) throw new IllegalStateException("Conflicting unit write/skip cell");
                     unit.addPlaceholder(pos);
                 }
                 return unit.freeze();
             }
         } catch(final Exception ex) {
-            throw new IllegalStateException("Could not load bundled road unit "+kind,ex);
+            throw new IllegalStateException("Could not load road unit "+key,ex);
         }
     }
-    private static BlockPos coordinate(final com.google.gson.JsonArray cell,final int height,final int width) {
-        if(cell.size()!=3) throw new IllegalStateException("Invalid unit coordinate");
-        final var pos=new BlockPos(cell.get(0).getAsInt(),cell.get(1).getAsInt(),cell.get(2).getAsInt());
+
+    private static BlockPos coordinate(final int[] cell,final int height,final int width) {
+        if(cell.length!=3) throw new IllegalStateException("Invalid unit coordinate");
+        final var pos=new BlockPos(cell[0],cell[1],cell[2]);
         if(pos.getX()!=0 || pos.getY()<0 || pos.getY()>=height || pos.getZ()<0 || pos.getZ()>=width)
             throw new IllegalStateException("Unit cell out of bounds: "+pos);
         return pos;
     }
-    @SubscribeEvent public static synchronized void stopped(final ServerStoppedEvent event) { CACHE.clear(); }
+
+    /**
+     * The manifest, parsed once per server: series width plus one spec per unit.
+     *
+     * <p>Read from the pack copy so a player who edits a preview file gets the
+     * edited dimensions honoured, falling back to the jar when the world has no
+     * copy yet.</p>
+     */
+    private record Manifest(Map<String,Spec> specs, Map<String,Integer> widths) {
+        record Spec(String file,int width,int surfaceY,int anchorColumn,List<int[]> writeCells,List<int[]> skipCells) { }
+
+        static Manifest read(final Path root,final String style) {
+            JsonObject json=null;
+            if(root!=null && Files.isRegularFile(root.resolve("units.json"))) {
+                try(final var reader=Files.newBufferedReader(root.resolve("units.json"),StandardCharsets.UTF_8)) {
+                    final JsonObject parsed=JsonParser.parseReader(reader).getAsJsonObject();
+                    if(parsed.has("schemaVersion") && parsed.get("schemaVersion").getAsInt()==2) json=parsed;
+                } catch(final Exception ex) {
+                    Crossroads.LOGGER.warn("Ignoring unreadable road unit manifest in the save, using the bundled one",ex);
+                }
+            }
+            if(json==null) json=bundledManifest(style);
+            if(json.get("schemaVersion").getAsInt()!=2)
+                throw new IllegalStateException("Unsupported road unit schema");
+            final Map<String,Spec> specs=new HashMap<>();
+            final Map<String,Integer> widths=new HashMap<>();
+            for(final var seriesEntry:json.getAsJsonObject("series").entrySet()) {
+                final String series=seriesEntry.getKey();
+                final JsonObject node=seriesEntry.getValue().getAsJsonObject();
+                final int width=node.get("width").getAsInt();
+                widths.put(series,width);
+                for(final var roleEntry:node.getAsJsonObject("units").entrySet()) {
+                    final String role=roleEntry.getKey();
+                    for(final var levelEntry:roleEntry.getValue().getAsJsonObject().entrySet()) {
+                        final JsonObject unit=levelEntry.getValue().getAsJsonObject();
+                        final String file=unit.get("file").getAsString();
+                        // The manifest may name the series folder; the loader
+                        // already resolves against it, so keep only the leaf.
+                        final String leaf=file.contains("/") ? file.substring(file.lastIndexOf('/')+1) : file;
+                        if(!leaf.endsWith(".blueprint") || leaf.contains("\\"))
+                            throw new IllegalStateException("Invalid road unit file name: "+file);
+                        specs.put(series+"/"+role+"/"+levelEntry.getKey(),new Spec(
+                                leaf,
+                                unit.get("width").getAsInt(),
+                                unit.get("surfaceY").getAsInt(),
+                                unit.get("anchorColumn").getAsInt(),
+                                cells(unit,"writeCells"),
+                                cells(unit,"skipCells")));
+                    }
+                }
+            }
+            return new Manifest(Map.copyOf(specs),Map.copyOf(widths));
+        }
+
+        private static List<int[]> cells(final JsonObject unit,final String name) {
+            final var array=unit.getAsJsonArray(name);
+            if(array==null) return List.of();
+            final List<int[]> result=new java.util.ArrayList<>(array.size());
+            for(final var element:array) {
+                final var cell=element.getAsJsonArray();
+                result.add(new int[]{cell.get(0).getAsInt(),cell.get(1).getAsInt(),cell.get(2).getAsInt()});
+            }
+            return List.copyOf(result);
+        }
+    }
+
+    @SubscribeEvent public static synchronized void stopped(final ServerStoppedEvent event) {
+        CACHE.clear();
+        MANIFESTS.clear();
+    }
+
     private RoadUnitLibrary() { }
 }
