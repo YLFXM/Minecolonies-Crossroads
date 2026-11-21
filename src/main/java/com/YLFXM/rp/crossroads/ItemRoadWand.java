@@ -28,8 +28,14 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Selection wand for road endpoints. Left click sets A; shift-right click sets
- * B on the client; right-click air opens the wand screen with a Build button.
+ * Selection wand for road endpoints. Left click sets A; shift-left sets B;
+ * right click edits the aimed row (road mode) or dispatches the terrain order
+ * (dig/fill mode); shift-right cycles the mode.
+ *
+ * <p>The wand opens no window: everything it used to edit lives in the
+ * controller panel now, and the remaining gestures are handled by
+ * {@code client.ClientSelectionEvents}, which owns both the block and the air
+ * path for them.</p>
  */
 public class ItemRoadWand extends Item {
     public ItemRoadWand(final Properties properties) {
@@ -44,14 +50,10 @@ public class ItemRoadWand extends Item {
 
     @Override
     public InteractionResultHolder<ItemStack> use(final Level level, final Player player, final InteractionHand hand) {
-        final ItemStack stack = player.getItemInHand(hand);
-        if (player.isShiftKeyDown()) {
-            // Shift-right-click is reserved for endpoint B selection.
-            return InteractionResultHolder.pass(stack);
-        }
-        if (level.isClientSide) {
-            new com.YLFXM.rp.crossroads.client.WindowRoadWand().open();
-        }
-        return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
+        // Deliberately inert on both sides. Terrain dispatch is a client gesture
+        // (it needs the local A/B and mode) and runs from
+        // ClientSelectionEvents.RightClickItem; keeping the item free of client
+        // types is what lets the dedicated server load this class.
+        return InteractionResultHolder.pass(player.getItemInHand(hand));
     }
 }

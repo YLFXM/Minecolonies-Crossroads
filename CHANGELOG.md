@@ -1,5 +1,33 @@
 # 更新记录
 
+## 0.3.1 — 2026-11-21 交互收敛与合并面板
+
+### 新增
+
+- **控制器面板承接全部管理**：`WindowRoadController` 与绘制器面板合并为唯一入口——路名/状态/施工者三行、「建造 / 升级」一个按钮（`DRAFT` 按建造、已规划按升级到 N、施工中显示「施工中」并禁用、到顶显示已满级）、修复、修改蓝图、交叉口、拆除、风格与系列、灯距 ±1、镜像；面板不显示绘制器绑定状态，也不呈现地形模式。
+- **交叉口入口迁到面板**：`WindowRoadCrossings(roadId, controllerPos)`，「返回」回到控制器面板；内容与门禁不变。
+- **风格 / 系列功能版选择窗** `WindowRoadStyleList`（纸质底两列按钮）：左列风格、右列该风格的系列，默认落在该路当前值；确认按 1 级发 `SetRoadStylePayload`。清单由服务端扫描存档结构包得出（新增 `UnitStyleListPayload` / `RequestUnitStylesPayload`），`RoadUnitLibrary.styles(server)` 与 `seriesIds(server, style)` 改为扫 `units/` 一级目录与 `units/<风格>/<系列>/units.json`，与 jar 清单并集去重排序，第三方风格文件夹放进目录即可出现。
+- **镜像即时下发**：面板「镜像」翻转后立刻发 `ConfigureRoadPayload(CONFIGURE)`，`plan.mirror` 当场落库，幽灵同时重画；灯距同样即时生效。
+- **拆除由服务端判定**：`/mcrcross dev on` 时服务端回新增的 `OpenRemovalChoicePayload`，客户端才弹「建筑工拆除 / 原生快速拆除」，选完带 `confirmed` 回发；正常游玩直接派单。单条拆除与清单「拆除所选」共用这套判定。
+- 协议 14 → 15：新增 `UnitStyleListPayload`、`RequestUnitStylesPayload`、`OpenRemovalChoicePayload`，`RoadControllerActionPayload` 与 `RoadBulkActionPayload` 增加 `confirmed` 字段。
+
+### 修复
+
+- **绘制器改为纯手势**：删除 `WindowRoadWand` 与 `windowroadwand.xml`。右键非控制器方块切该行类型；Shift + 右键循环「道路 → 挖掘 → 填充」并清空 A/B；地形模式下右键方块或空气直接下发 `TerrainOrderPayload`；控制器上的右键仍是开面板/绑定。`ItemRoadWand.use` 不再开窗。
+- **删除「清除」**：面板与绘制器窗口的清除按钮一并移除，`RoadPlanningActions` 里 `action=4` 的整段清除逻辑删除，并对 4 显式拒绝，避免落到规划分支；重新点 A/B 即覆盖选择。
+- `WindowRoadRemovalChoice` 不再按游戏模式自行判断是否弹窗（原「生存直接执行、创造弹窗」），改由服务端决定。
+- Shift + 右键**空气**现在与右键方块一样循环模式：原实现把循环只挂在方块路径上，空气路径遇到 Shift 直接返回，准星不在方块上时切不了道路/挖掘/填充。
+- 控制器面板的建造/灯距/镜像在本地先校验 A/B：缺端点时提示先选端点，避免服务端为未开工道路按 `length` 生成一条桩路。
+- **面板动作不再要求绘制器绑定**：`Network.handleConfigure` 与 `RoadPlanningActions` 去掉「背包里有绑定到该控制器的绘制器」的门禁——控制器坐标本身就是作用对象，绑定的意义只剩「绘制器手势编辑哪条路」。门禁改为管理权 + 状态（`canCreate`/`canEdit`/忙碌）。原实现于此会静默丢弃从面板发出的交叉口动作。
+- 回归随改动同步：`UiLocalizationRegression` 摘掉绘制器窗口的字面量条目、改为断言旧窗口类与布局已删除、新风格窗存在（290 条）；`NetworkChannelsRegression` 客户端通道数 7 → 9。
+
+### 文档
+
+- 设计文档随补丁改名 `docs/阡陌纵横-设计文档-0.3.1.md`：重写 §3.2 右键手势、§3.3 合并面板、§3.7 拆除判定、§3.8 换单元（1 级落地 + 目录扫描）、§7 窗口清单、§9 地形入口，并清理「清除」相关旧句。
+- `docs/代码结构与机制.md`：协议 15、13 类 C→S / 9 类 S→C、新增三条消息与两个窗口的文件职责、2.10 拆除判定分支、2.14/2.15 入口改写、回归断言口径（25 套 3114 条 + 导出校验）与基线 JAR 信息。
+- README 中英：三件工具表、首次规划步骤、编辑与拆除手势、地形模式入口、风格/系列选择窗与拆除/清除的新规则。
+- 验证：构建通过（产物 827,118 B / sha256 `3DA53A4349DE…`）；`tests/run.ps1` 25 个程序 3114 条断言 + `export_road_units.py --verify`（21 份单元、80 个非空气调色板项）全绿；三处同哈希部署。游戏内验收 T1–T9 全部通过（含 T2b「Shift + 右键空气循环模式」，2026-11-21）。
+
 ## 0.3.0 — 2026-11-19 地形工单、幽灵距离与 P3 阶段收尾
 
 ### 新增

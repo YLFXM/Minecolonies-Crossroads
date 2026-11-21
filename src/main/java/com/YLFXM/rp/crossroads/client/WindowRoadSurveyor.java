@@ -170,11 +170,10 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
             }
             return;
         }
-        final List<UUID> targets=List.copyOf(this.selected);
-        final boolean draftsOnly=targets.stream().allMatch(id -> ClientRoadCache.roads().stream()
-                .anyMatch(p -> p.id().equals(id) && p.state()==com.YLFXM.rp.crossroads.road.RoadState.DRAFT));
-        if(removeBlocks && !draftsOnly) WindowRoadRemovalChoice.choose(this,instant ->
-                PacketDistributor.sendToServer(new RoadBulkActionPayload(targets,true,instant)));
-        else PacketDistributor.sendToServer(new RoadBulkActionPayload(targets,removeBlocks));
+        // No demolition-method prompt here: the server decides whether one is
+        // needed (developer switch) and answers with it, exactly like the single
+        // Remove button on the controller panel. Asking locally would offer a
+        // choice the server is going to make anyway.
+        PacketDistributor.sendToServer(new RoadBulkActionPayload(List.copyOf(this.selected),removeBlocks));
     }
 }

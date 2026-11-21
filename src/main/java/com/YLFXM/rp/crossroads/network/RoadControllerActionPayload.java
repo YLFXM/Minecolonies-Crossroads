@@ -25,7 +25,15 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record RoadControllerActionPayload(BlockPos controllerPos, Action action)
+/**
+ * One controller action.
+ *
+ * <p>{@code confirmed} says the player already answered the demolition method
+ * prompt. Without it the developer switch would answer every {@code REMOVE}
+ * with the same prompt again, and the choice could never be carried out; every
+ * other action ignores the flag.</p>
+ */
+public record RoadControllerActionPayload(BlockPos controllerPos, Action action, boolean confirmed)
         implements CustomPacketPayload {
     public enum Action {
         UPGRADE,
@@ -34,18 +42,23 @@ public record RoadControllerActionPayload(BlockPos controllerPos, Action action)
         REMOVE_INSTANT
     }
 
+    public RoadControllerActionPayload(final BlockPos controllerPos, final Action action) {
+        this(controllerPos, action, false);
+    }
+
     public static final Type<RoadControllerActionPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Crossroads.MODID, "road_controller_action"));
     public static final StreamCodec<RegistryFriendlyByteBuf, RoadControllerActionPayload> CODEC = StreamCodec.of(
             (buf, payload) -> {
                 buf.writeBlockPos(payload.controllerPos());
                 buf.writeByte(payload.action().ordinal());
+                buf.writeBoolean(payload.confirmed());
             },
             buf -> {
                 final BlockPos pos=buf.readBlockPos();
                 final int action=buf.readUnsignedByte();
                 if(action>=Action.values().length) throw new IllegalArgumentException("Unknown road action");
-                return new RoadControllerActionPayload(pos,Action.values()[action]);
+                return new RoadControllerActionPayload(pos,Action.values()[action],buf.readBoolean());
             });
 
     @Override

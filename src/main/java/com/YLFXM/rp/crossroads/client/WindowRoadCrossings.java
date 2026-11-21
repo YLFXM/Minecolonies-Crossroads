@@ -33,16 +33,19 @@ import net.neoforged.neoforge.network.PacketDistributor;
 /** Functional pair settings; visual redesign is intentionally independent of road geometry. */
 public final class WindowRoadCrossings extends AbstractWindowSkeleton {
     private final UUID road;
+    /** Controller the picker was opened from, so "back" returns to the road panel. */
+    private final net.minecraft.core.BlockPos controllerPos;
     private final ScrollingList list;
     /** A registered junction record, or a geometric candidate that has not formed a relation yet. */
     private record Entry(RoadPlan road,boolean registered) { }
     private List<Entry> candidates=List.of();
     private RoadPlan own;
     private RoadPlan geometry;
-    public WindowRoadCrossings(UUID road) {
+    public WindowRoadCrossings(UUID road,net.minecraft.core.BlockPos controllerPos) {
         super(ResourceLocation.fromNamespaceAndPath(Crossroads.MODID,"gui/windowroadcrossings.xml"));
-        this.road=road;this.list=findPaneOfTypeByID("roads",ScrollingList.class);
-        this.registerButton("back",b -> {close();new WindowRoadWand().open();});
+        this.road=road;this.controllerPos=controllerPos;this.list=findPaneOfTypeByID("roads",ScrollingList.class);
+        // The panel is where intersections are entered from now, so back goes there.
+        this.registerButton("back",b -> {close();new WindowRoadController(controllerPos).open();});
         this.registerButton("reset",b -> send(1,new UUID(0,0),0));
         this.list.setDataProvider(new ScrollingList.DataProvider() {
             @Override public int getElementCount() { return candidates.size(); }

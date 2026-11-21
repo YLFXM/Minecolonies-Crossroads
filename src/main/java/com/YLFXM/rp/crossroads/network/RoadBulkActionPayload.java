@@ -27,9 +27,19 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks, boolean instant)
+/**
+ * Release / remove for a surveyor selection.
+ *
+ * <p>{@code confirmed} has the same meaning as on the single-road payload: the
+ * player already answered the demolition method prompt, so the developer
+ * switch must not ask again.</p>
+ */
+public record RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks, boolean instant, boolean confirmed)
         implements CustomPacketPayload {
-    public RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks) { this(roadIds,removeBlocks,false); }
+    public RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks) { this(roadIds,removeBlocks,false,false); }
+    public RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks, boolean instant) {
+        this(roadIds,removeBlocks,instant,false);
+    }
     public static final Type<RoadBulkActionPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Crossroads.MODID, "road_bulk_action"));
     public static final StreamCodec<RegistryFriendlyByteBuf, RoadBulkActionPayload> CODEC = StreamCodec.of(
@@ -40,6 +50,7 @@ public record RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks, bo
                 }
                 buf.writeBoolean(payload.removeBlocks());
                 buf.writeBoolean(payload.instant());
+                buf.writeBoolean(payload.confirmed());
             },
             buf -> {
                 final int count = buf.readVarInt();
@@ -48,7 +59,7 @@ public record RoadBulkActionPayload(List<UUID> roadIds, boolean removeBlocks, bo
                 for (int i = 0; i < count; i++) {
                     ids.add(buf.readUUID());
                 }
-                return new RoadBulkActionPayload(ids, buf.readBoolean(),buf.readBoolean());
+                return new RoadBulkActionPayload(ids, buf.readBoolean(),buf.readBoolean(),buf.readBoolean());
             });
 
     @Override

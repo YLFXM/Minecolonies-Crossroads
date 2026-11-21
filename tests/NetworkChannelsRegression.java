@@ -32,7 +32,8 @@ public final class NetworkChannelsRegression {
         final Set<String> client = channels(CLIENT);
         final Set<String> server = channels(SERVER);
         check(Files.exists(CLIENT), "client handler class still exists");
-        check(client.size() == 7, "client declares seven client-bound channels: " + client);
+        // Seven until 0.3.1; the style list and the demolition prompt added one each.
+        check(client.size() == 9, "client declares nine client-bound channels: " + client);
         check(server.equals(client), "server declares the same client-bound channels: " + server);
 
         // The two lists must be reachable the way the guard expects: the client list from its own

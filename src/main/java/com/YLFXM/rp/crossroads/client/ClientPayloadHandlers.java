@@ -23,10 +23,14 @@ import com.YLFXM.rp.crossroads.Crossroads;
 import com.YLFXM.rp.crossroads.network.BindRoadWandPayload;
 import com.YLFXM.rp.crossroads.network.ClientRoadCache;
 import com.YLFXM.rp.crossroads.network.OpenBuildToolPayload;
+import com.YLFXM.rp.crossroads.network.OpenRemovalChoicePayload;
 import com.YLFXM.rp.crossroads.network.OpenRoadPlanPayload;
+import com.YLFXM.rp.crossroads.network.RoadBulkActionPayload;
+import com.YLFXM.rp.crossroads.network.RoadControllerActionPayload;
 import com.YLFXM.rp.crossroads.network.RoadPreviewPayload;
 import com.YLFXM.rp.crossroads.network.RoadRemovedPayload;
 import com.YLFXM.rp.crossroads.network.RoadSyncPayload;
+import com.YLFXM.rp.crossroads.network.UnitStyleListPayload;
 import com.YLFXM.rp.crossroads.network.WorkOrderListPayload;
 import com.YLFXM.rp.crossroads.road.RoadNotices;
 import com.YLFXM.rp.crossroads.road.RoadPlan;
@@ -36,6 +40,7 @@ import com.ldtteam.structurize.storage.StructurePacks;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.ListTag;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
@@ -86,6 +91,33 @@ public final class ClientPayloadHandlers {
                 ClientPayloadHandlers::handlePreview);
         registrar.playToClient(RoadRemovedPayload.TYPE, RoadRemovedPayload.CODEC,
                 ClientPayloadHandlers::handleRemoved);
+        registrar.playToClient(UnitStyleListPayload.TYPE, UnitStyleListPayload.CODEC,
+                ClientPayloadHandlers::handleUnitStyles);
+        registrar.playToClient(OpenRemovalChoicePayload.TYPE, OpenRemovalChoicePayload.CODEC,
+                ClientPayloadHandlers::handleRemovalChoice);
+    }
+
+    /** The style/series answer the style list asked for; the window reads it on its next update. */
+    private static void handleUnitStyles(final UnitStyleListPayload payload, final IPayloadContext context) {
+        context.enqueueWork(() -> WindowRoadStyleList.accept(payload.styles(), payload.series()));
+    }
+
+    /**
+     * The server decided the demolition method has to be chosen.
+     *
+     * <p>Both answers go back with {@code confirmed} set, so the same switch
+     * cannot send the player round the prompt again.</p>
+     */
+    private static void handleRemovalChoice(final OpenRemovalChoicePayload payload, final IPayloadContext context) {
+        context.enqueueWork(() -> WindowRoadRemovalChoice.choose(null, instant -> {
+            if (payload.roadIds().isEmpty()) {
+                PacketDistributor.sendToServer(new RoadControllerActionPayload(payload.controllerPos(),
+                        instant ? RoadControllerActionPayload.Action.REMOVE_INSTANT
+                                : RoadControllerActionPayload.Action.REMOVE, true));
+            } else {
+                PacketDistributor.sendToServer(new RoadBulkActionPayload(payload.roadIds(), true, instant, true));
+            }
+        }));
     }
 
     private static void handlePreview(final RoadPreviewPayload payload, final IPayloadContext context) {

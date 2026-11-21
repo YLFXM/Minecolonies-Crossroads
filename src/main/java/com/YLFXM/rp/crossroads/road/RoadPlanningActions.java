@@ -43,16 +43,19 @@ public final class RoadPlanningActions {
     public static void handle(ServerPlayer player,RoadPlanningPayload request) {
         var level=player.serverLevel();var old=RoadManager.get(level).get(request.road());
         if(old!=null && RoadRules.canEdit(old))RoadLockReconcile.ensure(level,old);
+        // The controller position in the payload already names the road, and the
+        // management permission below is the real authority; requiring a wand
+        // bound to that controller would only re-ask a question the controller
+        // already answered, and would silently drop every panel-originated
+        // junction action for a player who carries no wand.
         if(old==null || !old.controllerPos().equals(request.controller()) || !RoadRules.canEdit(old)
-                || RoadRules.busy(old,RoadRules.EDIT) || !RoadPermissions.canManage(level,player,old)
-                || RoadWandBinding.findBound(player.getInventory(),request.controller())==null) return;
+                || RoadRules.busy(old,RoadRules.EDIT) || !RoadPermissions.canManage(level,player,old)) return;
         if(request.action()<0 || request.action()>5 || request.mode()<0 || request.mode()>2) return;
-        if(request.action()==4) {
-            if(old.state()!=RoadState.DRAFT)return;
-            old.clearSegments();old.setEndpoints(null,null);old.clearRowOverrides();RoadManager.get(level).add(old);
-            RoadJunctions.removeRoad(level,old.id());
-            level.players().forEach(Network::sendRoads);return;
-        }
+        // action 4 used to clear the proposal for the deleted wand panel's
+        // "Clear" button. Clearing was never anything but dropping the client's
+        // A/B, so the branch is gone; an old or hand-made packet is refused here
+        // instead of falling through into the planning path below.
+        if(request.action()==4) return;
         try(var edit=RoadJunctions.begin(level)) {
             RoadBlueprintStore.preserveBuilt(level,old);
             RoadReplanning.validate(old,request.a(),request.b());

@@ -25,16 +25,21 @@ import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 
-/** One removal entry point: survival dispatches immediately, creative chooses a native method. */
+/**
+ * Builder or native demolition, for one road or a surveyor selection.
+ *
+ * <p>Whether this window appears at all is the server's decision (developer
+ * switch), so it no longer guesses from the player's game mode: opening it is
+ * itself the permission to ask.</p>
+ */
 public final class WindowRoadRemovalChoice extends AbstractWindowSkeleton {
     private final Consumer<Boolean> action;
     private final Button instantButton;
     private boolean submitted;
 
+    /** Always shows the prompt; the caller decided the choice is needed. */
     public static void choose(AbstractWindowSkeleton parent,Consumer<Boolean> action) {
-        var player=Minecraft.getInstance().player;
-        if(player==null) return;
-        if(!player.isCreative()) { action.accept(false); return; }
+        if(Minecraft.getInstance().player==null) return;
         new WindowRoadRemovalChoice(parent,action).open();
     }
     private WindowRoadRemovalChoice(AbstractWindowSkeleton parent,Consumer<Boolean> action) {

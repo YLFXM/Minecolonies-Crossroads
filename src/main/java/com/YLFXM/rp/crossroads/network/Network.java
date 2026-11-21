@@ -72,7 +72,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 public final class Network {
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("14");
+        final var registrar = event.registrar("15");
         registrar.playToServer(RoadPlanningPayload.TYPE,RoadPlanningPayload.CODEC,(payload,context) ->
                 context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
                     com.YLFXM.rp.crossroads.road.RoadPlanningActions.handle(player,payload); }));
@@ -100,6 +100,8 @@ public final class Network {
                 Network::handleToggleBlueprintEdit);
         registrar.playToServer(TerrainOrderPayload.TYPE, TerrainOrderPayload.CODEC,
                 Network::handleTerrainOrder);
+        registrar.playToServer(RequestUnitStylesPayload.TYPE, RequestUnitStylesPayload.CODEC,
+                Network::handleRequestUnitStyles);
         // Client-bound handlers live in a client-only class; see the class javadoc.
         // The same registrar is reused so the channel version is declared once.
         if (net.neoforged.fml.loading.FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
@@ -110,7 +112,7 @@ public final class Network {
     }
 
     /**
-     * Declares the seven client-bound channels on the dedicated server.
+     * Declares the nine client-bound channels on the dedicated server.
      *
      * <p>The handshake compares the channel <em>names</em> each side declares, not
      * the handlers behind them. A server that leaves these out makes every client
@@ -132,6 +134,8 @@ public final class Network {
         registrar.playToClient(WorkOrderListPayload.TYPE, WorkOrderListPayload.CODEC, (payload, context) -> { });
         registrar.playToClient(RoadPreviewPayload.TYPE, RoadPreviewPayload.CODEC, (payload, context) -> { });
         registrar.playToClient(RoadRemovedPayload.TYPE, RoadRemovedPayload.CODEC, (payload, context) -> { });
+        registrar.playToClient(UnitStyleListPayload.TYPE, UnitStyleListPayload.CODEC, (payload, context) -> { });
+        registrar.playToClient(OpenRemovalChoicePayload.TYPE, OpenRemovalChoicePayload.CODEC, (payload, context) -> { });
     }
 
     private static void handlePreviewRequest(final RequestRoadPreviewPayload payload, final IPayloadContext context) {
@@ -550,9 +554,10 @@ public final class Network {
             final BlockPos controllerPos = payload.controllerPos();
             // No player-to-controller distance gate: A/B are picked from both
             // ends of the road, so the player is legitimately far from the
-            // controller on anything longer than a few blocks. The plan is
-            // already authorized by the wand binding below, and the segment is
-            // bounded by Config.maxRoadLength.
+            // controller on anything longer than a few blocks. The segment is
+            // bounded by Config.maxRoadLength, and the controller itself names
+            // the road this request is about — no held or bound wand is needed
+            // for that. Authority is the management permission checked below.
 
             final RoadPlacementMode mode = payload.mode();
             // Permission is about authority, not cost. RoadPermissions mirrors
@@ -572,10 +577,6 @@ public final class Network {
                 Crossroads.LOGGER.warn("Road configure ignored: no plan at {}", controllerPos);
                 return;
             }
-            if (findBoundWand(player, controllerPos) == null) {
-                RoadNotices.actionBar(player, "rp_crossroads.wand.not_bound_controller");
-                return;
-            }
             if (!canManageRoad(level, player, old)
                     || !(mode == RoadPlacementMode.PLAN ? RoadRules.canCreate(old) : RoadRules.canEdit(old))) {
                 Crossroads.LOGGER.info("Road configure refused: plan={} state={} mode={}", old.id(), old.state(), mode);
@@ -586,7 +587,7 @@ public final class Network {
             // free-form UI value. Reuse the plan's width.
             final int width = Math.max(1, old.width());
             // Lamp spacing is the one construction value the player edits in the
-            // Wand panel, so it comes from the payload rather than the old plan.
+            // controller panel, so it comes from the payload rather than the old plan.
             final int lampSpacing = Math.max(0, Math.min(8, payload.lampSpacing()));
 
             // Click order must not decide which end is A: snap the pair to the
@@ -725,9 +726,10 @@ public final class Network {
     /**
      * Any wand in the inventory bound to this controller.
      *
-     * <p>Panel-originated actions keep using this: the window stays open when the player
-     * switches hotbar slots, so demanding the wand in hand there would drop legitimate
-     * clicks. Gestures use {@link #heldWandBoundTo} instead.</p>
+     * <p>Only the preview request uses this now: a ghost belongs to the wand's own
+     * selection session, so the road has to be the one that wand is bound to.
+     * The panel does not ask for it — the controller names the road — and
+     * gestures use {@link #heldWandBoundTo} instead.</p>
      */
     private static net.minecraft.world.item.ItemStack findBoundWand(final ServerPlayer player,
                                                                     final BlockPos controllerPos) {
@@ -777,6 +779,20 @@ public final class Network {
                 return;
             }
             final ServerLevel level = player.serverLevel();
+            // Same judgement as the single-road Remove button: in the developer
+            // switch the player chooses builder or native demolition first, and
+            // only a selection that really tears blocks down is worth asking
+            // about — a DRAFT-only selection is a management cleanup either way.
+            if (payload.removeBlocks() && !payload.confirmed()
+                    && com.YLFXM.rp.crossroads.road.RoadDevMode.enabled()
+                    && !allDraft(level, payload.roadIds())) {
+                final java.util.List<java.util.UUID> manageable = manageableOf(level, player, payload.roadIds());
+                if (!manageable.isEmpty()) {
+                    PacketDistributor.sendToPlayer(player,
+                            new OpenRemovalChoicePayload(BlockPos.ZERO, manageable));
+                    return;
+                }
+            }
             int cleared = 0;
             int denied = 0;
             com.minecolonies.api.colony.IColony scope = null;
@@ -810,6 +826,35 @@ public final class Network {
         });
     }
 
+    /** True when every resolvable id is a DRAFT road, i.e. nothing but management blocks would go. */
+    private static boolean allDraft(final ServerLevel level, final java.util.List<java.util.UUID> ids) {
+        boolean any = false;
+        for (final java.util.UUID id : ids) {
+            final RoadPlan plan = RoadManager.get(level).get(id);
+            if (plan == null) {
+                continue;
+            }
+            any = true;
+            if (plan.state() != RoadState.DRAFT) {
+                return false;
+            }
+        }
+        return any;
+    }
+
+    /** Subset of {@code ids} this player may act on, in the order given. */
+    private static java.util.List<java.util.UUID> manageableOf(final ServerLevel level, final ServerPlayer player,
+                                                              final java.util.List<java.util.UUID> ids) {
+        final java.util.List<java.util.UUID> result = new java.util.ArrayList<>(ids.size());
+        for (final java.util.UUID id : ids) {
+            final RoadPlan plan = RoadManager.get(level).get(id);
+            if (plan != null && canManageRoad(level, player, plan)) {
+                result.add(id);
+            }
+        }
+        return result;
+    }
+
     /** Permission for destructive road actions: manage-huts in the owning colony. */
     private static boolean canManageRoad(final ServerLevel level, final ServerPlayer player,
                                          final RoadPlan plan) {
@@ -835,7 +880,19 @@ public final class Network {
                 return;
             }
             switch (payload.action()) {
-                case REMOVE -> com.YLFXM.rp.crossroads.road.RoadRemover.remove(level,player,plan,false);
+                case REMOVE -> {
+                    // Which demolition runs is a server decision: a colony builder
+                    // in normal play, the native queue only in the developer
+                    // switch — where the player picks between them first. The
+                    // confirmed flag is that answer coming back, so it must not
+                    // open the prompt a second time.
+                    if (com.YLFXM.rp.crossroads.road.RoadDevMode.enabled() && !payload.confirmed()) {
+                        PacketDistributor.sendToPlayer(player,
+                                new OpenRemovalChoicePayload(payload.controllerPos(), java.util.List.of()));
+                        return;
+                    }
+                    com.YLFXM.rp.crossroads.road.RoadRemover.remove(level,player,plan,false);
+                }
                 case REMOVE_INSTANT -> com.YLFXM.rp.crossroads.road.RoadRemover.remove(level,player,plan,true);
                 // Repair and Upgrade are the same order with a different target
                 // tier: a colony builder replaces the road from a freshly
@@ -899,6 +956,30 @@ public final class Network {
     }
 
     /**
+     * Scans this save's pack for the styles and series that can actually be built
+     * and sends the result.
+     *
+     * <p>Runs on the server because the pack is the server's: a client that
+     * scanned its own copy would offer styles that are absent here. The scan is
+     * two directory listings, so no caching and no paging.</p>
+     */
+    private static void handleRequestUnitStyles(final RequestUnitStylesPayload payload,
+                                                final IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) {
+                return;
+            }
+            final java.util.List<String> styles =
+                    com.YLFXM.rp.crossroads.road.RoadUnitLibrary.styles(player.server);
+            final java.util.Map<String, java.util.List<String>> series = new java.util.LinkedHashMap<>();
+            for (final String style : styles) {
+                series.put(style, com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesIds(player.server, style));
+            }
+            PacketDistributor.sendToPlayer(player, new UnitStyleListPayload(styles, series));
+        });
+    }
+
+    /**
      * Applies a style/series switch and, for a road that already exists in the
      * world, rebuilds it through the normal repair path.
      *
@@ -929,7 +1010,8 @@ public final class Network {
                 RoadNotices.chat(player, plan.id(), "style_busy", "rp_crossroads.style.busy");
                 return;
             }
-            if (!com.YLFXM.rp.crossroads.road.RoadUnitLibrary.styles().contains(payload.style())) {
+            if (!com.YLFXM.rp.crossroads.road.RoadUnitLibrary.styles(level.getServer())
+                    .contains(payload.style())) {
                 RoadNotices.chat(player, plan.id(), "style_unknown", "rp_crossroads.style.unknown", payload.style());
                 return;
             }

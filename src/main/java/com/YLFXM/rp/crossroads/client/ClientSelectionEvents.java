@@ -128,46 +128,162 @@ public final class ClientSelectionEvents {
     }
 
     /**
-     * Shift + right-click with the Wand cycles the aimed cell's unit type:
-     * {@code FLAT → STAIR_UP → STAIR_DOWN → FLAT}.
+     * Right-click gestures, in one place so their priority is readable:
      *
-     * <p>Only fires when the aimed block really belongs to a synced road, and
-     * never on a decoration controller — that cell keeps the bind / open-panel
-     * gesture. The click is claimed only in that case, so a shift-right-click on
-     * ordinary ground still does whatever it normally does.</p>
+     * <ol>
+     *   <li>controller block — panel (plain) or bind (shift), never a road edit;</li>
+     *   <li>shift — cycle road → dig → fill, clearing A/B;</li>
+     *   <li>dig/fill mode — turn the two corners into a terrain order;</li>
+     *   <li>road mode — cycle the aimed row's unit type.</li>
+     * </ol>
+     *
+     * <p>The wand has no window of its own any more, so every one of these is a
+     * gesture; the server still re-validates whichever packet comes out.</p>
      */
     @SubscribeEvent
     public static void onRightClickBlock(final PlayerInteractEvent.RightClickBlock event) {
         if (!event.getLevel().isClientSide()) {
             return;
         }
-        if (!event.getEntity().isShiftKeyDown()) {
-            return;
-        }
-        if (!event.getEntity().getMainHandItem().is(ModRegistry.ROAD_WAND.get())
-                && !event.getEntity().getOffhandItem().is(ModRegistry.ROAD_WAND.get())) {
+        final net.minecraft.world.entity.player.Player player = event.getEntity();
+        if (!holdsWand(player)) {
             return;
         }
         final BlockPos pos = event.getPos();
         if (event.getLevel().getBlockState(pos).getBlock()
                 instanceof com.minecolonies.core.blocks.BlockDecorationController) {
+            // The controller keeps its own gestures: plain right-click asks the
+            // server to open the panel, shift-right binds the wand. Neither may
+            // be swallowed here, or the panel could never open.
             return;
         }
-        com.YLFXM.rp.crossroads.road.RoadPlan target = boundPlan(event.getEntity());
+        if (player.isShiftKeyDown()) {
+            cycleMode(player);
+            claim(event);
+            return;
+        }
+        if (TerrainClientState.isTerrain()) {
+            // A terrain volume has nothing to do with the bound road's axis, so
+            // no road check may run here — that is what used to block picking
+            // ground off a built road's line.
+            dispatchTerrain(player);
+            claim(event);
+            return;
+        }
+        editAimedRow(player, pos, event);
+    }
+
+    /**
+     * Air right-click: mode cycling and the terrain dispatch, the same gestures
+     * as on a block.
+     *
+     * <p>Both have to work without a block under the crosshair — looking at the
+     * sky is exactly when the player wants to leave terrain mode — so this path
+     * mirrors {@link #onRightClickBlock}: shift cycles the mode, dig/fill
+     * dispatches the order, road mode does nothing. Only a real miss is handled:
+     * when a block is in the crosshair the block path owns the gesture, and
+     * handling both would fire it twice.</p>
+     */
+    @SubscribeEvent
+    public static void onRightClickItem(final PlayerInteractEvent.RightClickItem event) {
+        if (!event.getLevel().isClientSide() || !holdsWand(event.getEntity())) {
+            return;
+        }
+        final net.minecraft.world.phys.HitResult hit = net.minecraft.client.Minecraft.getInstance().hitResult;
+        if (hit != null && hit.getType() != net.minecraft.world.phys.HitResult.Type.MISS) {
+            return;
+        }
+        if (event.getEntity().isShiftKeyDown()) {
+            cycleMode(event.getEntity());
+            event.setCanceled(true);
+            return;
+        }
+        if (!TerrainClientState.isTerrain()) {
+            return;
+        }
+        dispatchTerrain(event.getEntity());
+        event.setCanceled(true);
+    }
+
+    /**
+     * Sends the two corners as a terrain order.
+     *
+     * <p>Both corners are needed before the server can build anything, and
+     * saying so here beats a silent no-op. The mode rides along only as "fill or
+     * not": the server resolves the colony and the volume from the box.</p>
+     */
+    private static void dispatchTerrain(final net.minecraft.world.entity.player.Player player) {
+        if (!RoadSelectionClient.hasBoth()) {
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
+                    "rp_crossroads.select.endpoints_first");
+            return;
+        }
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new com.YLFXM.rp.crossroads.network.TerrainOrderPayload(
+                        RoadSelectionClient.a(), RoadSelectionClient.b(),
+                        TerrainClientState.mode() == TerrainClientState.Mode.FILL));
+    }
+
+    /**
+     * Cycles road → dig → fill → road, clearing the corners each time.
+     *
+     * <p>Clearing is deliberate: corners picked for a road mean nothing as a
+     * box (and the reverse), so carrying them over would make the next build
+     * look like a leftover. The mode lives only on the client; the server learns
+     * it from the request that follows.</p>
+     */
+    private static void cycleMode(final net.minecraft.world.entity.player.Player player) {
+        final TerrainClientState.Mode next = switch (TerrainClientState.mode()) {
+            case NONE -> TerrainClientState.Mode.DIG;
+            case DIG -> TerrainClientState.Mode.FILL;
+            case FILL -> TerrainClientState.Mode.NONE;
+        };
+        TerrainClientState.setMode(next);
+        RoadSelectionClient.clear();
+        com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player, switch (next) {
+            case DIG -> "rp_crossroads.terrain.mode_dig";
+            case FILL -> "rp_crossroads.terrain.mode_fill";
+            case NONE -> "rp_crossroads.terrain.mode_road";
+        });
+    }
+
+    /** Claims the click: no block use, no item use, nothing else may act on it. */
+    private static void claim(final PlayerInteractEvent.RightClickBlock event) {
+        event.setUseBlock(net.neoforged.neoforge.common.util.TriState.FALSE);
+        event.setUseItem(net.neoforged.neoforge.common.util.TriState.FALSE);
+        event.setCanceled(true);
+    }
+
+    private static boolean holdsWand(final net.minecraft.world.entity.player.Player player) {
+        return player.getMainHandItem().is(ModRegistry.ROAD_WAND.get())
+                || player.getOffhandItem().is(ModRegistry.ROAD_WAND.get());
+    }
+
+    /**
+     * Cycles the aimed cell's unit type on the bound road.
+     *
+     * <p>Only fires when the aimed block really belongs to a synced road that
+     * may be edited, and the click is claimed only in that case, so a
+     * right-click on ordinary ground still does whatever it normally does.</p>
+     */
+    private static void editAimedRow(final net.minecraft.world.entity.player.Player player, final BlockPos pos,
+                                     final PlayerInteractEvent.RightClickBlock event) {
+        com.YLFXM.rp.crossroads.road.RoadPlan target = boundPlan(player);
         if (target != null) RoadSelectionClient.bindTo(target);
         if (target != null && !RoadRules.canEdit(target)) {
-            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
                     "rp_crossroads.road.locked");
-            event.setCanceled(true);
+            claim(event);
             return;
         }
         // Same predicate the server uses to reject the edit: a road that can still create
         // its shape (DRAFT, no session) needs both endpoints. Asking "state == DRAFT" let
         // the two sides disagree and the edit failed silently.
         if (target != null && RoadRules.canCreate(target) && !RoadSelectionClient.hasBoth()) {
-            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
                     "rp_crossroads.select.endpoints_first");
-            event.setCanceled(true); return;
+            claim(event);
+            return;
         }
         if (target == null) {
             com.YLFXM.rp.crossroads.Crossroads.LOGGER.info(
@@ -181,9 +297,7 @@ public final class ClientSelectionEvents {
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
                 new com.YLFXM.rp.crossroads.network.EditRoadCellPayload(target.controllerPos(), pos,
                         RoadSelectionClient.a(), RoadSelectionClient.b(), RoadSelectionClient.mirror(), target.id()));
-        event.setUseBlock(net.neoforged.neoforge.common.util.TriState.FALSE);
-        event.setUseItem(net.neoforged.neoforge.common.util.TriState.FALSE);
-        event.setCanceled(true);
+        claim(event);
     }
 
     /** Road the player's Wand is bound to, or null when it is bound to nothing. */

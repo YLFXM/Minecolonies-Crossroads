@@ -102,12 +102,10 @@ public final class UiLocalizationRegression {
 
     /** Panel classes must not build player text from literals. */
     private static void noLiteralPanelText() throws Exception {
-        // Each entry: file, literal that used to be hardcoded, why it must stay gone.
+        // 0.3.1 removed the wand window and the three-column style picker; the
+        // strings they used to hardcode are gone with them, so those files are no
+        // longer listed here. Absence is asserted separately.
         final String[][] gone = {
-                {"WindowRoadWand.java", "\"Mirror: \"", "mirror button"},
-                {"WindowRoadWand.java", "\"No plan\"", "wand state line"},
-                {"WindowRoadWand.java", "\"Bound: \"", "wand binding line"},
-                {"WindowRoadWand.java", "\"Unbound: right-click", "wand binding line"},
                 {"WindowRoadSurveyor.java", "\"Road Surveyor\"", "surveyor title"},
                 {"WindowRoadSurveyor.java", "\"Selected: \"", "surveyor selection line"},
                 {"WindowRoadSurveyor.java", "\" | len \"", "surveyor row"},
@@ -127,6 +125,19 @@ public final class UiLocalizationRegression {
             check(!Files.readString(file).contains(entry[1]),
                     entry[1] + " is translated, not hardcoded (" + entry[2] + ")");
         }
+        // 0.3.1: the wand has no window any more (its actions live in the
+        // controller panel) and the style picker was rebuilt around the server's
+        // style list. A leftover file would be an entry point nothing opens.
+        check(!Files.exists(CLIENT.resolve("WindowRoadWand.java")),
+                "the wand window class is gone");
+        check(!Files.exists(GUI.resolve("windowroadwand.xml")),
+                "the wand window layout is gone");
+        check(!Files.exists(CLIENT.resolve("WindowRoadStyle.java")),
+                "the old style/level picker is gone");
+        check(Files.exists(CLIENT.resolve("WindowRoadStyleList.java")),
+                "the style list window exists");
+        check(Files.exists(GUI.resolve("windowroadstylelist.xml")),
+                "the style list layout exists");
     }
 
     /**

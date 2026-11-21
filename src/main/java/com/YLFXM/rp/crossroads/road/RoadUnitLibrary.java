@@ -29,6 +29,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -56,6 +57,8 @@ public final class RoadUnitLibrary {
     public static final String LAMP="lamp";
 
     private static final String ROOT="/assets/rp_crossroads/blueprints/units/";
+    /** Manifest file name inside one style (and inside one series folder). */
+    private static final String MANIFEST="units.json";
     private static final Map<HolderLookup.Provider,Map<String,Manifest>> MANIFESTS=new IdentityHashMap<>();
     private static final Map<HolderLookup.Provider,Map<String,UnitTemplate>> CACHE=new IdentityHashMap<>();
 
@@ -137,22 +140,70 @@ public final class RoadUnitLibrary {
         return max;
     }
 
-    /** Series ids the manifest ships, in declaration order. */
-    public static synchronized java.util.List<String> seriesIds(final String style) {
-        final var result=new java.util.ArrayList<String>();
-        for(final var entry:bundledManifest(style).getAsJsonObject("series").entrySet()) result.add(entry.getKey());
+    /**
+     * Series ids one style holds, read from the save's pack first.
+     *
+     * <p>A series is a folder with its own manifest: {@code units/<style>/<series>/units.json}.
+     * A third-party style pack that drops a new series in is therefore selectable
+     * without a code change, which is the whole point of the scan. The jar
+     * manifest is merged in as a fallback so a save whose pack has not been
+     * seeded yet still offers what the jar ships; the folder names are the join
+     * key, so nothing is listed twice.</p>
+     */
+    public static java.util.List<String> seriesIds(final MinecraftServer server,final String style) {
+        final java.util.Set<String> result=new java.util.TreeSet<>();
+        final Path root=styleUnitRoot(server,style);
+        if(root!=null) try(final var dirs=Files.list(root)) {
+            dirs.filter(Files::isDirectory)
+                    .filter(dir -> Files.isRegularFile(dir.resolve(MANIFEST)))
+                    .forEach(dir -> result.add(dir.getFileName().toString()));
+        } catch(final java.io.IOException ex) {
+            Crossroads.LOGGER.warn("Could not list road unit series under {}",root,ex);
+        }
+        final JsonObject bundled=safeBundledManifest(style);
+        if(bundled!=null && bundled.has("series")) {
+            for(final var entry:bundled.getAsJsonObject("series").entrySet()) result.add(entry.getKey());
+        }
         return java.util.List.copyOf(result);
     }
 
     /**
-     * Unit style folders that exist in the jar.
+     * Unit style folders that hold units in this save.
      *
-     * <p>A style folder is a whole separate set of units ({@code units/<style>/<series>/}),
-     * so adding one means running the exporter against another source pack and
-     * listing it here — there is nothing to discover at runtime.</p>
+     * <p>A style is a first-level folder of {@code units/}, i.e. a whole separate
+     * set of units ({@code units/<style>/<series>/}). The jar list is merged in as
+     * a fallback for a save that has not been seeded yet, and both sides are
+     * sorted by folder name so the panel order is stable. Scanning here rather
+     * than hard-coding is what lets a third-party style folder show up at all.</p>
      */
-    public static java.util.List<String> styles() {
-        return java.util.List.of(com.YLFXM.rp.crossroads.CustomRoadPack.UNIT_STYLE_ORIGINAL);
+    public static java.util.List<String> styles(final MinecraftServer server) {
+        final java.util.Set<String> result=new java.util.TreeSet<>(com.YLFXM.rp.crossroads.CustomRoadPack.availableStyles());
+        final Path root=packUnits(server);
+        if(root!=null) try(final var dirs=Files.list(root)) {
+            dirs.filter(Files::isDirectory).forEach(dir -> result.add(dir.getFileName().toString()));
+        } catch(final java.io.IOException ex) {
+            Crossroads.LOGGER.warn("Could not list road unit styles under {}",root,ex);
+        }
+        return java.util.List.copyOf(result);
+    }
+
+    /** {@code <pack>/units/}, or {@code null} when this save has no pack copy yet. */
+    private static Path packUnits(final MinecraftServer server) {
+        if(server==null) return null;
+        try {
+            final Path dir=com.YLFXM.rp.crossroads.CustomRoadPack.unitRoot(server);
+            return Files.isDirectory(dir) ? dir : null;
+        } catch(final RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /** One style folder of the save's pack, or {@code null} when it does not exist. */
+    private static Path styleUnitRoot(final MinecraftServer server,final String style) {
+        final Path root=packUnits(server);
+        if(root==null) return null;
+        final Path dir=root.resolve(normalizeStyle(style));
+        return Files.isDirectory(dir) ? dir : null;
     }
 
     private static final Map<String,Map<String,Integer>> bundledWidthCache=new HashMap<>();
@@ -184,12 +235,7 @@ public final class RoadUnitLibrary {
 
     /** Root of the pack copy of the unit tree, or {@code null} when this world has none yet. */
     private static Path packUnitRoot(final ServerLevel world) {
-        try {
-            final Path dir=com.YLFXM.rp.crossroads.CustomRoadPack.unitRoot(world.getServer());
-            return Files.isDirectory(dir) ? dir : null;
-        } catch(final RuntimeException ex) {
-            return null;
-        }
+        return packUnits(world.getServer());
     }
 
     /**
@@ -212,6 +258,24 @@ public final class RoadUnitLibrary {
             return parsed;
         } catch(final Exception ex) {
             throw new IllegalStateException("Could not read the bundled road unit manifest",ex);
+        }
+    }
+
+    /**
+     * Same manifest, or {@code null} when this build ships no units for the style.
+     *
+     * <p>Style folders come from the save's pack, so a third-party style has no
+     * jar manifest at all. Listing its series must not fail the whole scan just
+     * because the fallback does not exist.</p>
+     */
+    private static JsonObject safeBundledManifest(final String style) {
+        final String key=normalizeStyle(style);
+        if(BUNDLED.containsKey(key)) return BUNDLED.get(key);
+        if(RoadUnitLibrary.class.getResourceAsStream(ROOT+key+"/"+MANIFEST)==null) return null;
+        try {
+            return bundledManifest(key);
+        } catch(final RuntimeException ex) {
+            return null;
         }
     }
 

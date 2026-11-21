@@ -1,4 +1,4 @@
-<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="280 140"
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="280 196"
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
     <image source="minecolonies:textures/gui/builderhut/builder_paper_sketch.png" size="100% 100%"/>
 
@@ -8,21 +8,45 @@
     <text id="state" size="260 10" pos="10 38" textalign="MIDDLE" color="black"/>
     <text id="detail" size="260 10" pos="10 52" textalign="MIDDLE" color="black"/>
 
-    <button id="style" size="260 17" pos="10 64"
+    <button id="build" size="120 17" pos="10 70"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
-            label="$(rp_crossroads.gui.style_entry)" color="black"/>
-
-    <button id="upgrade" size="80 17" pos="10 86"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
-            label="$(rp_crossroads.gui.upgrade)" color="black"/>
-    <button id="repair" size="80 17" pos="100 86"
+            label="$(rp_crossroads.gui.build)" color="black"/>
+    <button id="repair" size="120 17" pos="135 70"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.repair)" color="black"/>
-    <button id="remove" size="80 17" pos="190 86"
+
+    <button id="edit" size="120 17" pos="10 90"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.edit_blueprint)" color="black"/>
+    <button id="crossings" size="120 17" pos="135 90"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.crossings)" color="black"/>
+
+    <button id="remove" size="260 17" pos="10 110"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.remove)" color="black"/>
 
-    <button id="edit" size="120 17" pos="80 108"
+    <button id="style" size="125 17" pos="10 132"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
-            label="$(rp_crossroads.gui.edit_blueprint)" color="black"/>
+            label="$(rp_crossroads.gui.style_entry)" color="black"/>
+    <button id="series" size="125 17" pos="135 132"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.series)" color="black"/>
+
+    <button id="lampDown" size="20 17" pos="10 152"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="-" color="black"/>
+    <button id="lampValue" size="30 17" pos="33 152"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="4" color="black"/>
+    <button id="lampUp" size="20 17" pos="66 152"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="+" color="black"/>
+    <text id="lampLabel" size="55 17" pos="90 152" textalign="MIDDLE" color="black"
+          label="$(rp_crossroads.gui.lamp_spacing)"/>
+    <button id="mirror" size="95 17" pos="150 152"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.mirror_off)" color="black"/>
+
+    <text id="issue" size="260 18" pos="10 172" color="red" textscale="0.8"/>
 </window>

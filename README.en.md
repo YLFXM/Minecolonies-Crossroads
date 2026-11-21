@@ -13,7 +13,7 @@ Requires Minecraft 1.21.1 · NeoForge 21.1.259 · MineColonies 1.1.1403-1.21.1 �
 ## Prerequisites and Installation
 
 1. Install MineColonies and its dependencies (Structurize, BlockUI, Domum Ornamentum), and make sure they run on 1.21.1 / NeoForge 21.1.259.
-2. Put `rp_crossroads-0.3.0.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
+2. Put `rp_crossroads-0.3.1.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
 3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (14) is rejected at login.
 
 For single-player, steps 1–2 are enough. On a server, ship the same jar to the server and to all players.
@@ -39,7 +39,7 @@ Report beta issues to **2909987685@qq.com**, ideally with:
 
 | Item | Purpose |
 |---|---|
-| Road Painter `road_wand` | Pick A/B to plan a road, edit row by row, view the ghost, open the build tool. |
+| Road Painter `road_wand` | Pick A/B to plan a road, right-click to switch a row's type, shift-right-click to cycle road / dig / fill mode, view the ghost. It has no window of its own: building and management live in the controller panel. |
 | Road Register `road_surveyor` | Show a road's extent and manage several at once (Release / Remove). Shift-right-click a Town Hall to bind a colony; while unbound it lists the wilderness roads you may manage. |
 | Work Order List `work_order_scroll` | After Shift-right-clicking a Town Hall to bind it, view and bulk-cancel that colony's work orders. |
 
@@ -63,8 +63,8 @@ All three items appear on this mod's creative tab. "Native build tool" below mea
 2. Right-click the controller to create a plan, then Shift-right-click it while holding the wand to bind the wand to this road.
 3. Holding the wand, left-click to pick A and Shift-left-click to pick B. The two points fix the horizontal endpoints; they must share an X or a Z axis, up to 256 blocks apart.
 4. The anchor row is always flat, with the road surface one block below the anchor; the other rows accumulate step height. The Y you clicked for A/B is not a height target.
-5. Right-click air to open the wand panel and adjust mirroring, lamp spacing (1–8; 1 means no lamps) and auto planning. The road is still an unstarted plan at this point.
-6. Click "Create blueprint / Open build tool": the native tool opens on `generated/` with the blueprint just generated **already selected**; you can still pick another one.
+5. Right-click the controller to open the controller panel and adjust mirroring and lamp spacing (1–8; 1 means no lamps). The road is still an unstarted plan at this point.
+6. Click "Build" in the panel: the native tool opens on `generated/` with the blueprint just generated **already selected**; you can still pick another one.
 7. The tool also lists `units → original → streets`: the mod's road / stair / lamp unit previews. They are for reference and manual placement only; the road flow uses the generated blueprint.
 
 Construction uses the three native modes (Complete / Pretty / Survival): in creative it finishes instantly and consumes no materials, while in survival a colony builder works through the order. A wrong blueprint, a moved anchor or a rotated blueprint are refused.
@@ -74,12 +74,16 @@ Closing the window before confirming rolls back to unstarted the first time; an 
 ## Editing, Repair and Removal
 
 - Point the wand at any block of this road to outline the whole row and show `Row N · current → next` under the crosshair (N counts from the start of the road, not a coordinate), coloured by type (flat white / step up cyan / step down orange).
-- Shift-right-click a non-controller block of this road to switch it between flat / step up / step down. The anchor row and any active same-level junction must stay flat. For a road that is already built, enable "Edit Blueprint" in the controller panel first.
+- Right-click a non-controller block of this road (road mode) to switch it between flat / step up / step down. The anchor row and any active same-level junction must stay flat. For a road that is already built, enable "Edit Blueprint" in the controller panel first.
+- "Build / Upgrade" is one button: "Build" while the road is unstarted, "Upgrade to N" afterwards, "In progress" and disabled while construction runs. "Mirror" and the lamp spacing apply immediately and are stored on the plan.
+- There is no "Clear" button any more: re-picking A/B overwrites the selection, and giving up on the whole road is what "Remove" is for.
+- The style and series buttons open one picker: the left column lists the styles the server found in this save's pack (`units/`), the right column that style's series (streets 4 wide / main road 5 wide). A switch lands on tier 1 and the panel's Upgrade walks it up (streets 1–3, main 1–4).
+- Terrain selections have no button: shift-right-click cycles "road → dig → fill" on a block or in the air (the action bar names the mode and A/B are cleared), then right-click a block or the air to turn the two corners into a blueprint and open the build tool.
 - A road that already shares a junction cannot switch style / series / tier (the shared cells are written by both roads); remove the relation first.
 - A confirmed road can only be extended or shortened along its axis; it cannot be moved sideways. Editing never touches the world.
 - Repair is unavailable before construction starts. It freezes the target again and runs the same native build; editing is blocked while it runs, and the edited/lost counters reset on success.
 - When someone else is building or removing this road, the controller panel's second line names them (`Building: X (preparing/building)`, `Removing: X`) and a rejected Repair says who holds the session; wait, or ask them to close their window or finish.
-- The Remove button on the controller: in survival it creates a native REMOVE order; in creative you can then choose a builder demolition or an instant native demolition. Cancelling that second choice does nothing.
+- The controller's Remove and the register's "Remove selected" share one server-side decision: in normal play they dispatch straight away (survival creates a native REMOVE order; creative also goes through a builder). Only with `/mcrcross dev on` does the "builder / instant" prompt appear, and cancelling it does nothing. A wilderness road with no colony is refused outside developer mode.
 - An unstarted road only clears the plan, the controller and the explicit anchor. A built road freezes the demolition target from a trusted snapshot; without one it conservatively keeps the terrain.
 - Management records are cleared only after the demolition actually finishes; cancelling does not roll back blocks that are already gone.
 - Cancelling work orders from the scroll requires management permission on that colony, and affected online players are notified. The "Upgrade" button is not implemented and stays disabled.
@@ -140,7 +144,7 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 The documents below are written in Chinese.
 
-- [Design document](docs/阡陌纵横-设计文档-0.3.0.md) — the rules currently in effect and future boundaries.
+- [Design document](docs/阡陌纵横-设计文档-0.3.1.md) — the rules currently in effect and future boundaries.
 - [Implementation progress](docs/阡陌纵横-实现进度.md) — stage completion and acceptance records.
 - [Code structure and mechanics](docs/代码结构与机制.md) — how sources, regression tests and scripts are split, call traces and change scope.
 - [Contributing and porting](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).
