@@ -1,22 +1,25 @@
-<window size="260 150" lightbox="true">
-    <text id="title" size="220 12" pos="20 14" textalign="MIDDLE" color="white" textscale="1.1"
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="232 144"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
+    <image source="minecolonies:textures/gui/builderhut/builder_paper_wide2.png" size="100% 100%"/>
+
+    <text id="title" size="216 10" pos="8 10" textalign="MIDDLE" color="black" textscale="0.9"
           label="$(rp_crossroads.gui.tier_title)"/>
-    <text id="hint" size="220 10" pos="20 26" textalign="MIDDLE" color="white" textscale="0.8"
+    <text id="hint" size="216 10" pos="8 22" textalign="MIDDLE" color="black" textscale="0.7"
           label="$(rp_crossroads.gui.tier_hint)"/>
 
-    <button id="tier0" size="200 17" pos="30 40"
+    <button id="tier0" size="216 17" pos="8 38"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="tier1" size="200 17" pos="30 60"
+    <button id="tier1" size="216 17" pos="8 58"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="tier2" size="200 17" pos="30 80"
+    <button id="tier2" size="216 17" pos="8 78"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="tier3" size="200 17" pos="30 100"
+    <button id="tier3" size="216 17" pos="8 98"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
 
-    <button id="confirm" size="100 17" pos="20 126"
+    <button id="confirm" size="104 17" pos="8 119"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.confirm)" color="black"/>
-    <button id="cancel" size="100 17" pos="140 126"
+    <button id="cancel" size="104 17" pos="120 119"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.cancel)" color="black"/>
 </window>

@@ -110,9 +110,28 @@ public final class RoadUnitLibrary {
         return width==null ? -1 : width;
     }
 
+    /** Same, from the save's pack manifest first. */
+    public static synchronized int seriesWidth(final MinecraftServer server,final String style,final String series) {
+        final JsonObject manifest=manifestJson(server,style);
+        if(manifest==null || !manifest.has("series")) return -1;
+        final JsonObject node=manifest.getAsJsonObject("series").getAsJsonObject(normalizeSeries(series));
+        return node==null || !node.has("width") ? -1 : node.get("width").getAsInt();
+    }
+
     /** Walkable columns the series declares, or {@code null} when the manifest has none. */
     public static synchronized WalkRange seriesWalkRange(final String style,final String series) {
-        final var node=bundledManifest(style).getAsJsonObject("series").getAsJsonObject(normalizeSeries(series));
+        return walkRangeOf(safeBundledManifest(style),normalizeSeries(series));
+    }
+
+    /** Same, from the save's pack manifest first — the style may not be one the jar ships. */
+    public static synchronized WalkRange seriesWalkRange(final MinecraftServer server,final String style,
+                                                         final String series) {
+        return walkRangeOf(manifestJson(server,style),normalizeSeries(series));
+    }
+
+    private static WalkRange walkRangeOf(final JsonObject manifest,final String series) {
+        if(manifest==null || !manifest.has("series")) return null;
+        final JsonObject node=manifest.getAsJsonObject("series").getAsJsonObject(series);
         if(node==null || !node.has("walkRange")) return null;
         final var range=node.getAsJsonArray("walkRange");
         return WalkRange.of(range.get(0).getAsInt(),range.get(1).getAsInt());
@@ -127,8 +146,23 @@ public final class RoadUnitLibrary {
      * manifest and never loads a blueprint.</p>
      */
     public static synchronized int maxLevel(final String style,final String series) {
-        final JsonObject node=bundledManifest(style).getAsJsonObject("series")
-                .getAsJsonObject(normalizeSeries(series));
+        return maxLevelOf(safeBundledManifest(style),normalizeSeries(series));
+    }
+
+    /**
+     * Highest tier the series ships, read from the save's pack manifest first.
+     *
+     * <p>A style that only exists in the save's pack has no jar manifest at all,
+     * so anything that answers "how many tiers" for a style the player can pick
+     * has to look at the pack copy — the same file {@link #load} reads.</p>
+     */
+    public static synchronized int maxLevel(final MinecraftServer server,final String style,final String series) {
+        return maxLevelOf(manifestJson(server,style),normalizeSeries(series));
+    }
+
+    private static int maxLevelOf(final JsonObject manifest,final String series) {
+        if(manifest==null || !manifest.has("series")) return 0;
+        final JsonObject node=manifest.getAsJsonObject("series").getAsJsonObject(series);
         if(node==null || !node.has("units")) return 0;
         final JsonObject roads=node.getAsJsonObject("units").getAsJsonObject(ROAD);
         if(roads==null) return 0;
@@ -211,7 +245,9 @@ public final class RoadUnitLibrary {
     private static Integer manifestWidth(final String style,final String series) {
         final Map<String,Integer> widths=bundledWidthCache.computeIfAbsent(style,key -> {
             final Map<String,Integer> parsed=new HashMap<>();
-            for(final var entry:bundledManifest(key).getAsJsonObject("series").entrySet()) {
+            final JsonObject manifest=safeBundledManifest(key);
+            if(manifest==null || !manifest.has("series")) return Map.copyOf(parsed);
+            for(final var entry:manifest.getAsJsonObject("series").entrySet()) {
                 final JsonObject node=entry.getValue().getAsJsonObject();
                 parsed.put(entry.getKey(),node.get("width").getAsInt());
             }
@@ -275,6 +311,93 @@ public final class RoadUnitLibrary {
         try {
             return bundledManifest(key);
         } catch(final RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Parsed manifest for one style, the save's pack copy first.
+     *
+     * <p>Everything that answers a question about a style the player can pick has
+     * to read this and not the jar: a style folder dropped into the pack has no
+     * jar manifest, and answering "0 tiers / no width" for it would list a
+     * choice that cannot be applied.</p>
+     */
+    private static JsonObject manifestJson(final MinecraftServer server,final String style) {
+        final Path dir=styleUnitRoot(server,normalizeStyle(style));
+        if(dir!=null) {
+            final Path file=dir.resolve(MANIFEST);
+            final JsonObject parsed=readJson(file);
+            if(parsed!=null && parsed.has("schemaVersion") && parsed.get("schemaVersion").getAsInt()==2) return parsed;
+        }
+        return safeBundledManifest(style);
+    }
+
+    /** One style's self-description, as declared by its own {@code style.json}. */
+    public record StyleMeta(String name,String desc,List<String> authors,String cover) {
+        /** Nothing declared: the window falls back to a language key, then the folder name. */
+        public static final StyleMeta EMPTY=new StyleMeta("","",List.of(),"");
+    }
+
+    /** File a style may use to describe itself; every field inside is optional. */
+    private static final String STYLE_JSON="style.json";
+
+    /**
+     * Display data of one style: the pack copy of {@code style.json} wins, the
+     * jar copy is the seed. Missing or broken means "nothing declared" — a style
+     * folder alone is enough to be listed.
+     */
+    public static StyleMeta styleMeta(final MinecraftServer server,final String style) {
+        final String id=normalizeStyle(style);
+        final Path dir=styleUnitRoot(server,id);
+        JsonObject json=dir==null ? null : readJson(dir.resolve(STYLE_JSON));
+        if(json==null) json=readJson(ROOT+id+"/"+STYLE_JSON);
+        if(json==null) return StyleMeta.EMPTY;
+        try {
+            final String name=json.has("name") ? json.get("name").getAsString() : "";
+            final String desc=json.has("desc") ? json.get("desc").getAsString() : "";
+            final List<String> authors=new java.util.ArrayList<>();
+            if(json.has("authors")) for(final var author:json.getAsJsonArray("authors")) authors.add(author.getAsString());
+            final String cover=json.has("cover") ? coverName(json.get("cover").getAsString()) : "";
+            return new StyleMeta(name,desc,List.copyOf(authors),cover);
+        } catch(final RuntimeException ex) {
+            Crossroads.LOGGER.warn("Ignoring unreadable style description for {}",id,ex);
+            return StyleMeta.EMPTY;
+        }
+    }
+
+    /**
+     * Cover file name, reduced to a leaf this mod will look for.
+     *
+     * <p>{@code style.json} comes from a pack, i.e. from whoever wrote that pack,
+     * and the value ends up in a filesystem path. Anything that is not a plain
+     * {@code *.png} leaf is dropped and the window uses its fallback icon.</p>
+     */
+    private static String coverName(final String declared) {
+        final String leaf=declared.replace('\\','/');
+        final String name=leaf.substring(leaf.lastIndexOf('/')+1);
+        return name.endsWith(".png") && name.indexOf("..")<0 && name.length()>4 ? name : "";
+    }
+
+    /** Parsed JSON from a jar resource under the unit root, or {@code null}. */
+    private static JsonObject readJson(final String resource) {
+        try(var in=RoadUnitLibrary.class.getResourceAsStream(resource)) {
+            if(in==null) return null;
+            try(final var reader=new InputStreamReader(in,StandardCharsets.UTF_8)) {
+                return JsonParser.parseReader(reader).getAsJsonObject();
+            }
+        } catch(final Exception ex) {
+            return null;
+        }
+    }
+
+    /** Parsed JSON file, or {@code null} when it is absent or broken. */
+    private static JsonObject readJson(final Path file) {
+        if(file==null || !Files.isRegularFile(file)) return null;
+        try(final var reader=Files.newBufferedReader(file,StandardCharsets.UTF_8)) {
+            return JsonParser.parseReader(reader).getAsJsonObject();
+        } catch(final Exception ex) {
+            Crossroads.LOGGER.warn("Ignoring unreadable JSON at {}",file,ex);
             return null;
         }
     }

@@ -1,36 +1,36 @@
-<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="300 220"
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="280 176"
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
-    <image source="minecolonies:textures/gui/builderhut/builder_paper_sketch.png" size="100% 100%"/>
+    <image source="minecolonies:textures/gui/builderhut/builder_paper_wide2.png" size="100% 100%"/>
 
-    <text id="title" size="280 12" pos="10 8" textalign="MIDDLE" color="black"
+    <text id="title" size="264 10" pos="8 8" textalign="MIDDLE" color="black" textscale="0.9"
           label="$(rp_crossroads.gui.surveyor_title)"/>
-    <text id="selected" size="280 10" pos="10 21" textalign="MIDDLE" color="black"
+    <text id="selected" size="264 9" pos="8 19" textalign="MIDDLE" color="black" textscale="0.7"
           label="$(rp_crossroads.gui.selected)"/>
 
-    <list id="roads" size="280 130" pos="10 34">
-        <box size="100% 24" linewidth="1">
-            <button id="select" size="20 18" pos="2 3"
+    <list id="roads" size="264 92" pos="8 30">
+        <box size="100% 20" linewidth="1">
+            <button id="select" size="14 15" pos="2 2"
                     source="minecolonies:textures/gui/builderhut/builder_button_mini.png"
                     label="[ ]" color="black"/>
-            <text id="roadName" size="230 10" pos="26 3" color="black"/>
-            <text id="roadDetail" size="230 9" pos="26 13" color="black" textscale="0.8"/>
+            <text id="roadName" size="238 10" pos="20 1" color="black" textscale="0.8"/>
+            <text id="roadDetail" size="238 9" pos="20 10" color="black" textscale="0.7"/>
         </box>
     </list>
 
-    <button id="selectAll" size="88 17" pos="8 168"
+    <button id="selectAll" size="86 17" pos="8 126"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.select_all)" color="black"/>
-    <button id="clear" size="88 17" pos="104 168"
+    <button id="clear" size="86 17" pos="98 126"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.clear)" color="black"/>
-    <button id="close" size="88 17" pos="200 168"
+    <button id="close" size="86 17" pos="186 126"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.close)" color="black"/>
 
-    <button id="release" size="136 17" pos="8 190"
-            source="minecolonies:textures/gui/builderhut/builder_button_large.png"
+    <button id="release" size="128 17" pos="8 147"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.release_plans)" color="black"/>
-    <button id="remove" size="136 17" pos="152 190"
-            source="minecolonies:textures/gui/builderhut/builder_button_large.png"
+    <button id="remove" size="128 17" pos="144 147"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.remove)" color="black"/>
 </window>

@@ -46,8 +46,7 @@ public final class WindowRoadRemovalChoice extends AbstractWindowSkeleton {
         super(parent,ResourceLocation.fromNamespaceAndPath(Crossroads.MODID,"gui/windowroadremovalchoice.xml"));
         this.action=action;
         this.instantButton=findPaneOfTypeByID("instant",Button.class);
-        for(String id:new String[]{"builder","instant","cancel"})
-            findPaneOfTypeByID(id,Button.class).setColors(0x000000,0x9A9A9A,0x000000);
+        for(String id:new String[]{"builder","instant","cancel"}) UiStyle.disable(findPaneOfTypeByID(id,Button.class));
         registerButton("builder",ignored -> submit(false));
         registerButton("instant",ignored -> submit(true));
         registerButton("cancel",ignored -> close());

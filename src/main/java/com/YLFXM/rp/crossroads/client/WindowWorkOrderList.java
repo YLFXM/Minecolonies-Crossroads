@@ -83,9 +83,7 @@ public class WindowWorkOrderList extends AbstractWindowSkeleton {
         this.subtitle = this.findPaneOfTypeByID("subtitle", Text.class);
         this.orderList = this.findPaneOfTypeByID("orders", ScrollingList.class);
         this.cancelButton = this.findPaneOfTypeByID("cancelOrders", Button.class);
-        // "color" alone is reused by BlockUI for the disabled state, so a
-        // disabled button would look enabled; give it an explicit grey.
-        this.cancelButton.setColors(0x000000, 0x9A9A9A, 0x000000);
+        UiStyle.disable(this.cancelButton);
         this.updateTitle();
 
         this.orderList.setDataProvider(new ScrollingList.DataProvider() {
@@ -112,11 +110,13 @@ public class WindowWorkOrderList extends AbstractWindowSkeleton {
                     WindowWorkOrderList.this.refresh();
                 });
                 row.findPaneOfTypeByID("orderName", Text.class).setText(nameComponent(entry));
+                // One secondary line: type, priority, status, tier change and the
+                // coordinates used to sit on two lines; at 0.7 they fit together.
                 row.findPaneOfTypeByID("orderDetail", Text.class).setText(Component.translatable(
                         "rp_crossroads.gui.order_detail", typeComponent(entry.type()), entry.priority(),
-                        statusComponent(entry), entry.currentLevel(), entry.targetLevel()));
-                row.findPaneOfTypeByID("orderLocation", Text.class).setText(Component.literal(
-                        entry.location()));
+                        statusComponent(entry), entry.currentLevel(), entry.targetLevel())
+                        .append(Component.literal("  ·  "))
+                        .append(Component.literal(entry.location())));
             }
         });
 
@@ -166,10 +166,11 @@ public class WindowWorkOrderList extends AbstractWindowSkeleton {
         }
         this.selected.removeIf(id -> this.entries.stream().noneMatch(entry -> entry.id() == id));
         if (this.subtitle != null) {
-            this.subtitle.setText(this.bound
-                    ? Component.translatable("rp_crossroads.gui.work_orders_summary",
-                            this.entries.size(), this.selected.size())
-                    : Component.translatable("rp_crossroads.gui.work_orders_unbound"));
+            this.subtitle.setText(!this.bound
+                    ? Component.translatable("rp_crossroads.gui.work_orders_unbound")
+                    : this.entries.isEmpty() ? Component.translatable("rp_crossroads.gui.work_orders_empty")
+                    : Component.translatable("rp_crossroads.gui.work_orders_summary",
+                            this.entries.size(), this.selected.size()));
         }
         if (this.cancelButton != null) {
             // Greyed out instead of a chat prompt: the colony permission system

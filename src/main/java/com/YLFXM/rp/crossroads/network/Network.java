@@ -72,7 +72,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 public final class Network {
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("15");
+        final var registrar = event.registrar("16");
         registrar.playToServer(RoadPlanningPayload.TYPE,RoadPlanningPayload.CODEC,(payload,context) ->
                 context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
                     com.YLFXM.rp.crossroads.road.RoadPlanningActions.handle(player,payload); }));
@@ -652,7 +652,7 @@ public final class Network {
             // only a hint about what the series ships.
             if (payload.tier() > 0) {
                 final int highest = com.YLFXM.rp.crossroads.road.RoadUnitLibrary
-                        .maxLevel(plan.unitStyle(), plan.series());
+                        .maxLevel(level.getServer(), plan.unitStyle(), plan.series());
                 plan.setUnitLevel(Math.max(1, Math.min(payload.tier(), highest)));
             }
             if (RoadRules.canCreate(old) && RoadReplanning.clearRowsOnAxisChange(old,plan))RoadReplanning.noticeAxisChanged(player);
@@ -969,13 +969,22 @@ public final class Network {
             if (!(context.player() instanceof ServerPlayer player)) {
                 return;
             }
-            final java.util.List<String> styles =
-                    com.YLFXM.rp.crossroads.road.RoadUnitLibrary.styles(player.server);
-            final java.util.Map<String, java.util.List<String>> series = new java.util.LinkedHashMap<>();
+            final java.util.List<String> styles = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.styles(player.server);
+            final java.util.Map<String, UnitStyleListPayload.StyleEntry> entries = new java.util.LinkedHashMap<>();
+            final java.util.Map<String, java.util.List<UnitStyleListPayload.SeriesEntry>> series =
+                    new java.util.LinkedHashMap<>();
             for (final String style : styles) {
-                series.put(style, com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesIds(player.server, style));
+                final var meta = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.styleMeta(player.server, style);
+                entries.put(style, new UnitStyleListPayload.StyleEntry(
+                        style, meta.name(), meta.desc(), meta.authors(), meta.cover()));
+                final java.util.List<UnitStyleListPayload.SeriesEntry> rows = new java.util.ArrayList<>();
+                for (final String id : com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesIds(player.server, style)) {
+                    rows.add(new UnitStyleListPayload.SeriesEntry(id,
+                            com.YLFXM.rp.crossroads.road.RoadUnitLibrary.maxLevel(player.server, style, id)));
+                }
+                series.put(style, java.util.List.copyOf(rows));
             }
-            PacketDistributor.sendToPlayer(player, new UnitStyleListPayload(styles, series));
+            PacketDistributor.sendToPlayer(player, new UnitStyleListPayload(entries, series));
         });
     }
 
@@ -1017,10 +1026,10 @@ public final class Network {
             }
             final String style = payload.style();
             final String series = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.normalizeSeries(payload.series());
-            final int width = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWidth(style,series);
+            final int width = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWidth(level.getServer(),style,series);
             final com.YLFXM.rp.crossroads.road.WalkRange range =
-                    com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWalkRange(style,series);
-            final int maxLevel = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.maxLevel(style,series);
+                    com.YLFXM.rp.crossroads.road.RoadUnitLibrary.seriesWalkRange(level.getServer(),style,series);
+            final int maxLevel = com.YLFXM.rp.crossroads.road.RoadUnitLibrary.maxLevel(level.getServer(),style,series);
             if (width <= 0 || range == null || maxLevel <= 0) {
                 RoadNotices.chat(player, plan.id(), "series_unknown", "rp_crossroads.style.unknown", payload.series());
                 return;

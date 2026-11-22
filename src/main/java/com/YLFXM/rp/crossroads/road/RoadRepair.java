@@ -138,7 +138,7 @@ public final class RoadRepair {
         if (RoadBuildWatcher.hasWorkOrder(plan) || RoadBuildWatcher.isWatching(plan)) {
             tellSessionOpen(player,plan); return false;
         }
-        final int maxLevel=RoadUnitLibrary.maxLevel(plan.unitStyle(),plan.series());
+        final int maxLevel=RoadUnitLibrary.maxLevel(level.getServer(),plan.unitStyle(),plan.series());
         // A repair asks for the tier the road already has; only an upgrade moves
         // it, and only within what the series actually ships.
         if (targetLevel!=plan.unitLevel() && (targetLevel<1 || targetLevel>maxLevel)) {

@@ -1,7 +1,20 @@
-<window size="350 180" lightbox="true">
-    <text id="title" size="304 12" pos="23 28" textalign="MIDDLE" color="white" textscale="1.2" label="$(rp_crossroads.gui.removal_method)"/>
-    <text id="hint" size="304 28" pos="23 48" textalign="MIDDLE" color="white" label="$(rp_crossroads.gui.removal_method_hint)"/>
-    <button id="builder" size="136 17" pos="31 92" source="minecolonies:textures/gui/builderhut/builder_button_large.png" label="$(rp_crossroads.gui.remove_builder)" color="black"/>
-    <button id="instant" size="136 17" pos="183 92" source="minecolonies:textures/gui/builderhut/builder_button_large.png" label="$(rp_crossroads.gui.remove_instant)" color="black"/>
-    <button id="cancel" size="88 17" pos="131 130" source="minecolonies:textures/gui/builderhut/builder_button_medium.png" label="$(rp_crossroads.gui.cancel)" color="black"/>
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="244 150"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
+    <image source="minecolonies:textures/gui/builderhut/builder_paper_wide2.png" size="100% 100%"/>
+
+    <text id="title" size="228 10" pos="8 14" textalign="MIDDLE" color="black" textscale="0.9"
+          label="$(rp_crossroads.gui.removal_method)"/>
+    <text id="hint" size="228 30" pos="8 30" textalign="MIDDLE" color="black" textscale="0.7"
+          label="$(rp_crossroads.gui.removal_method_hint)"/>
+
+    <button id="builder" size="110 17" pos="8 78"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.remove_builder)" color="black"/>
+    <button id="instant" size="110 17" pos="126 78"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.remove_instant)" color="black"/>
+
+    <button id="cancel" size="86 17" pos="79 108"
+            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+            label="$(rp_crossroads.gui.cancel)" color="black"/>
 </window>

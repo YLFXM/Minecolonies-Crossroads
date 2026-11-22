@@ -66,7 +66,7 @@ public final class WindowRoadCrossings extends AbstractWindowSkeleton {
                 boolean nativePeer=ClientRoadCache.canManage(other.id()),authorized=nativePeer || access==2,pending=access==1;
                 strategy.setText(Component.translatable("rp_crossroads.gui.request_junction").append(pending ? " …":""));
                 boolean allowed=RoadRules.canEdit(own) && ClientRoadCache.canManage(own.id()) && !readOnly && !other.isRepairBusy() && other.state()!=RoadState.REMOVING;
-                for(Button button:new Button[]{type,strategy}) button.setColors(0x000000,0x9A9A9A,0x000000);
+                for(Button button:new Button[]{type,strategy}) UiStyle.disable(button);
                 // The switch itself is always usable; without authorization the cycle skips
                 // same-level and only offers strict over/underpass.
                 type.setEnabled(allowed);
@@ -92,7 +92,7 @@ public final class WindowRoadCrossings extends AbstractWindowSkeleton {
                 preview.setEnabled(allowed && authorized);
                 preview.setText(Component.translatable(ClientRoadPreview.jointSelected(road,other.id()) ? "rp_crossroads.gui.single_preview" : "rp_crossroads.gui.joint_preview"));
                 preview.setHandler(b -> ClientRoadPreview.joint(road,ClientRoadPreview.jointSelected(road,other.id()) ? null : other.id()));
-                for(Button button:new Button[]{lower,raise,preview})button.setColors(0x000000,0x9A9A9A,0x000000);
+                for(Button button:new Button[]{lower,raise,preview}) UiStyle.disable(button);
             }
         });
     }

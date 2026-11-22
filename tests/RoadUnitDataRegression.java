@@ -129,12 +129,38 @@ public final class RoadUnitDataRegression {
         }
         check(units==21,"twenty-one units: streets 9 and main 12");
 
+        // 0.3.2 seeds two style-level files next to the series. They are not
+        // blueprints, so the unit manifest says nothing about them; without an
+        // assertion here a fresh save's pack would silently have no cover and
+        // the style picker would draw the fallback icon for the shipped style.
+        final Path styleJson=directory.resolve("style.json");
+        final Path cover=directory.resolve("cover.png");
+        check(Files.isRegularFile(styleJson),"shipped style.json exists");
+        check(Files.isRegularFile(cover),"shipped cover.png exists");
+        final byte[] coverBytes=Files.readAllBytes(cover);
+        check(coverBytes.length>8 && coverBytes[0]==(byte)0x89 && coverBytes[1]=='P' && coverBytes[2]=='N'
+                && coverBytes[3]=='G',"cover is a PNG");
+        final int coverWidth=(coverBytes[16]&0xFF)<<24 | (coverBytes[17]&0xFF)<<16
+                | (coverBytes[18]&0xFF)<<8 | (coverBytes[19]&0xFF);
+        check(coverWidth>=64,"cover is at least 64 px wide: "+coverWidth);
+        final var styleDoc=JsonParser.parseString(Files.readString(styleJson)).getAsJsonObject();
+        check(styleDoc.has("cover"),"style.json declares a cover");
+        final String declared=styleDoc.get("cover").getAsString();
+        check(declared.equals(cover.getFileName().toString()),"style.json names the shipped cover: "+declared);
+        final var seeded=com.YLFXM.rp.crossroads.CustomRoadPack.bundledStyleFiles();
+        check(seeded.stream().anyMatch(f -> f.relative().equals("original/style.json")),
+                "seed list carries the style description");
+        check(seeded.stream().anyMatch(f -> f.relative().equals("original/cover.png")),
+                "seed list carries the cover");
+
         final var matcher=java.util.regex.Pattern.compile("(?m)^version\\s*=\\s*\"([^\"]+)\"")
                 .matcher(Files.readString(Path.of("src/main/resources/META-INF/neoforge.mods.toml")));
         if(!matcher.find()) throw new IllegalStateException("Mod version missing");
         try(var jar=new ZipFile("dist/rp_crossroads-"+matcher.group(1)+".jar")) {
             for(String file:expectedInJar) check(jar.getEntry(file)!=null,"jar ships "+file);
             check(jar.getEntry(JAR_ROOT+"units.json")!=null,"jar ships the manifest");
+            check(jar.getEntry(JAR_ROOT+"style.json")!=null,"jar ships the style description");
+            check(jar.getEntry(JAR_ROOT+"cover.png")!=null,"jar ships the cover");
             // The pre-series spellings must not linger: they would show up as
             // duplicate categories in the preview list.
             for(var entries=jar.entries();entries.hasMoreElements();) {

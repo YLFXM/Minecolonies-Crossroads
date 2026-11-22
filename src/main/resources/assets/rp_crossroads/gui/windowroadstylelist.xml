@@ -1,44 +1,45 @@
-<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="320 178"
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="420 240" lightbox="true"
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
-    <image source="minecolonies:textures/gui/builderhut/builder_paper_sketch.png" size="100% 100%"/>
-
-    <text id="title" size="300 12" pos="10 8" textalign="MIDDLE" color="black"
-          label="$(rp_crossroads.gui.style_title)"/>
-    <text id="hint" size="300 10" pos="10 22" textalign="MIDDLE" color="black" textscale="0.8"
-          label="$(rp_crossroads.gui.style_hint)"/>
-
-    <text id="styleLabel" size="145 10" pos="12 34" textalign="MIDDLE" color="black"
-          label="$(rp_crossroads.gui.style_pack)"/>
-    <button id="style0" size="145 17" pos="12 46"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="style1" size="145 17" pos="12 66"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="style2" size="145 17" pos="12 86"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="style3" size="145 17" pos="12 106"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="style4" size="145 17" pos="12 126"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-
-    <text id="seriesLabel" size="145 10" pos="163 34" textalign="MIDDLE" color="black"
-          label="$(rp_crossroads.gui.series)"/>
-    <button id="series0" size="145 17" pos="163 46"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="series1" size="145 17" pos="163 66"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="series2" size="145 17" pos="163 86"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="series3" size="145 17" pos="163 106"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-    <button id="series4" size="145 17" pos="163 126"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
-
-    <text id="status" size="300 10" pos="10 146" textalign="MIDDLE" color="red" textscale="0.8"/>
-
-    <button id="confirm" size="120 17" pos="86 158"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
-            label="$(rp_crossroads.gui.apply)" color="black"/>
-    <button id="cancel" size="120 17" pos="216 158"
+    <button id="cancel" size="86 17" pos="3 3"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.cancel)" color="black"/>
+    <input id="filter" size="129 17" pos="150 3" maxlength="25" color="white"/>
+    <text id="filterHint" size="120 10" pos="154 8" color="white" textscale="0.7"
+          label="$(rp_crossroads.gui.style_search)"/>
+
+    <text id="header" size="400 10" pos="10 24" textalign="MIDDLE" color="white" textscale="0.9"/>
+
+    <list id="styles" size="420 176" pos="0 40">
+        <box size="100% 100" linewidth="0">
+            <box id="box0" size="200 100" pos="6 0" linewidth="0">
+                <image id="icon" size="80 80" pos="4 8"
+                       source="structurize:textures/item/sceptersteel.png"/>
+                <text id="name" size="108 14" pos="88 6" color="white" textscale="1.2"/>
+                <text id="desc" size="108 32" pos="88 22" color="white" textscale="0.6"/>
+                <text id="authors" size="108 10" pos="88 56" color="white" textscale="0.8"/>
+                <button id="select" size="86 17" pos="110 78"
+                        source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+                        label="$(rp_crossroads.gui.style_open)" color="black"/>
+            </box>
+            <box id="box1" size="200 100" pos="214 0" linewidth="0">
+                <image id="icon" size="80 80" pos="4 8"
+                       source="structurize:textures/item/sceptersteel.png"/>
+                <text id="name" size="108 14" pos="88 6" color="white" textscale="1.2"/>
+                <text id="desc" size="108 32" pos="88 22" color="white" textscale="0.6"/>
+                <text id="authors" size="108 10" pos="88 56" color="white" textscale="0.8"/>
+                <button id="select" size="86 17" pos="110 78"
+                        source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+                        label="$(rp_crossroads.gui.style_open)" color="black"/>
+            </box>
+        </box>
+    </list>
+
+    <list id="series" size="420 176" pos="0 40">
+        <box size="100% 28" linewidth="0">
+            <button id="entry" size="200 17" pos="110 5"
+                    source="minecolonies:textures/gui/builderhut/builder_button_medium.png" color="black"/>
+        </box>
+    </list>
+
+    <text id="status" size="400 10" pos="10 218" textalign="MIDDLE" color="white" textscale="0.7"/>
 </window>

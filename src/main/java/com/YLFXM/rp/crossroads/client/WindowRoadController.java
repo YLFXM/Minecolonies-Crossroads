@@ -89,12 +89,12 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         this.lampValueButton = this.findPaneOfTypeByID("lampValue", Button.class);
         this.mirrorButton = this.findPaneOfTypeByID("mirror", Button.class);
         // BlockUI derives the disabled colour from "color" when only that is set,
-        // so disabled buttons would look identical to enabled ones. Force a grey.
+        // so disabled buttons would look identical to enabled ones.
         for (final Button button : new Button[]{this.buildButton, this.repairButton, this.editButton,
                 this.crossingButton, this.removeButton, this.styleButton, this.seriesButton,
                 this.lampValueButton, this.mirrorButton,
                 this.findPaneOfTypeByID("lampDown", Button.class), this.findPaneOfTypeByID("lampUp", Button.class)}) {
-            button.setColors(0x000000, 0x9A9A9A, 0x000000);
+            UiStyle.disable(button);
         }
 
         this.registerButton("build", button -> this.buildOrUpgrade());
@@ -178,7 +178,7 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         // The panel decides both the gate and the label from the series' shipped
         // tiers, so a series with three tiers cannot offer a fourth.
         final int maxLevel = plan == null ? 0
-                : com.YLFXM.rp.crossroads.road.RoadUnitLibrary.maxLevel(plan.unitStyle(), plan.series());
+                : WindowRoadStyleList.maxLevelOf(plan.unitStyle(), plan.series());
         final boolean editable = plan != null && RoadRules.canEdit(plan);
         // Construction in flight: a session, a dispatch that is BUILDING, or a
         // demolition. Build/upgrade is a first-time or tier-only action, so none

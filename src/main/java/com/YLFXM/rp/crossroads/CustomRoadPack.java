@@ -384,6 +384,9 @@ public final class CustomRoadPack {
             for (final String style : availableStyles()) {
                 changed |= ensureUnitManifest(root.resolve(style), style);
             }
+            for (final StyleFile file : bundledStyleFiles()) {
+                changed |= seedStyleFile(root.resolve(file.relative()), file.data());
+            }
             if (changed) {
                 Crossroads.LOGGER.info("Seeded road unit previews into {}", root);
             }
@@ -391,6 +394,59 @@ public final class CustomRoadPack {
             Crossroads.LOGGER.warn("Could not seed road unit previews", ex);
         }
         return changed;
+    }
+
+    /** Files a style folder may carry besides its series: description and cover. */
+    private static final java.util.List<String> STYLE_ASSETS = java.util.List.of("style.json", "cover.png");
+
+    /** One style-level asset the jar ships: path under {@code units/}, and its bytes. */
+    public record StyleFile(String relative, byte[] data) { }
+
+    /**
+     * Style-level files the jar ships ({@code units/<style>/style.json} and
+     * {@code cover.png}).
+     *
+     * <p>They are not blueprints, so the unit manifest does not describe them;
+     * without this list a fresh save's pack would have no cover and the style
+     * picker would draw the fallback icon for the style the mod itself ships.</p>
+     */
+    public static java.util.List<StyleFile> bundledStyleFiles() {
+        final var result = new java.util.ArrayList<StyleFile>();
+        for (final String style : availableStyles()) {
+            for (final String asset : STYLE_ASSETS) {
+                final String relative = style + "/" + asset;
+                final byte[] data = bundled(relative);
+                if (data == null) {
+                    continue;
+                }
+                result.add(new StyleFile(relative, data));
+            }
+        }
+        return java.util.List.copyOf(result);
+    }
+
+    /**
+     * Seeds one style-level file.
+     *
+     * <p>The description is written only when absent: it is the one file a pack
+     * author is expected to edit, and overwriting it would silently undo that.
+     * The cover is the mod's own artwork, so a missing or different copy is
+     * replaced — same rule the unit previews follow.</p>
+     *
+     * @return true when the file was written
+     */
+    private static boolean seedStyleFile(final Path target, final byte[] data) throws IOException {
+        if (Files.isRegularFile(target)) {
+            if (target.getFileName().toString().endsWith(".json")) {
+                return false;
+            }
+            if (java.util.Arrays.equals(Files.readAllBytes(target), data)) {
+                return false;
+            }
+        }
+        Files.createDirectories(target.getParent());
+        Files.write(target, data);
+        return true;
     }
 
     /** Bundled copy of a resource under the unit blueprint root, or {@code null}. */

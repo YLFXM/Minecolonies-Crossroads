@@ -20,7 +20,6 @@ package com.YLFXM.rp.crossroads.client;
 
 import com.YLFXM.rp.crossroads.Crossroads;
 import com.YLFXM.rp.crossroads.road.RoadPlan;
-import com.YLFXM.rp.crossroads.road.RoadUnitLibrary;
 import com.ldtteam.blockui.controls.Button;
 import com.minecolonies.core.client.gui.AbstractWindowSkeleton;
 import java.util.function.IntConsumer;
@@ -57,13 +56,13 @@ public final class WindowRoadTier extends AbstractWindowSkeleton {
     private WindowRoadTier(final AbstractWindowSkeleton parent, final RoadPlan plan, final IntConsumer onPick) {
         super(parent, ResourceLocation.fromNamespaceAndPath(Crossroads.MODID, "gui/windowroadtier.xml"));
         this.onPick = onPick;
-        this.maxLevel = Math.max(1, RoadUnitLibrary.maxLevel(plan.unitStyle(), plan.series()));
+        this.maxLevel = Math.max(1, WindowRoadStyleList.maxLevelOf(plan.unitStyle(), plan.series()));
         this.chosen = Math.max(1, Math.min(plan.unitLevel(), this.maxLevel));
 
         for (int i = 0; i < SLOTS; i++) {
             final int level = i + 1;
             this.buttons[i] = this.findPaneOfTypeByID("tier" + i, Button.class);
-            this.buttons[i].setColors(0x000000, 0x9A9A9A, 0x000000);
+            UiStyle.disable(this.buttons[i]);
             this.buttons[i].setHandler(button -> {
                 this.chosen = level;
                 this.refresh();

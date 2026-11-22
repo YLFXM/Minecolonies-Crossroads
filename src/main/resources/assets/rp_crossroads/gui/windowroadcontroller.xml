@@ -1,52 +1,50 @@
-<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="280 196"
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="248 150"
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
-    <image source="minecolonies:textures/gui/builderhut/builder_paper_sketch.png" size="100% 100%"/>
+    <image source="minecolonies:textures/gui/builderhut/builder_paper_wide2.png" size="100% 100%"/>
 
-    <text id="title" size="260 12" pos="10 8" textalign="MIDDLE" color="black"
-          label="$(rp_crossroads.gui.road_controller)"/>
-    <text id="name" size="260 12" pos="10 24" textalign="MIDDLE" color="black"/>
-    <text id="state" size="260 10" pos="10 38" textalign="MIDDLE" color="black"/>
-    <text id="detail" size="260 10" pos="10 52" textalign="MIDDLE" color="black"/>
+    <text id="name" size="232 10" pos="8 8" textalign="MIDDLE" color="black" textscale="0.8"/>
+    <text id="state" size="232 9" pos="8 18" textalign="MIDDLE" color="black" textscale="0.7"/>
+    <text id="detail" size="232 9" pos="8 27" textalign="MIDDLE" color="black" textscale="0.7"/>
 
-    <button id="build" size="120 17" pos="10 70"
+    <button id="build" size="116 17" pos="8 38"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.build)" color="black"/>
-    <button id="repair" size="120 17" pos="135 70"
+    <button id="repair" size="116 17" pos="124 38"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.repair)" color="black"/>
 
-    <button id="edit" size="120 17" pos="10 90"
+    <button id="edit" size="116 17" pos="8 57"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.edit_blueprint)" color="black"/>
-    <button id="crossings" size="120 17" pos="135 90"
+    <button id="crossings" size="116 17" pos="124 57"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.crossings)" color="black"/>
 
-    <button id="remove" size="260 17" pos="10 110"
-            source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
+    <button id="remove" size="232 17" pos="8 76"
+            source="minecolonies:textures/gui/builderhut/builder_button_large.png"
             label="$(rp_crossroads.gui.remove)" color="black"/>
 
-    <button id="style" size="125 17" pos="10 132"
+    <button id="style" size="113 17" pos="8 95"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.style_entry)" color="black"/>
-    <button id="series" size="125 17" pos="135 132"
+    <button id="series" size="113 17" pos="127 95"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.series)" color="black"/>
 
-    <button id="lampDown" size="20 17" pos="10 152"
+    <button id="lampDown" size="20 17" pos="8 114"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="-" color="black"/>
-    <button id="lampValue" size="30 17" pos="33 152"
+    <button id="lampValue" size="30 17" pos="30 114"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="4" color="black"/>
-    <button id="lampUp" size="20 17" pos="66 152"
+    <button id="lampUp" size="20 17" pos="62 114"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="+" color="black"/>
-    <text id="lampLabel" size="55 17" pos="90 152" textalign="MIDDLE" color="black"
+    <text id="lampLabel" size="60 17" pos="84 114" textalign="MIDDLE" color="black" textscale="0.7"
           label="$(rp_crossroads.gui.lamp_spacing)"/>
-    <button id="mirror" size="95 17" pos="150 152"
+    <button id="mirror" size="92 17" pos="148 114"
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.mirror_off)" color="black"/>
 
-    <text id="issue" size="260 18" pos="10 172" color="red" textscale="0.8"/>
+    <text id="issue" size="232 10" pos="8 132" color="red" textscale="0.7"/>
 </window>

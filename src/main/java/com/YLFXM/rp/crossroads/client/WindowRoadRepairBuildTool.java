@@ -74,9 +74,9 @@ public final class WindowRoadRepairBuildTool {
                         // name, coordinate range); RoadNotices.issue tells them apart.
                         button.setText(com.YLFXM.rp.crossroads.road.RoadNotices.issue(repair.jointImpact().get(index)));
                         button.setEnabled(false);
-                        button.setColors(0x000000,0x444444,0x000000);
+                        UiStyle.selectable(button);
                     } else {
-                        button.setEnabled(true);button.setColors(0x000000,0x9A9A9A,0x000000);
+                        button.setEnabled(true);UiStyle.disable(button);
                         button.setText(Component.translatable("rp_crossroads.crossing.approve"));
                         button.setHandler(b -> {jointApproved=true;showChoices(activeWindow);});
                     }
@@ -99,7 +99,7 @@ public final class WindowRoadRepairBuildTool {
             @Override public int getElementCount() { return choices.size(); }
             @Override public void updateElement(final int index, final Pane row) {
                 final ButtonImage button=row.findPaneOfTypeByID("type",ButtonImage.class);
-                button.setEnabled(true);button.setColors(0x000000,0x9A9A9A,0x000000);
+                button.setEnabled(true);UiStyle.disable(button);
                 button.setText(choices.get(index).label());
                 button.setHandler(ignored -> submit(choices.get(index),activeWindow));
             }

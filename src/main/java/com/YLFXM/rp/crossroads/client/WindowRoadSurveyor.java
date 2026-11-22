@@ -59,8 +59,8 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
         this.removeButton = this.findPaneOfTypeByID("remove", Button.class);
         // "color" alone makes BlockUI reuse it for the disabled state, so set an
         // explicit grey or a disabled button looks exactly like an enabled one.
-        this.releaseButton.setColors(0x000000, 0x9A9A9A, 0x000000);
-        this.removeButton.setColors(0x000000, 0x9A9A9A, 0x000000);
+        UiStyle.disable(this.releaseButton);
+        UiStyle.disable(this.removeButton);
         this.roadList.setDataProvider(new ScrollingList.DataProvider() {
             @Override
             public int getElementCount() {
@@ -81,7 +81,7 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
                 // stay listed for information but cannot be selected.
                 select.setText(Component.literal(!manageable ? "[-]" : checked ? "[x]" : "[ ]"));
                 select.setEnabled(manageable);
-                select.setColors(0x000000, 0x9A9A9A, 0x000000);
+                UiStyle.disable(select);
                 select.setHandler(button -> {
                     if (!selected.add(plan.id())) {
                         selected.remove(plan.id());
@@ -90,11 +90,13 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
                 });
                 final Text nameText = row.findPaneOfTypeByID("roadName", Text.class);
                 nameText.setText(Component.literal(RoadNames.label(plan)));
-                nameText.setColors(manageable ? 0x000000 : 0x8A8A8A);
+                if (manageable) UiStyle.text(nameText, UiStyle.TEXT);
+                else UiStyle.muted(nameText, UiStyle.TEXT);
                 final Text detailText = row.findPaneOfTypeByID("roadDetail", Text.class);
                 detailText.setText(Component.translatable("rp_crossroads.gui.surveyor_row",
                         plan.state().display(), plan.length(), plan.controllerPos().toShortString()));
-                detailText.setColors(manageable ? 0x000000 : 0x8A8A8A);
+                if (manageable) UiStyle.text(detailText, UiStyle.SECONDARY);
+                else UiStyle.muted(detailText, UiStyle.SECONDARY);
             }
         });
 
@@ -147,9 +149,13 @@ public class WindowRoadSurveyor extends AbstractWindowSkeleton {
         this.titleText.setText(ClientRoadCache.bound()
                 ? Component.translatable("rp_crossroads.gui.surveyor_title_colony", ClientRoadCache.colonyName())
                 : Component.translatable("rp_crossroads.gui.surveyor_title"));
-        this.selectedText.setText(ClientRoadCache.bound()
-                ? Component.translatable("rp_crossroads.gui.selected_count", this.selected.size())
-                : Component.translatable("rp_crossroads.gui.surveyor_unbound"));
+        // The second line doubles as the empty-state reason: an unbound scroll
+        // and an empty list are two different answers, and a blank line would
+        // read as "still loading".
+        this.selectedText.setText(!ClientRoadCache.bound()
+                ? Component.translatable("rp_crossroads.gui.surveyor_unbound")
+                : roads.isEmpty() ? Component.translatable("rp_crossroads.gui.surveyor_empty")
+                : Component.translatable("rp_crossroads.gui.selected_count", this.selected.size()));
         // Only offer the actions when at least one selected road is manageable;
         // the server still checks each road individually.
         final boolean canAct = !this.selected.isEmpty()
