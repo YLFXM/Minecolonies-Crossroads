@@ -133,7 +133,7 @@ public final class RoadJointWork {
             }
         }
         for(var e:visible.entrySet())writeCell(ghost,e.getKey().subtract(origin),e.getValue());
-        ghost.setCachePrimaryOffset(primary.anchorPos().subtract(origin));return ghost;
+        ghost.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(primary).subtract(origin));return ghost;
     }
     private static Images images(ServerLevel level,Map<UUID,RoadPlan> models,UUID operation,int reserve,boolean validate) {
         Map<UUID,Blueprint> raw=new LinkedHashMap<>(),result=new LinkedHashMap<>();
@@ -168,7 +168,7 @@ public final class RoadJointWork {
                 var shared=sharedCell(ac,bc,RoadCrossings.higher(a,b)==a);
                 writeCell(ai,info.getPos(),shared);writeCell(bi,bp,shared);
             }
-            ai.setCachePrimaryOffset(a.anchorPos().subtract(ao));bi.setCachePrimaryOffset(b.anchorPos().subtract(bo));
+            ai.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(a).subtract(ao));bi.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(b).subtract(bo));
         }
         if(validate)try(var scope=RoadCrossings.scope(models,result,operation)) {
             for(var model:models.values())RoadCrossings.validateClearance(level,model,result.get(model.id()));
@@ -276,7 +276,7 @@ public final class RoadJointWork {
                     var pos=origin.offset(info.getPos());work.remove(pos);
                     RoadCrossings.write(primaryTarget,pos.subtract(ownOrigin),com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get().defaultBlockState());
                 }
-                primaryTarget.setCachePrimaryOffset(primary.anchorPos().subtract(ownOrigin));
+                primaryTarget.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(primary).subtract(ownOrigin));
             }
         }
         for(var entry:work.entrySet()) {
@@ -428,7 +428,7 @@ public final class RoadJointWork {
             var world=targetOrigin.offset(info.getPos());if(!shared.contains(world.getX(),world.getZ()))continue;
             writeCell(result,world.subtract(origin),cell(target,info.getPos()));
         }
-        result.setCachePrimaryOffset(peer.anchorPos().subtract(origin));return result;
+        result.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(peer).subtract(origin));return result;
     }
     /** Idempotent redo: the complete frozen transaction is flushed before replacing any snapshot. */
     public static boolean commit(ServerLevel level,RoadPlan live,RoadRepairSession session,Blueprint fallback) {
@@ -525,7 +525,7 @@ public final class RoadJointWork {
                 if(RoadBlocks.isConcrete(RoadCrossings.stateAt(image,peer,pos)))RoadCrossings.write(result,info.getPos(),com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get().defaultBlockState());
             }
         }
-        result.setCachePrimaryOffset(live.anchorPos().subtract(resultOrigin));return result;
+        result.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(live).subtract(resultOrigin));return result;
     }
     private static boolean skip(BlockState state) {return state.is(com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get());}
     private static Cell cell(Blueprint b,BlockPos p) {
@@ -556,9 +556,13 @@ public final class RoadJointWork {
         return volume(level,primary,cells,false);
     }
     private static Blueprint volume(ServerLevel level,RoadPlan primary,Map<BlockPos,Cell> cells,boolean preview) {
-        // Include the primary anchor and reserve even when they are protected no-ops.
-        int minX=primary.anchorPos().getX(),minY=primary.anchorPos().getY(),minZ=primary.anchorPos().getZ();
-        int maxX=minX,maxY=minY,maxZ=minZ;
+        // Include the primary cell and the reserved controller cell even when they are
+        // protected no-ops: the derived volume's primary offset has to point inside it.
+        final BlockPos anchorCell=primary.anchorPos(),primaryCell=BlueprintCells.blueprintAnchor(primary);
+        int minX=Math.min(anchorCell.getX(),primaryCell.getX()),minY=Math.min(anchorCell.getY(),primaryCell.getY()),
+                minZ=Math.min(anchorCell.getZ(),primaryCell.getZ());
+        int maxX=Math.max(anchorCell.getX(),primaryCell.getX()),maxY=Math.max(anchorCell.getY(),primaryCell.getY()),
+                maxZ=Math.max(anchorCell.getZ(),primaryCell.getZ());
         for(var p:cells.keySet()) {minX=Math.min(minX,p.getX());minY=Math.min(minY,p.getY());minZ=Math.min(minZ,p.getZ());maxX=Math.max(maxX,p.getX());maxY=Math.max(maxY,p.getY());maxZ=Math.max(maxZ,p.getZ());}
         int sx=maxX-minX+1,sy=maxY-minY+1,sz=maxZ-minZ+1;
         if(sx>Short.MAX_VALUE || sy>Short.MAX_VALUE || sz>Short.MAX_VALUE || (long)sx*sy*sz>Config.maxGeneratedBlueprintVolume())
@@ -570,7 +574,7 @@ public final class RoadJointWork {
             BlockPos p=e.getKey().subtract(origin);work.addBlockState(p,e.getValue().state());
             if(e.getValue().tile()!=null) {CompoundTag tile=e.getValue().tile().copy();tile.putInt("x",p.getX());tile.putInt("y",p.getY());tile.putInt("z",p.getZ());work.getTileEntities()[p.getY()][p.getZ()][p.getX()]=tile;}
         }
-        work.setCachePrimaryOffset(primary.anchorPos().subtract(origin));work.setFileName(RoadNames.fileName(primary));return work;
+        work.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(primary).subtract(origin));work.setFileName(RoadNames.fileName(primary));return work;
     }
     private static Blueprint copy(Blueprint b,ServerLevel level) {return BlueprintUtil.readBlueprintFromNBT(BlueprintUtil.writeBlueprintToNBT(b),level.registryAccess());}
     private RoadJointWork() { }

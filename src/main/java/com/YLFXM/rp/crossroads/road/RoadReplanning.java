@@ -89,6 +89,10 @@ public final class RoadReplanning {
     public static void inherit(final RoadPlan old, final RoadPlan plan, final UUID player,
                                final boolean keepDraft) {
         plan.setId(old.id());
+        // The blueprint frame belongs to the plan identity: a re-pick keeps the
+        // recorded primary cell, and the generator only moves it when the reserved
+        // cell really changed.
+        plan.setBlueprintAnchor(old.blueprintAnchor());
         plan.setCreator(old.creator() != null ? old.creator() : player);
         plan.setDisplayName(old.displayName());
         plan.setRoadName(old.roadName());

@@ -118,6 +118,33 @@ public final class RoadSelectionClient {
         return !a.equals(BlockPos.ZERO) && !b.equals(BlockPos.ZERO);
     }
 
+    /**
+     * Puts the road's own endpoints back for road mode.
+     *
+     * <p>A/B belong to the plan ({@code endpointA/B} persist with it); this class only
+     * keeps a per-player working copy. Dig and fill clear that copy because their
+     * corners describe a terrain box, but coming back to road mode must show the road
+     * again instead of leaving the wand empty — that is what "reload" is for. A plan
+     * without endpoints (a draft nobody finished) has nothing to restore, so the copy
+     * stays empty.</p>
+     */
+    public static void reloadFromRoad(final com.YLFXM.rp.crossroads.road.RoadPlan plan) {
+        if (plan == null) {
+            clear();
+            return;
+        }
+        bindTo(plan);
+        if (!plan.hasEndpoints()) {
+            clear();
+            return;
+        }
+        a = plan.endpointA();
+        b = plan.endpointB();
+        mirror = plan.mirror();
+        remember();
+        ClientRoadPreviewRenderer.clear();
+    }
+
     public static void clear() {
         a = BlockPos.ZERO;
         b = BlockPos.ZERO;

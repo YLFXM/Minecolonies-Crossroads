@@ -376,7 +376,7 @@ public final class RoadCrossings {
         }
         // addBlockState invalidates the offset cache, so restore it after all masking.
         write(out,RoadControllerMigration.target(plan).subtract(origin),skip);
-        out.setCachePrimaryOffset(plan.anchorPos().subtract(origin));
+        out.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(plan).subtract(origin));
         plan.planning().crossingIssue(String.join(" ",new LinkedHashSet<>(issues)));
     }
     /**

@@ -45,6 +45,18 @@ public final class RoadPlan {
     private UUID id;
     private ResourceKey<Level> dimension;
     private BlockPos anchorPos;
+    /**
+     * World cell this plan's blueprint primary sits on, or {@code null} for a plan
+     * created before 0.3.3.
+     *
+     * <p>Old plans derived the primary from {@link #anchorPos}, which is the visible
+     * marker block rather than a road cell. A plan that records its own blueprint
+     * anchor puts the primary on the controller's reserved cell instead, so the red
+     * frame of the build tool sits on the road. {@code null} keeps the old reading
+     * byte for byte; {@link com.YLFXM.rp.crossroads.road.common.BlueprintCells#blueprintAnchor}
+     * is the only place that decides which one applies.</p>
+     */
+    private BlockPos blueprintAnchor;
     private BlockPos controllerPos;
     private Direction controllerFacing;
     private boolean mirror;
@@ -280,12 +292,22 @@ public final class RoadPlan {
         this.anchorPos = anchorPos;
     }
 
+    /** Recorded blueprint primary cell, or {@code null} when this plan still reads the primary from the anchor. */
+    public BlockPos blueprintAnchor() {
+        return blueprintAnchor;
+    }
+
+    public void setBlueprintAnchor(final BlockPos blueprintAnchor) {
+        this.blueprintAnchor = blueprintAnchor;
+    }
+
     /**
      * Moves the reference frame to another row of this road, without touching the world.
      *
      * <p>Everything geometric is derived from the anchor row: row heights are integrated
-     * from {@code anchorPos.getY()}, the anchor row is the one row that must stay flat, and
-     * a blueprint's world origin is {@code anchorPos - primaryOffset}. So the move is legal
+     * from {@code anchorPos.getY()}, and the anchor row is the one row that must stay flat.
+     * A blueprint's world origin is {@code blueprintAnchor - primaryOffset}, so the recorded
+     * blueprint anchor moves with this frame as well when the plan has one. The move is legal
      * only when the target row is flat and carries the height it already had: passing
      * {@code entryY} of that row leaves every row height unchanged.</p>
      *
@@ -304,15 +326,24 @@ public final class RoadPlan {
         final BlockPos before = anchorPos;
         final BlockPos after = RoadHeightProfile.position(this, along, 0, entryY);
         if (after.equals(before)) return null;
+        final BlockPos delta = after.subtract(before);
         setAnchorPos(after);
-        // The applied snapshot carries its own copy of the anchor; it has to move with the
-        // frame, or interpreting the applied blueprint would land a delta away from the world.
+        // A recorded blueprint anchor belongs to the same reference frame, so it moves too.
+        // Leaving it behind would leave the red frame on the old row while the geometry and
+        // the controller moved, and every later reader derives the origin from it.
+        if (blueprintAnchor != null) {
+            blueprintAnchor = blueprintAnchor.offset(delta);
+        }
+        // The applied snapshot carries its own copy of the frame; it has to move with the
+        // rest, or interpreting the applied blueprint would land a delta away from the world.
         if (appliedGeometry != null) {
             final CompoundTag patched = appliedGeometry.copy();
             patched.put("anchor", NbtUtils.writeBlockPos(after));
+            if (blueprintAnchor != null) patched.put("blueprintAnchor", NbtUtils.writeBlockPos(blueprintAnchor));
+            else patched.remove("blueprintAnchor");
             setAppliedGeometry(patched);
         }
-        return after.subtract(before);
+        return delta;
     }
 
     public BlockPos controllerPos() {
@@ -955,6 +986,7 @@ public final class RoadPlan {
         tag.putUUID("id", id);
         tag.putString("dimension", dimension.location().toString());
         tag.put("anchor", NbtUtils.writeBlockPos(anchorPos));
+        if (blueprintAnchor != null) tag.put("blueprintAnchor", NbtUtils.writeBlockPos(blueprintAnchor));
         tag.put("controller", NbtUtils.writeBlockPos(controllerPos));
         tag.putInt("facing", controllerFacing.get3DDataValue());
         tag.putBoolean("mirror", mirror);
@@ -1034,6 +1066,9 @@ public final class RoadPlan {
                 walkRange,
                 tag.getInt("widthSide"),
                 tag.getInt("lampSpacing"));
+        // Absent in every save written before 0.3.3: those plans keep deriving the
+        // primary from the anchor, so no save has to be migrated up front.
+        plan.setBlueprintAnchor(NbtUtils.readBlockPos(tag, "blueprintAnchor").orElse(null));
         plan.setTravelDir(tag.contains("travelDir") ? tag.getInt("travelDir") : 1);
         // Saves from before the second series are all level 1 of the street set.
         plan.setUnitLevel(tag.contains("unitLevel") ? tag.getInt("unitLevel") : 1);

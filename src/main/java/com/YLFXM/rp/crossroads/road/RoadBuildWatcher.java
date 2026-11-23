@@ -359,7 +359,7 @@ public final class RoadBuildWatcher {
                 continue;
             }
             final BlockPos world = origin.offset(info.getPos());
-            if (world.equals(plan.anchorPos()) || world.equals(plan.controllerPos())) {
+            if (BlueprintCells.reservedCell(plan, world)) {
                 continue;
             }
             sample.add(info);

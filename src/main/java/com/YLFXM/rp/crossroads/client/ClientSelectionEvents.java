@@ -239,7 +239,14 @@ public final class ClientSelectionEvents {
             case FILL -> TerrainClientState.Mode.NONE;
         };
         TerrainClientState.setMode(next);
-        RoadSelectionClient.clear();
+        // Road mode has its own ways back: the corners of a terrain box mean nothing
+        // as a road selection, so returning to the road restores the road's own pair
+        // instead of leaving the wand empty.
+        if (next == TerrainClientState.Mode.NONE) {
+            RoadSelectionClient.reloadFromRoad(boundPlan(player));
+        } else {
+            RoadSelectionClient.clear();
+        }
         com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player, switch (next) {
             case DIG -> "rp_crossroads.terrain.mode_dig";
             case FILL -> "rp_crossroads.terrain.mode_fill";

@@ -77,19 +77,43 @@ public final class RoadBlueprintStore {
      * Moves this road's stored reference frame by {@code delta}, leaving every block
      * cell exactly where it is.
      *
-     * <p>A blueprint's world origin is computed as {@code plan.anchorPos() - primaryOffset}
-     * ({@link BlueprintCells#origin}), so when the plan anchor moves the stored offset has
-     * to move with it. Rewriting the offset keeps every interpreted cell in place while the
-     * frame (the red marker the build tool anchors on) follows the anchor.</p>
+     * <p>A blueprint's world origin is computed as {@code primary - primaryOffset}
+     * ({@link BlueprintCells#origin}), where the primary is
+     * {@link BlueprintCells#blueprintAnchor}. When that cell moves, the stored offset
+     * has to move with it. Rewriting the offset keeps every interpreted cell in place
+     * while the frame (the red marker the build tool anchors on) follows.</p>
+     *
+     * <p>Either every stored file is moved or none is: a road whose applied snapshot
+     * moved but whose proposal did not would be interpreted two different ways. On a
+     * failed write the frames already rewritten are put back.</p>
+     *
+     * @return false when an existing file could not be read or rewritten; a missing
+     *         file is not a failure, there is simply nothing to move
      */
-    public static void shiftFrame(final ServerLevel level, final RoadPlan plan, final net.minecraft.core.BlockPos delta) {
-        if (delta == null || delta.equals(net.minecraft.core.BlockPos.ZERO)) return;
+    public static boolean shiftFrame(final ServerLevel level, final RoadPlan plan, final net.minecraft.core.BlockPos delta) {
+        if (delta == null || delta.equals(net.minecraft.core.BlockPos.ZERO)) return true;
+        final java.util.List<Path> paths = new java.util.ArrayList<>(2);
+        final java.util.List<Blueprint> images = new java.util.ArrayList<>(2);
         for (final Path path : new Path[]{appliedFile(level, plan), file(level, plan)}) {
+            if (!Files.isRegularFile(path)) continue;
             final Blueprint blueprint = read(level, plan, path);
-            if (blueprint == null) continue;
-            blueprint.setCachePrimaryOffset(blueprint.getPrimaryBlockOffset().offset(delta));
-            write(path, plan, blueprint);
+            if (blueprint == null) return false;
+            paths.add(path);
+            images.add(blueprint);
         }
+        final java.util.List<net.minecraft.core.BlockPos> before = new java.util.ArrayList<>(images.size());
+        for (final Blueprint blueprint : images) before.add(blueprint.getPrimaryBlockOffset());
+        for (int i = 0; i < images.size(); i++) {
+            images.get(i).setCachePrimaryOffset(before.get(i).offset(delta));
+            if (!write(paths.get(i), plan, images.get(i))) {
+                for (int j = 0; j <= i; j++) {
+                    images.get(j).setCachePrimaryOffset(before.get(j));
+                    write(paths.get(j), plan, images.get(j));
+                }
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Geometry of actual applied content, never a neighbor's pending proposal. */

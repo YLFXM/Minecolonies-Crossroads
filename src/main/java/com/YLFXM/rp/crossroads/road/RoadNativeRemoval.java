@@ -149,8 +149,11 @@ public final class RoadNativeRemoval {
                 });
             } else {
                 if (!RoadBlueprintStore.publishRemoval(level,plan,session,applied)) throw new IllegalStateException("Could not publish demolition blueprint");
+                // Same rule as the build order: the position is the blueprint primary,
+                // so the applied image lands on the cells it describes.
                 WorkOrderDecoration order=WorkOrderDecoration.create(WorkOrderType.REMOVE,
-                        CustomRoadPack.PACK_NAME,session.path(plan.id()),plan.displayName(),plan.anchorPos(),RotationMirror.NONE,1);
+                        CustomRoadPack.PACK_NAME,session.path(plan.id()),plan.displayName(),
+                        com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),RotationMirror.NONE,1);
                 order.setBlueprint(applied,level); order.setColony(colony); order.setClaimedBy(builder.getPosition());
                 // The normal admission path rejects decoration bounds outside colony chunks.
                 // This trusted, permission-checked road uses native restoration admission;

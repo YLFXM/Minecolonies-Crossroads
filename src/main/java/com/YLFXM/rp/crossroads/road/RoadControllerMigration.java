@@ -115,9 +115,16 @@ public final class RoadControllerMigration {
     /**
      * Moves the plan's reference frame to the row the controller just landed on.
      *
-     * <p>Only data moves: the anchor coordinate, the stored blueprints' frame offsets and
-     * the row locks. No world block is placed, removed or rewritten — the stone marker the
-     * player put down at planning time stays where it is, and so does every built cell.</p>
+     * <p>Only data moves: the anchor coordinate, the recorded blueprint primary and
+     * the stored blueprints' frame offsets, plus the row locks. No world block is
+     * placed, removed or rewritten — the stone marker the player put down at
+     * planning time stays where it is, and so does every built cell.</p>
+     *
+     * <p>{@link RoadPlan#reanchorTo} moves both anchor cells. The stored offsets
+     * still have to move as well, because an image's world origin is
+     * {@code primary - primaryOffset}: leaving the offsets alone would slide every
+     * stored blueprint by the same delta. That is true for a plan that records its
+     * primary just as much as for an old one.</p>
      */
     private static void moveFrame(final ServerLevel level, final RoadPlan plan, final int row, final int entryY) {
         // A frozen blueprint or an interrupted build still refers to the old frame;
@@ -126,9 +133,19 @@ public final class RoadControllerMigration {
             Crossroads.LOGGER.info("Road {}: frame left at the old anchor while a session is open", plan.id());
             return;
         }
+        final int oldAlong = RoadHeightProfile.anchorAlong(plan);
+        final int oldEntryY = RoadHeightProfile.of(plan).row(oldAlong).entryY();
         final BlockPos delta = plan.reanchorTo(row, entryY);
         if (delta == null) return;
-        RoadBlueprintStore.shiftFrame(level, plan, delta);
+        if (!RoadBlueprintStore.shiftFrame(level, plan, delta)) {
+            // Without the offsets the stored images no longer agree with the frame, so put
+            // the frame back instead of leaving the road interpreted a delta away. The old
+            // row is still flat with the height it had, so the reverse move is exact.
+            plan.reanchorTo(oldAlong, oldEntryY);
+            Crossroads.LOGGER.error("Road {}: frame move to row {} abandoned, stored blueprints could not be rewritten",
+                    plan.id(), row);
+            return;
+        }
         RoadLockReconcile.apply(level, plan);
         Crossroads.LOGGER.info("Road {}: reference frame moved by {} to row {}", plan.id(), delta, row);
     }

@@ -82,6 +82,14 @@ public final class ClientRoadPreview {
             ClientRoadPreviewRenderer.clear();
             return null;
         }
+        if (TerrainClientState.isTerrain()) {
+            // Dig/fill corners are not a road selection: no ghost and no preview
+            // request. Kept after the tool/index bookkeeping above so the surveyor
+            // and the road index still follow a tool switch during terrain work.
+            preview = null;
+            ClientRoadPreviewRenderer.clear();
+            return null;
+        }
         RoadSelectionClient.bindTo(base);
         if (!RoadSelectionClient.hasBoth()) {
             preview = null; ClientRoadPreviewRenderer.clear(); return null;

@@ -14,7 +14,7 @@ public class PreviewLifecycleRegression {
         t.putString("dimension","minecraft:overworld");t.putBoolean("surveyView",scoped);t.putBoolean("bound",true);t.putString("colony","Test");
         ListTag scope=new ListTag();scope.add(StringTag.valueOf(b.id().toString()));t.put("surveyIds",scope);return t;
     }
-    public static void main(String[] args){
+    public static void main(String[] args) throws Exception {
         RoadPlan a=plan(),b=plan();b.setControllerPos(new BlockPos(20,65,20));
         ClientRoadCache.set(sync(a,b,true));
         check(ClientRoadCache.roads().size()==2,"full index survives scoped surveyor response");
@@ -48,6 +48,33 @@ public class PreviewLifecycleRegression {
         check(RoadRenderRange.contains(range,new net.minecraft.world.phys.Vec3(-64,1,1)),"distance threshold inclusive");
         check(!RoadRenderRange.contains(range,new net.minecraft.world.phys.Vec3(-65,1,1)),"beyond nearest-boundary threshold hidden");
         check(!RoadRenderRange.contains(range,new net.minecraft.world.phys.Vec3(500,1,300)),"lateral distance gated");
+        // A/B belong to the plan, not to the wand: road mode reloads the road's own pair.
+        RoadPlan loadable=plan();
+        loadable.setEndpoints(new BlockPos(5,64,20),new BlockPos(15,64,20));
+        loadable.setMirror(true);
+        RoadSelectionClient.clear();
+        RoadSelectionClient.reloadFromRoad(loadable);
+        check(RoadSelectionClient.hasBoth(),"road mode reloads the plan's endpoints");
+        check(RoadSelectionClient.a().equals(new BlockPos(5,64,20)) && RoadSelectionClient.b().equals(new BlockPos(15,64,20)),
+                "the reloaded pair is the plan's own");
+        check(RoadSelectionClient.mirror(),"the reloaded frame follows the plan's mirror");
+        check(RoadSelectionClient.roadId().equals(loadable.id()),"the reload adopts the plan identity");
+        RoadPlan unfinished=plan();
+        RoadSelectionClient.reloadFromRoad(unfinished);
+        check(!RoadSelectionClient.hasBoth(),"a plan without endpoints restores nothing");
+        // Terrain corners are not a road selection in either direction.
+        final String bindHandler=java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/YLFXM/rp/crossroads/client/ClientPayloadHandlers.java"));
+        check(bindHandler.contains("reloadFromRoad") && !bindHandler.contains("RoadSelectionClient.clear()"),
+                "binding a road reloads its endpoints instead of clearing them");
+        final String previewSource=java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/YLFXM/rp/crossroads/client/ClientRoadPreview.java"));
+        check(previewSource.contains("TerrainClientState.isTerrain()"),
+                "terrain mode never asks for a road preview");
+        final String eventsSource=java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/YLFXM/rp/crossroads/client/ClientSelectionEvents.java"));
+        check(eventsSource.contains("reloadFromRoad(boundPlan(player))"),
+                "switching back to road mode reloads the road's pair");
         ClientRoadCache.clear();check(ClientRoadCache.roads().isEmpty() && ClientRoadCache.surveyRoads().isEmpty(),"logout cache reset");
         System.out.println("PASS "+n+" preview lifecycle assertions");
     }

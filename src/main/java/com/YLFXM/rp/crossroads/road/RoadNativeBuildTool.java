@@ -38,7 +38,9 @@ public final class RoadNativeBuildTool {
     public static void open(final ServerPlayer player, final RoadPlan plan, final Blueprint blueprint,
                             final double version, final UUID token) {
         PacketDistributor.sendToPlayer(player,new OpenBuildToolPayload(plan.id(),RoadTemporaryPack.pathFor(plan),
-                BlueprintUtil.writeBlueprintToNBT(blueprint),version,plan.anchorPos(),token,RoadJointWork.impact(player.serverLevel(),plan.repairSession())));
+                BlueprintUtil.writeBlueprintToNBT(blueprint),version,
+                com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),token,
+                RoadJointWork.impact(player.serverLevel(),plan.repairSession())));
     }
     /**
      * Opens the native tool on a terrain blueprint.

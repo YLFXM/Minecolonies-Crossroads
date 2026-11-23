@@ -83,9 +83,36 @@ public final class BlueprintCells {
                 tileEntity == null ? null : tileAt(tileEntity, pos);
     }
 
-    /** Bottom-left world position of a blueprint image, derived from its anchor block. */
+    /**
+     * World cell this plan's blueprint primary sits on.
+     *
+     * <p>A plan that records its own blueprint anchor puts the primary on the
+     * controller's reserved cell; an older plan (field absent) keeps reading it
+     * from {@link RoadPlan#anchorPos()}, which is what every save written before
+     * 0.3.3 expects. This is the only place that decides between the two, so the
+     * rest of the code never has to repeat the fallback.</p>
+     */
+    public static BlockPos blueprintAnchor(final RoadPlan plan) {
+        final BlockPos recorded = plan.blueprintAnchor();
+        return recorded != null ? recorded : plan.anchorPos();
+    }
+
+    /**
+     * Cells no build check may treat as a target: the marker anchor, the
+     * controller, and the blueprint primary.
+     *
+     * <p>The primary is the cell the blueprint reserves for the controller, so it
+     * holds a placeholder rather than road content. On an old plan it duplicates
+     * {@code anchorPos}; the extra comparison is what keeps both readings honest.</p>
+     */
+    public static boolean reservedCell(final RoadPlan plan, final BlockPos world) {
+        return world.equals(plan.anchorPos()) || world.equals(plan.controllerPos())
+                || world.equals(blueprintAnchor(plan));
+    }
+
+    /** Bottom-left world position of a blueprint image, derived from its primary cell. */
     public static BlockPos origin(final RoadPlan plan, final Blueprint blueprint) {
-        return origin(plan.anchorPos(), blueprint);
+        return origin(blueprintAnchor(plan), blueprint);
     }
 
     public static BlockPos origin(final BlockPos anchor, final Blueprint blueprint) {
@@ -105,7 +132,7 @@ public final class BlueprintCells {
         for (final var info : old.getBlockInfoAsList()) {
             if (!RoadBlocks.isConcrete(info.getState())) continue;
             final var world = oldOrigin.offset(info.getPos());
-            if (world.equals(plan.anchorPos()) || world.equals(plan.controllerPos())) continue;
+            if (reservedCell(plan, world)) continue;
             final var local = world.subtract(newOrigin);
             if (local.getX() < 0 || local.getY() < 0 || local.getZ() < 0 || local.getX() >= target.getSizeX()
                     || local.getY() >= target.getSizeY() || local.getZ() >= target.getSizeZ()) continue;

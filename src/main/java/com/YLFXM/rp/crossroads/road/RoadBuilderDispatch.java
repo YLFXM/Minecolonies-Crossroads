@@ -36,8 +36,12 @@ final class RoadBuilderDispatch {
         IColony colony=IColonyManager.getInstance().getColonyByPosFromWorld(level,plan.controllerPos());
         if(colony==null || !RoadPermissions.canManage(level,actor,plan) || !RoadPermissions.canManage(actor,colony))
             throw new IllegalArgumentException("A road builder order requires management permission in its controller's colony.");
+        // The order position is the blueprint primary: the builder places the image
+        // so that this cell lands here. A bound plan puts it on the controller's
+        // reserved cell, an old plan on the marker block.
         var order=WorkOrderDecoration.create(WorkOrderType.BUILD,CustomRoadPack.PACK_NAME,RoadTemporaryPack.pathFor(plan),
-                RoadNames.label(plan),plan.anchorPos(),RotationMirror.NONE,0);
+                RoadNames.label(plan),com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),
+                RotationMirror.NONE,0);
         order.setBlueprint(frozen,level);order.setColony(colony);
         boolean accepted=admit(colony,order);
         if(accepted)try {RoadProtectedIterator.protectOrders(plan);}

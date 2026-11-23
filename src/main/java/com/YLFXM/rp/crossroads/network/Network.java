@@ -72,7 +72,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 public final class Network {
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("16");
+        final var registrar = event.registrar("17");
         registrar.playToServer(RoadPlanningPayload.TYPE,RoadPlanningPayload.CODEC,(payload,context) ->
                 context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
                     com.YLFXM.rp.crossroads.road.RoadPlanningActions.handle(player,payload); }));
@@ -262,7 +262,7 @@ public final class Network {
             } else if(plan==boundPlan && oldPlanningRevision!=plan.planning().revision()) {
                 RoadProposal.index(level,plan,RoadProposal.Audience.PLAYER,player,colony);
             }
-            // The preview position is the anchor itself, NOT anchor - offset.
+            // The preview position is the blueprint primary itself, NOT primary - offset.
             // Structurize's BlueprintPreviewData.setPos takes the world position
             // of the blueprint's primary block and subtracts the offset itself
             // when rendering (WorldRenderContext#renderBoxes does
@@ -270,8 +270,8 @@ public final class Network {
             // Subtracting here as well would shift the whole ghost down by one
             // primary offset and leave it buried in the ground.
             // Placing real blocks is the opposite case: that path needs
-            // anchor - offset to compute the minimum corner.
-            final BlockPos origin = plan.anchorPos();
+            // primary - offset to compute the minimum corner.
+            final BlockPos origin = com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan);
             Blueprint shown=blueprint;
             if(!payload.jointPeer().equals(new UUID(0,0))) {
                 try {shown=com.YLFXM.rp.crossroads.road.RoadJointWork.preview(level,player,plan,payload.jointPeer());}

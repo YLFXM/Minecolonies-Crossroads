@@ -1,5 +1,28 @@
 # 更新记录
 
+## 0.3.3 — 2026-11-23 蓝图锚点归属
+
+### 新增
+
+- **`RoadPlan.blueprintAnchor`**（可空，NBT 键 `blueprintAnchor`）：蓝图 primary 格的世界坐标。缺省时 primary 仍取 `anchorPos`，旧存档与红框位置逐字不变；新计划在首次生成蓝图时写入控制器预留格，红框随之内移一格。读取口径 `BlueprintCells.blueprintAnchor(plan)` 与 `reservedCell(plan,pos)`（锚点 / 控制器 / primary 三格）各只有一处实现。
+- **`road/BlueprintAnchor`**：primary 的认领与惰性迁移。首次绑定按 `新预留格 − anchorPos` 平移已存蓝图偏移；DRAFT 期间随几何重算（镜像换边），离开 DRAFT 后冻结；重写失败整体放弃。生成跑在会话副本上（`RoadRepairSession.target()` 每次返回新副本），绑定结果同步写回同 id 的活跃计划。
+- **协议 16 → 17**：`OpenBuildToolPayload.anchorPos` 的含义由「计划锚点」改为「蓝图 primary 格」，字段不变。
+
+### 修复
+
+- **红框落在锚点方块上**：生成图与全部派生图（联合图、交叉口图、拆除图、幽灵投影）的 `primaryOffset` 改为 `blueprintAnchor − 蓝图最小角`，红框落到控制器预留格；工单/创造放置/拆除工单的锚点、预览位置、确认校验同步改用该值。旧路在第一次重新生成时惰性迁移，世界里的方块不动。
+- **基准框搬家只搬锚点**：`RoadPlan.reanchorTo` 现在同时移动 `anchorPos`、`blueprintAnchor` 与 `appliedGeometry` 里的两个锚点；`RoadBlueprintStore.shiftFrame` 改为先读齐再写、任一份失败回滚，失败时迁移把基准框搬回原位并放弃本次搬迁。
+- **完成校验与清理口径**：`isBuilt` 与 `clearTargets` 统一跳过 `reservedCell` 三格，占位格不再参与“是否建成”的比对。
+- **建成后看不见幽灵、灯距/镜像无反应**：控制器搬家（建成收尾）复用了 `BindRoadWandPayload`，客户端把它当成用户重绑，连同 A/B 与镜像一起清掉；`bindTo` 只在道路切换时播种，于是同一条路再也出不了幽灵，面板的灯距/镜像也停在「请先选端点」。现在绑定回包只重绑物品 NBT、离开地形模式，再用 `RoadSelectionClient.reloadFromRoad` 从该道路重载 A/B；切模式也按同一口径——进挖/填清空，切回道路模式从道路重载。
+- **地形模式下可能冒出道路幽灵**：`ClientRoadPreview.plan()` 补 `TerrainClientState.isTerrain()` 门限，挖/填的两个角不再被当成 A/B 发预览请求。
+
+### 文档
+
+- 设计文档随补丁改名 `docs/阡陌纵横-设计文档-0.3.3.md`：§2.4 补「预留格即 primary」、§3.4 补字段、§3.5 改为四件套搬迁、§5 补 origin 口径与惰性迁移规则、通道版本号更正为 17。
+- `docs/代码结构与机制.md`：新增 `BlueprintAnchor` 文件条目，`BlueprintCells`/`RoadBlueprintStore`/`RoadGenerator`/`RoadControllerMigration`/`RoadPlan`/`RoadRepair`/`RoadNativeBuildTool`/`RoadBuilderDispatch`/`RoadNativeRemoval` 职责与 §2.3/§2.8/§2.9 调用链同步；回归表增 `AnchorOwnershipRegression`（31 条），总数 27 程序 3416 条，基线 JAR 与协议更新。
+- README 中英：说明红框位置（新路在控制器预留格，旧路首次 Repair/升级时内移一格）。
+- 验证：构建通过（产物 846,023 / sha256 `AC62167DA070…`）；`tests/run.ps1` 27 个程序 3416 条断言 + `export_road_units.py --verify`（21 份单元）全绿；三处同哈希部署。游戏内 T25–T31（含红框位置、旧路迁移、交叉口、拆除与建成后的幽灵/面板）全部通过（2026-11-23）。
+
 ## 0.3.2 — 2026-11-22 视觉统一与风格选择窗
 
 ### 新增

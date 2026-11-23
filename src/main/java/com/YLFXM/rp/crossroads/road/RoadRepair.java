@@ -212,6 +212,13 @@ public final class RoadRepair {
         }
         catch(IllegalArgumentException ex) {Crossroads.LOGGER.warn("Road preparation refused: road={} reason={}",plan.id(),ex.getMessage());tellReason(player,ex);return null;}
         RoadCrossings.freeze(level,session,target);
+        // Generation binds the primary on the frozen copy and on the plan the manager
+        // holds. The object this flow publishes the tool with can be a third one (the
+        // freshly validated geometry of a first build), and it has to carry the same
+        // fact or its payload anchor and its blueprint primary disagree by one cell.
+        if (plan.blueprintAnchor()==null && target.blueprintAnchor()!=null) {
+            plan.setBlueprintAnchor(target.blueprintAnchor());
+        }
         RoadCrossings.extendFrozen(level,session,joint.updates());
         session.setJointBlueprints(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(joint.primary()),joint.updates());
         final Blueprint blueprint=joint.work();
@@ -329,7 +336,8 @@ public final class RoadRepair {
             cancel(level,plan,"tool missing"); tell(player,"rp_crossroads.plan.no_build_tool"); return;
         }
         final var mismatch=RoadRepairSelection.validate(CustomRoadPack.PACK_NAME,RoadTemporaryPack.pathFor(plan),
-                plan.anchorPos(),RotationMirror.NONE.ordinal(),payload.pack(),payload.path(),payload.pos(),payload.rotation());
+                com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),RotationMirror.NONE.ordinal(),
+                payload.pack(),payload.path(),payload.pos(),payload.rotation());
         if (mismatch!=RoadRepairSelection.Mismatch.NONE) {
             Crossroads.LOGGER.warn("Repair confirmation rejected: road={} reason={} path={} anchor={} rotation={}",
                     plan.id(),mismatch,payload.path(),payload.pos(),payload.rotation());
@@ -370,7 +378,9 @@ public final class RoadRepair {
                 // Already admitted synchronously above. A rejected request never becomes BUILDING.
                 RoadManager.get(level).add(plan);
             } else {
-                final var nativeHandler=new CreativeStructureHandler(level,plan.anchorPos(),blueprint,RotationMirror.NONE,mode==com.ldtteam.structurize.network.messages.BuildToolPlacementMessage.HandlerType.Pretty);
+                final var nativeHandler=new CreativeStructureHandler(level,
+                        com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),blueprint,
+                        RotationMirror.NONE,mode==com.ldtteam.structurize.network.messages.BuildToolPlacementMessage.HandlerType.Pretty);
                 Manager.addToQueue(new PlaceStructureOperation(new RoadProtectedStructurePlacer(nativeHandler),player) {
                     @Override public boolean apply(final ServerLevel world) {
                         if (ACTIVE.get(plan.id()) != level) return true;

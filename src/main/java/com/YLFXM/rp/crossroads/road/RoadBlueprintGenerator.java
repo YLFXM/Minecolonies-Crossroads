@@ -113,6 +113,11 @@ public final class RoadBlueprintGenerator {
 
         if(plan.segments().isEmpty()) throw new IllegalArgumentException("Select road endpoints first.");
         final BlockPos anchorPos=resolveAnchor(level,plan);
+        // The red frame the build tool draws is the blueprint primary, and from 0.3.3 the
+        // primary sits on the controller's reserved cell rather than on the marker block.
+        // Binding can rewrite the stored frames once, so it has to happen before the
+        // applied snapshot is read further down.
+        final BlockPos primaryCell=BlueprintAnchor.bind(level,plan,anchorPos);
         final RoadHeightProfile profile=RoadHeightProfile.of(plan);
         final UnitTemplate stair=RoadUnitLibrary.get(plan.unitStyle(),plan.series(),RoadUnitLibrary.STAIR,tier,level);
         final UnitTemplate lamp=RoadUnitLibrary.get(plan.unitStyle(),plan.series(),RoadUnitLibrary.LAMP,tier,level);
@@ -201,14 +206,14 @@ public final class RoadBlueprintGenerator {
         out.setPackName(unit.pack());
         out.setFilePath(java.nio.file.Path.of(unit.source()));
         out.setFileName(RoadNames.fileName(plan));
-        // The work order anchor is the controller position. Without this the
-        // Blueprint falls back to the centre of the box, which turns the
-        // selected edge point into the middle of the road and shifts the
-        // surface by surfaceY.
+        // The work order anchor is the primary cell. Without this the Blueprint falls
+        // back to the centre of the box, which turns the selection into the middle of
+        // the road and shifts the surface by surfaceY. Old plans derive that cell from
+        // the marker block; a bound plan uses the controller's reserved cell.
         out.setCachePrimaryOffset(new BlockPos(
-                anchorPos.getX() - bounds.minX(),
-                anchorPos.getY() - originY,
-                anchorPos.getZ() - bounds.minZ()));
+                primaryCell.getX() - bounds.minX(),
+                primaryCell.getY() - originY,
+                primaryCell.getZ() - bounds.minZ()));
         return out;
     }
 

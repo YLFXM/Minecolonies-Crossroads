@@ -162,10 +162,17 @@ public final class ClientPayloadHandlers {
             if (player != null) {
                 RoadWandBinding.rebind(
                         player.getInventory(), payload.previousPos(), payload.controllerPos());
-                // Binding a road is how the wand leaves terrain mode: the panel's
-                // "bound" line goes back to the road, and A/B start over.
+                // Binding a road is how the wand leaves terrain mode. The corners belong
+                // to the road, not to the wand, so put the road's own pair back instead
+                // of clearing them: this message is also what a finished road sends when
+                // its controller migrates, and clearing there left the wand unable to
+                // preview that road again until the player re-picked A/B.
                 TerrainClientState.clear();
-                RoadSelectionClient.clear();
+                final RoadPlan road = ClientRoadCache.findByController(payload.controllerPos());
+                // Right after a migration the client still holds the plan under the old
+                // controller cell, so fall back to it; a manual bind has both equal.
+                RoadSelectionClient.reloadFromRoad(road != null ? road
+                        : ClientRoadCache.findByController(payload.previousPos()));
             }
         });
     }
