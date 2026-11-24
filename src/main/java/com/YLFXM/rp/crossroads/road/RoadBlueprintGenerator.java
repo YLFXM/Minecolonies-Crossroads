@@ -28,6 +28,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DirectionalBlock;
 import net.minecraft.world.level.block.Mirror;
@@ -117,7 +118,10 @@ public final class RoadBlueprintGenerator {
         // primary sits on the controller's reserved cell rather than on the marker block.
         // Binding can rewrite the stored frames once, so it has to happen before the
         // applied snapshot is read further down.
-        final BlockPos primaryCell=BlueprintAnchor.bind(level,plan,anchorPos);
+        final BlueprintAnchor.Binding binding=BlueprintAnchor.bind(level,plan,anchorPos);
+        if(binding.outcome()==BlueprintAnchor.Outcome.REFUSED)
+            throw new IllegalArgumentException("Could not move the blueprint frame to the reserved cell.");
+        final BlockPos primaryCell=binding.anchor();
         final RoadHeightProfile profile=RoadHeightProfile.of(plan);
         final UnitTemplate stair=RoadUnitLibrary.get(plan.unitStyle(),plan.series(),RoadUnitLibrary.STAIR,tier,level);
         final UnitTemplate lamp=RoadUnitLibrary.get(plan.unitStyle(),plan.series(),RoadUnitLibrary.LAMP,tier,level);
@@ -190,18 +194,17 @@ public final class RoadBlueprintGenerator {
         // game does when a fence is placed by hand.
         fixConnections(out);
 
-        // Reserve the inner controller cell with a Structurize placeholder, not
-        // air. The builder ignores placeholders, so it will neither place a road
-        // block nor dig out the future controller cell.
+        // The primary cell carries the decoration controller itself, not a
+        // placeholder. The controller is a leveled blueprint anchor: the native
+        // build tool reads `schematicName` from its block entity, turns the number
+        // into "Level: N" and groups files by the name with that number removed.
+        // Writing it here is what makes one entry with Level 1..N appear.
         //
         // This has to stay the LAST write to the blueprint volume. The lamp unit
         // carves the source pack's own decoration controller out as air, and the
-        // lamp sits right next to the anchor; writing the reserve earlier let
-        // that air erase the placeholder, so the builder then dug the cell out
-        // and no controller could be migrated into it.
-        final BlockPos controllerReserve = RoadControllerMigration.target(plan);
-        put(out, bounds, originY, controllerReserve,
-                com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get().defaultBlockState(), null);
+        // lamp sits right next to the anchor; writing the primary earlier let that
+        // air erase it, so no controller could be migrated into the cell.
+        writeAnchorCell(out, plan, primaryCell.subtract(new BlockPos(bounds.minX(), originY, bounds.minZ())));
 
         out.setPackName(unit.pack());
         out.setFilePath(java.nio.file.Path.of(unit.source()));
@@ -411,6 +414,41 @@ public final class RoadBlueprintGenerator {
             te.putInt("z", z);
             out.getTileEntities()[y][z][x] = te;
         }
+    }
+
+    /** MineColonies' decoration controller, the native leveled blueprint anchor. */
+    private static final ResourceLocation DECORATION_CONTROLLER =
+            ResourceLocation.parse("minecolonies:decorationcontroller");
+
+    /** The controller block state a generated road reserves its primary cell with. */
+    public static BlockState anchorCellState() {
+        final Block block = BuiltInRegistries.BLOCK.get(DECORATION_CONTROLLER);
+        if (!(block instanceof com.minecolonies.core.blocks.BlockDecorationController)) {
+            throw new IllegalStateException("minecolonies:decorationcontroller is not available");
+        }
+        return block.defaultBlockState();
+    }
+
+    /**
+     * Writes the leveled anchor: the controller plus the block entity the native
+     * tool reads the level from.
+     *
+     * <p>{@code schematicName} is the blueprint's own file stem, so the number it
+     * ends with is exactly the tier. {@code getLevel} concatenates every digit in
+     * that name, which is why the stem has no other digits (see
+     * {@link RoadNames#blueprintBase}).</p>
+     */
+    public static void writeAnchorCell(final Blueprint out, final RoadPlan plan, final BlockPos local) {
+        BlueprintCells.write(out, local, anchorCellState(), anchorTile(plan));
+    }
+
+    /** Block entity the native tool reads the level from; pure, so it needs no registry. */
+    static CompoundTag anchorTile(final RoadPlan plan) {
+        final CompoundTag data = new CompoundTag();
+        data.putString("schematicName", RoadNames.fileName(plan));
+        final CompoundTag tile = new CompoundTag();
+        tile.put("blueprintDataProvider", data);
+        return tile;
     }
 
     private static BlockPos resolveAnchor(final ServerLevel level, final RoadPlan plan) {

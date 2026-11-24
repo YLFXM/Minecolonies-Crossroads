@@ -69,7 +69,7 @@ public final class AnchorOwnershipRegression {
         // --- 3. Lazy migration: first bind moves the frame by the reserved-cell delta.
         final List<BlockPos> shifts = new ArrayList<>();
         final RoadPlan fresh = plan();
-        final var first = BlueprintAnchor.decide(fresh, anchor, reserved, false,
+        final var first = BlueprintAnchor.decide(fresh, anchor, reserved,
                 delta -> { shifts.add(delta); return true; });
         check(first.outcome() == BlueprintAnchor.Outcome.MIGRATED, "an unbound plan migrates on first use");
         check(first.anchor().equals(reserved), "migration lands on the reserved cell");
@@ -77,30 +77,47 @@ public final class AnchorOwnershipRegression {
                 "migration rewrites the stored frames by reserved minus anchor");
         check(fresh.blueprintAnchor().equals(reserved), "the plan records the new primary");
 
-        // A non-draft plan keeps what it recorded, even if the reserved cell moved on paper.
-        final BlockPos moved = reserved.offset(0, 0, 1);
-        final var kept = BlueprintAnchor.decide(fresh, anchor, moved, false, delta -> { shifts.add(delta); return true; });
+        // Same geometry, same reserved cell: nothing moves, nothing is rewritten.
+        final var kept = BlueprintAnchor.decide(fresh, anchor, reserved, delta -> { shifts.add(delta); return true; });
         check(kept.outcome() == BlueprintAnchor.Outcome.KEPT && kept.anchor().equals(reserved),
-                "a bound non-draft plan is frozen against later geometry noise");
-        check(shifts.size() == 1, "a frozen plan rewrites nothing");
+                "an unchanged reserved cell keeps the recorded primary");
+        check(shifts.size() == 1, "an unchanged reserved cell rewrites nothing");
 
-        // A draft still being shaped follows its own geometry (mirror flips the side).
-        final var rebound = BlueprintAnchor.decide(fresh, anchor, moved, true,
+        // The reserved cell moved (a mirror flips the body side, or the plan was
+        // reshaped): the primary follows it, whether or not the plan is still a draft.
+        final BlockPos moved = reserved.offset(0, 0, 1);
+        final var rebound = BlueprintAnchor.decide(fresh, anchor, moved,
                 delta -> { shifts.add(delta); return true; });
         check(rebound.outcome() == BlueprintAnchor.Outcome.MIGRATED && rebound.anchor().equals(moved),
-                "a draft re-binds to the cell its current geometry reserves");
+                "a moved reserved cell re-binds the primary, built or not");
         check(shifts.size() == 2 && shifts.get(1).equals(moved.subtract(reserved)),
-                "draft re-bind shifts by new target minus previous target");
+                "the re-bind shifts by the new reserved cell minus the previous primary");
+
+        // A mirror on an already-built road: the reserved cell really is the other side.
+        final RoadPlan flipped = plan();
+        final BlockPos sideBefore = RoadControllerMigration.candidates(flipped).get(0);
+        flipped.setBlueprintAnchor(sideBefore);
+        flipped.setMirror(true);
+        final BlockPos sideAfter = RoadControllerMigration.candidates(flipped).get(0);
+        check(!sideAfter.equals(sideBefore), "mirroring flips the reserved cell to the other side");
+        final int shiftsBeforeMirror = shifts.size();
+        final var mirrored = BlueprintAnchor.decide(flipped, flipped.anchorPos(), sideAfter,
+                delta -> { shifts.add(delta); return true; });
+        check(mirrored.outcome() == BlueprintAnchor.Outcome.MIGRATED && mirrored.anchor().equals(sideAfter),
+                "a mirrored road re-binds its primary to the new reserved cell");
+        check(shifts.size() == shiftsBeforeMirror + 1
+                        && shifts.get(shifts.size() - 1).equals(sideAfter.subtract(sideBefore)),
+                "the mirror re-bind shifts the stored frames by the side delta");
 
         // --- 4. A failed rewrite abandons the switch and leaves the plan alone.
         final RoadPlan stuck = plan();
-        final var refused = BlueprintAnchor.decide(stuck, anchor, reserved, false, delta -> false);
+        final var refused = BlueprintAnchor.decide(stuck, anchor, reserved, delta -> false);
         check(refused.outcome() == BlueprintAnchor.Outcome.REFUSED, "a refused rewrite reports the failure");
         check(refused.anchor().equals(anchor) && stuck.blueprintAnchor() == null,
                 "a refused rewrite keeps the old frame and records nothing");
         final RoadPlan half = plan();
         half.setBlueprintAnchor(reserved);
-        final var refusedAgain = BlueprintAnchor.decide(half, anchor, moved, true, delta -> false);
+        final var refusedAgain = BlueprintAnchor.decide(half, anchor, moved, delta -> false);
         check(refusedAgain.anchor().equals(reserved) && half.blueprintAnchor().equals(reserved),
                 "a refused draft re-bind keeps the previously recorded cell");
 

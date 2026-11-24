@@ -1,5 +1,29 @@
 # 更新记录
 
+## 0.3.4 — 2026-11-24 原生等级列表
+
+### 新增
+
+- **建造等级改由原生工具选择**：每档生成一份蓝图，文件名 `<base><档位>.blueprint`；主格（`blueprintAnchor`）写 `minecolonies:decorationcontroller` 与其方块实体 `blueprintDataProvider.schematicName = <base><档位>`。原生工具读该方块实体的数字得到等级、按「文件名去掉该数字」分组，于是列表里只有一个条目，展开就是 `Level: 1..N`（街道 3 级、主路 4 级）。
+- **`base` 规则**：路名去掉所有数字与非法字符（≤32，空则 `road`）后接 4 位**字母** id 标签（hex 0–9→a–j、a–f→k–p，唯一性与旧 `<短名>-<id4>` 等价）。数字必须只剩档位一个：`getLevel` 会把名字里的所有数字拼起来解析，分组也靠删掉那个数字。档位上限 9，超出直接拒绝。
+- **确认按所选档落地**：`RoadRepair.confirm` 从 `payload.path()` 解析 `base + 档位`，校验 `base` 属于本会话、档位在 1..该系列上限、路径在本路 `generated/` 目录内；通过后写 `plan.unitLevel`、按该档重新准备（成对授权回执绑的是该档的共享格）、保存待建快照并删掉其余档位文件。
+- **协议 17 → 18**：`OpenBuildToolPayload` 增加 `tiers`（路径 → 每档蓝图 NBT），客户端一次写完全部档位再开窗；预选与本地校验按「同一 base」匹配，玩家选的档位原样回传。
+
+### 修复
+
+- **主格不再写占位符**：生成图在该格写装饰控制器本身（等级锚），`RoadProtectedIterator`（建筑工）与 `RoadProtectedStructurePlacer`（创造队列）的跳过判定加上装饰控制器；`blocksolidsubstitution`（地形填充）不受影响，仍照常放置。建成后控制器照旧迁入该格。
+- **面板不再询问等级**：`WindowRoadTier` 窗口与其布局、两个文案键删除；面板「建造」直接 `ConfigureRoadPayload(PLAN)`。`ConfigureRoadPayload.tier` 字段保留但恒 -1，服务端不再用它决定等级。
+- **工单匹配按路而非按档**：`RoadWorkOrders.matches` 与客户端授权名单改用「同一条路」的口径，升级/重选后旧工单仍能对应到本路。
+- **建成后改镜像，红框与蓝图不再错位**：`BlueprintAnchor.decide` 去掉「非 DRAFT 冻结」——primary 改为恒等于**当前几何**的预留格，记录值不同就按 delta 平移已存快照并重绑。原先镜像把路体翻到锚点另一侧后，primary 留在旧格：生成图的控制器格越界被静默跳过，联合工作体的包围盒被拉到旧控制器那一列、整片填成 `blockSubstitution`，完成校验与拆除范围也跟着错。`shiftFrame` 写不进时整次生成拒绝并提示 `rp_crossroads.reason.frame_move_failed`，不再产出坏图。
+- **升级建成的道路导致建筑工被暂停**：`RoadBuilderDispatch` 交给工单的是内存工作体，`packName` 为空，而原生 `AbstractWorkOrder.onCompleted`（`AbstractWorkOrder.java:821`）会把蓝图的包名写进主格的装饰控制器方块实体——升级时该格已有控制器，于是每次 `COMPLETE_BUILD` 都抛 NPE、市民暂停 100 秒后重试、工单收不了尾。现在补上 `packName` / `filePath`（`generated`）/ `fileName`。
+
+### 文档
+
+- 设计文档随补丁改名 `docs/阡陌纵横-设计文档-0.3.4.md`：§4 建造流程改为按档发布/下发，新增 §4.1「建造等级在原生工具里选」（文件名、主格方块实体、上限、确认与清理）；删除 `WindowRoadTier` 相关条目。
+- `docs/代码结构与机制.md`：`RoadNames`/`RoadTemporaryPack`/`RoadBlueprintGenerator`/`RoadRepair`/`RoadRepairSelection`/`RoadWorkOrders`/`RoadProtectedIterator`/`RoadProtectedStructurePlacer`/`RoadBlueprintAnchor`/`RoadBuilderDispatch`/`OpenBuildToolPayload`/`ClientRoadPackWriter`/`WindowRoadRepairBuildTool` 职责与协议号、回归表（28 程序 3396 条）与基线。
+- README 中英：建造等级改为在工具里选 `Level: 1..N`。
+- 验证：构建通过（产物 `850,266 B` / sha256 `7FADC16C0577…`）；`tests/run.ps1` 28 个程序 3396 条断言 + `export_road_units.py --verify`（21 份单元）全绿；三处同哈希部署。游戏内 T31–T40 全部通过（2026-11-24）。
+
 ## 0.3.3 — 2026-11-23 蓝图锚点归属
 
 ### 新增

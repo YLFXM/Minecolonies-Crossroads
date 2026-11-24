@@ -28,8 +28,24 @@ import net.neoforged.neoforge.common.util.TriPredicate;
 public final class RoadProtectedIterator extends BlueprintIteratorDefault {
     public static final String ID="rp_crossroads:protected";
     public RoadProtectedIterator(IStructureHandler handler) {super(handler);}
+    /**
+     * Substitution placeholders and the leveled decoration controller.
+     *
+     * <p>The controller sits at the blueprint primary and is written so the native
+     * tool can read its level; it must never be placed into the world, because the
+     * real controller is migrated in only after the road is finished. Deliberately
+     * not {@code RoadBlocks.isPlaceholder}: that also matches
+     * {@code blocksolidsubstitution}, which is the terrain fill the builder has to
+     * place.</p>
+     */
     private static boolean protectedCell(BlueprintPositionInfo info) {
-        return info.getBlockInfo().getState().is(com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get());
+        return protectedState(info.getBlockInfo().getState());
+    }
+
+    /** Blueprint states this iterator never touches: placeholders and the leveled controller. */
+    static boolean protectedState(final net.minecraft.world.level.block.state.BlockState state) {
+        return state.is(com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get())
+                || state.getBlock() instanceof com.minecolonies.core.blocks.BlockDecorationController;
     }
     @Override public Result increment(TriPredicate<BlueprintPositionInfo,BlockPos,IStructureHandler> skip) {
         return super.increment((info,pos,handler) -> protectedCell(info) || skip.test(info,pos,handler));

@@ -32,8 +32,11 @@ public final class RoadWorkOrders {
             return key.equals(plan.id().toString()) || key.equals(plan.displayName());
         }
         if (!com.YLFXM.rp.crossroads.CustomRoadPack.isOurs(order.getStructurePack())) return false;
-        return path.equals(RoadTemporaryPack.pathFor(plan))
-                || path.equals("generated/road_" + plan.id() + ".blueprint");
+        // Orders carry the level the player picked, so match the road rather than
+        // one exact file: an upgrade or a re-pick must still see the live order.
+        return path.equals("generated/road_" + plan.id() + ".blueprint")
+                || (RoadRepairSelection.directory(path).equals(RoadTemporaryPack.ROOT_DIR)
+                    && RoadRepairSelection.sameRoad(path, RoadTemporaryPack.pathFor(plan)));
     }
 
     public static boolean sameDimension(final RoadPlan plan, final IColony colony) {

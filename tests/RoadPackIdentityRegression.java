@@ -56,14 +56,14 @@ public final class RoadPackIdentityRegression {
         check(!RoadWorkOrders.matches(p,order(CustomRoadPack.STALE_PACK_NAME,RoadTemporaryPack.pathFor(p),WorkOrderType.BUILD)),"a pre-rename order no longer matches");
         check(!RoadWorkOrders.matches(p,order("unrelated",RoadTemporaryPack.pathFor(p),WorkOrderType.BUILD)),"foreign pack order is rejected");
 
-        check(RoadRepairSelection.validate(CustomRoadPack.PACK_NAME,"generated/road.blueprint",new BlockPos(0,64,0),0,
-                CustomRoadPack.PACK_NAME,"generated/road.blueprint",new BlockPos(0,64,0),0)==RoadRepairSelection.Mismatch.NONE,
+        check(RoadRepairSelection.validateTier(CustomRoadPack.PACK_NAME,"generated","road",1,new BlockPos(0,64,0),0,
+                CustomRoadPack.PACK_NAME,"generated/road1.blueprint",new BlockPos(0,64,0),0)==RoadRepairSelection.Mismatch.NONE,
                 "current pack name passes repair selection");
-        check(RoadRepairSelection.validate(CustomRoadPack.PACK_NAME,"generated/road.blueprint",new BlockPos(0,64,0),0,
-                CustomRoadPack.STALE_PACK_NAME,"generated/road.blueprint",new BlockPos(0,64,0),0)==RoadRepairSelection.Mismatch.PACK,
+        check(RoadRepairSelection.validateTier(CustomRoadPack.PACK_NAME,"generated","road",1,new BlockPos(0,64,0),0,
+                CustomRoadPack.STALE_PACK_NAME,"generated/road1.blueprint",new BlockPos(0,64,0),0)==RoadRepairSelection.Mismatch.PACK,
                 "the pre-rename name is a pack mismatch");
-        check(RoadRepairSelection.validate(CustomRoadPack.PACK_NAME,"generated/road.blueprint",new BlockPos(0,64,0),0,
-                "unrelated","generated/road.blueprint",new BlockPos(0,64,0),0)==RoadRepairSelection.Mismatch.PACK,
+        check(RoadRepairSelection.validateTier(CustomRoadPack.PACK_NAME,"generated","road",1,new BlockPos(0,64,0),0,
+                "unrelated","generated/road1.blueprint",new BlockPos(0,64,0),0)==RoadRepairSelection.Mismatch.PACK,
                 "a foreign pack name is rejected");
 
         // R10-fix2: the pack version must follow the shipped blueprint only. A version

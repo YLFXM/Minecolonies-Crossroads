@@ -54,6 +54,19 @@ public final class ClientRoadPackWriter {
         if (blueprint == null || blueprintPath == null || blueprintPath.isBlank()) {
             return false;
         }
+        return ensureAll(java.util.Map.of(blueprintPath, blueprint), packVersion);
+    }
+
+    /**
+     * Writes one file per generated level and registers the pack once.
+     *
+     * <p>The native tool builds its "Level" list from the client's pack, so every
+     * level has to be on disk before the window opens.</p>
+     */
+    public static boolean ensureAll(final java.util.Map<String, CompoundTag> files, final double packVersion) {
+        if (files == null || files.isEmpty()) {
+            return false;
+        }
         final Minecraft minecraft = Minecraft.getInstance();
         // Single-player has exactly one pack: the save's. The server already wrote
         // the blueprint into it and this client reads the same list, so a second copy
@@ -71,12 +84,17 @@ public final class ClientRoadPackWriter {
                 Files.writeString(root.resolve("pack.json"), packJson((long) packVersion), StandardCharsets.UTF_8);
             }
 
-            final Path target = root.resolve(blueprintPath);
-            if (target.getParent() != null) {
-                Files.createDirectories(target.getParent());
-            }
-            try (var out = Files.newOutputStream(target)) {
-                NbtIo.writeCompressed(blueprint, out);
+            for (final java.util.Map.Entry<String, CompoundTag> file : files.entrySet()) {
+                if (file.getKey() == null || file.getKey().isBlank() || file.getValue() == null) {
+                    continue;
+                }
+                final Path target = root.resolve(file.getKey());
+                if (target.getParent() != null) {
+                    Files.createDirectories(target.getParent());
+                }
+                try (var out = Files.newOutputStream(target)) {
+                    NbtIo.writeCompressed(file.getValue(), out);
+                }
             }
 
             final List<String> mods = ModList.get().getMods().stream()
@@ -84,8 +102,7 @@ public final class ClientRoadPackWriter {
             StructurePacks.discoverPackAtPath(root, false, mods, false, CustomRoadPack.PACK_OWNER);
             return true;
         } catch (final IOException ex) {
-            Crossroads.LOGGER.error("Could not write road blueprint {} to the client pack",
-                    blueprintPath, ex);
+            Crossroads.LOGGER.error("Could not write road blueprints {} to the client pack", files.keySet(), ex);
             return false;
         }
     }

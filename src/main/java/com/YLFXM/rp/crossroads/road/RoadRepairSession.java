@@ -41,6 +41,17 @@ public final class RoadRepairSession {
     private CompoundTag workBlueprint=new CompoundTag();
     private String workDigest;
     public String workDigest() {if(workDigest==null)workDigest=RoadCrossingConsent.digest(workBlueprint);return workDigest;}
+    /** Digit-free file stem shared by every published tier of this road. */
+    private String blueprintBase="";
+    /** Levels generated for this session, used to validate the player's choice and clean up. */
+    private java.util.List<Integer> blueprintTiers=java.util.List.of();
+    public String blueprintBase() {return blueprintBase;}
+    public void setBlueprintBase(String base) {if(phase!=Phase.PREPARED)throw new IllegalStateException("Frozen tiers");blueprintBase=base==null?"":base;}
+    public java.util.List<Integer> blueprintTiers() {return java.util.List.copyOf(blueprintTiers);}
+    public void setBlueprintTiers(java.util.Collection<Integer> tiers) {
+        if(phase!=Phase.PREPARED)throw new IllegalStateException("Frozen tiers");
+        blueprintTiers=java.util.List.copyOf(new java.util.TreeSet<>(tiers));
+    }
     private CompoundTag crossingGrants=new CompoundTag();
     public CompoundTag crossingGrants() {return crossingGrants.copy();}
     public void setCrossingGrants(CompoundTag grants) {
@@ -155,6 +166,12 @@ public final class RoadRepairSession {
         tag.put("crossingGrants",crossingGrants.copy());
         tag.putBoolean("orderObserved",orderObserved);
         tag.putInt("originLevel",originLevel);
+        tag.putString("blueprintBase",blueprintBase);
+        if(!blueprintTiers.isEmpty()) {
+            final int[] tiers=new int[blueprintTiers.size()];
+            for(int i=0;i<tiers.length;i++) tiers[i]=blueprintTiers.get(i);
+            tag.putIntArray("blueprintTiers",tiers);
+        }
         if(!clearTargets.isEmpty()) {
             final var list=new net.minecraft.nbt.ListTag();
             for(final var pos:clearTargets) {
@@ -174,6 +191,11 @@ public final class RoadRepairSession {
         for(int i=0;i<list.size();i++) {
             net.minecraft.nbt.NbtUtils.readBlockPos(list.getCompound(i),"pos").ifPresent(positions::add);
         }
-        session.clearTargets=java.util.List.copyOf(positions); session.dependencies=tag.getCompound("dependencies").copy();session.primaryBlueprint=tag.getCompound("primaryBlueprint").copy();session.neighborUpdates=tag.getCompound("neighborUpdates").copy();session.workBlueprint=tag.getCompound("workBlueprint").copy();session.crossingGrants=tag.getCompound("crossingGrants").copy();session.committing=tag.getBoolean("committing"); return session;
+        session.clearTargets=java.util.List.copyOf(positions); session.dependencies=tag.getCompound("dependencies").copy();session.primaryBlueprint=tag.getCompound("primaryBlueprint").copy();session.neighborUpdates=tag.getCompound("neighborUpdates").copy();session.workBlueprint=tag.getCompound("workBlueprint").copy();session.crossingGrants=tag.getCompound("crossingGrants").copy();session.committing=tag.getBoolean("committing");
+        session.blueprintBase=tag.getString("blueprintBase");
+        final java.util.List<Integer> tiers=new java.util.ArrayList<>();
+        for(final int tier:tag.getIntArray("blueprintTiers")) tiers.add(tier);
+        session.blueprintTiers=java.util.List.copyOf(tiers);
+        return session;
     }
 }

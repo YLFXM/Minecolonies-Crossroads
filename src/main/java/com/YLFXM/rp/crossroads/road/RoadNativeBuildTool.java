@@ -36,9 +36,15 @@ public final class RoadNativeBuildTool {
         return -1;
     }
     public static void open(final ServerPlayer player, final RoadPlan plan, final Blueprint blueprint,
-                            final double version, final UUID token) {
+                            final double version, final UUID token,
+                            final java.util.Map<Integer, Blueprint> tiers) {
+        final java.util.Map<String, net.minecraft.nbt.CompoundTag> tierData = new java.util.LinkedHashMap<>();
+        for (final var tier : tiers.entrySet()) {
+            tierData.put(RoadTemporaryPack.pathFor(plan, tier.getKey()),
+                    BlueprintUtil.writeBlueprintToNBT(tier.getValue()));
+        }
         PacketDistributor.sendToPlayer(player,new OpenBuildToolPayload(plan.id(),RoadTemporaryPack.pathFor(plan),
-                BlueprintUtil.writeBlueprintToNBT(blueprint),version,
+                BlueprintUtil.writeBlueprintToNBT(blueprint),tierData,version,
                 com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),token,
                 RoadJointWork.impact(player.serverLevel(),plan.repairSession())));
     }

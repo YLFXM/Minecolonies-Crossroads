@@ -8,19 +8,20 @@ public final class Round1Regression {
     private static int checks;
     private static void check(boolean value,String message){checks++;if(!value)throw new AssertionError(message);}
     public static void main(String[] args) {
-        String pack="Crossroads",path="generated/River-abcd.blueprint";
+        String pack="Crossroads",base="River-abcd",path="generated/River-abcd1.blueprint";
         BlockPos anchor=new BlockPos(10,65,20);
-        check(RoadRepairSelection.validate(pack,path,anchor,0,pack,"generated\\River-abcd.blueprint",anchor,0)==RoadRepairSelection.Mismatch.NONE,"Windows native relative path is accepted");
-        check(RoadRepairSelection.validate(pack,path,anchor,0,pack,path,anchor,0)==RoadRepairSelection.Mismatch.NONE,"Unix relative path is accepted");
-        check(RoadRepairSelection.validate(pack,path,anchor,0,"foreign",path,anchor,0)==RoadRepairSelection.Mismatch.PACK,"pack restriction retained");
-        check(RoadRepairSelection.validate(pack,path,anchor,0,pack,"generated/Other.blueprint",anchor,0)==RoadRepairSelection.Mismatch.PATH,"different road cannot repair this session");
-        check(RoadRepairSelection.validate(pack,path,anchor,0,pack,path,anchor.above(),0)==RoadRepairSelection.Mismatch.ANCHOR,"height offset is not silently forgiven");
-        check(RoadRepairSelection.validate(pack,path,anchor,0,pack,path,anchor,1)==RoadRepairSelection.Mismatch.ROTATION,"rotation restriction retained");
-        check(RoadRepairSelection.validate(pack,path,anchor,0,pack,"generated/../generated/River-abcd.blueprint",anchor,0)==RoadRepairSelection.Mismatch.PATH,"path traversal is not normalised into a match");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,pack,"generated\\River-abcd1.blueprint",anchor,0)==RoadRepairSelection.Mismatch.NONE,"Windows native relative path is accepted");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,pack,path,anchor,0)==RoadRepairSelection.Mismatch.NONE,"Unix relative path is accepted");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,"foreign",path,anchor,0)==RoadRepairSelection.Mismatch.PACK,"pack restriction retained");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,pack,"generated/Other1.blueprint",anchor,0)==RoadRepairSelection.Mismatch.PATH,"different road cannot repair this session");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,pack,path,anchor.above(),0)==RoadRepairSelection.Mismatch.ANCHOR,"height offset is not silently forgiven");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,pack,path,anchor,1)==RoadRepairSelection.Mismatch.ROTATION,"rotation restriction retained");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,pack,"generated/../generated/River-abcd1.blueprint",anchor,0)==RoadRepairSelection.Mismatch.PATH,"path traversal is not normalised into a match");
+        check(RoadRepairSelection.validateTier(pack,"generated",base,4,anchor,0,pack,"generated/River-abcd5.blueprint",anchor,0)==RoadRepairSelection.Mismatch.TIER,"a level the series does not ship is refused");
         var json=com.google.gson.JsonParser.parseString("{\"name\":\"Crossroads\",\"icon\":\"\",\"authors\":[],\"desc\":\"\",\"mods\":[],\"version\":1,\"pack-format\":1}").getAsJsonObject();
         var root=java.nio.file.Path.of("D:/packs/Crossroads");
         var meta=new com.ldtteam.structurize.storage.StructurePackMeta(json,root,"Local");
-        String nativePath=meta.getSubPath(root.resolve("generated").resolve("River-abcd.blueprint"));
+        String nativePath=meta.getSubPath(root.resolve("generated").resolve("River-abcd1.blueprint"));
         check(RoadRepairSelection.path(nativePath).equals(path),"installed native pack path matches wire path after separator conversion");
         var road=new RoadPlan(UUID.randomUUID(),Level.OVERWORLD,anchor,anchor.north(),Direction.SOUTH,false,pack,"street",4,WalkRange.of(1,2),1,4);
         road.setState(RoadState.PLANNED);

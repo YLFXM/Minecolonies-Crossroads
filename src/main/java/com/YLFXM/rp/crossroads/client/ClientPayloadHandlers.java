@@ -194,8 +194,11 @@ public final class ClientPayloadHandlers {
             }
             // The server pushes the blueprint with the payload: packs are only
             // synced on join, so a freshly generated one does not exist here yet.
-            ClientRoadPackWriter.ensure(
-                    payload.blueprintPath(), payload.blueprint(), payload.packVersion());
+            // Every level travels with the payload: the native list reads the client's
+            // pack, and a level missing here simply would not be offered.
+            ClientRoadPackWriter.ensureAll(payload.tiers().isEmpty()
+                    ? java.util.Map.of(payload.blueprintPath(), payload.blueprint())
+                    : payload.tiers(), payload.packVersion());
             // The selected pack is a global: whichever pack is selected when a
             // building is placed or a colony is created is the one MineColonies
             // records in the save. Switching to the road pack therefore has to be

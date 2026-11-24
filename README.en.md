@@ -13,7 +13,7 @@ Requires Minecraft 1.21.1 · NeoForge 21.1.259 · MineColonies 1.1.1403-1.21.1 �
 ## Prerequisites and Installation
 
 1. Install MineColonies and its dependencies (Structurize, BlockUI, Domum Ornamentum), and make sure they run on 1.21.1 / NeoForge 21.1.259.
-2. Put `rp_crossroads-0.3.3.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
+2. Put `rp_crossroads-0.3.4.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
 3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (14) is rejected at login.
 
 For single-player, steps 1–2 are enough. On a server, ship the same jar to the server and to all players.
@@ -64,7 +64,7 @@ All three items appear on this mod's creative tab. "Native build tool" below mea
 3. Holding the wand, left-click to pick A and Shift-left-click to pick B. The two points fix the horizontal endpoints; they must share an X or a Z axis, up to 256 blocks apart.
 4. The anchor row is always flat, with the road surface one block below the anchor; the other rows accumulate step height. The Y you clicked for A/B is not a height target.
 5. Right-click the controller to open the controller panel and adjust mirroring and lamp spacing (1–8; 1 means no lamps). The road is still an unstarted plan at this point.
-6. Click "Build" in the panel: the native tool opens on `generated/` with the blueprint just generated **already selected**; you can still pick another one.
+6. Click "Build" in the panel. The native tool opens on `generated/`, which holds **one blueprint per level**: a single entry, and opening it lists `Level: 1..N` (streets 3, main road 4) - pick the level for this build there.
 7. The tool also lists `units → original → streets`: the mod's road / stair / lamp unit previews. They are for reference and manual placement only; the road flow uses the generated blueprint.
 
 Construction uses the three native modes (Complete / Pretty / Survival): in creative it finishes instantly and consumes no materials, while in survival a colony builder works through the order. A wrong blueprint, a moved anchor or a rotated blueprint are refused.
@@ -146,7 +146,7 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 The documents below are written in Chinese.
 
-- [Design document](docs/阡陌纵横-设计文档-0.3.3.md) — the rules currently in effect and future boundaries.
+- [Design document](docs/阡陌纵横-设计文档-0.3.4.md) — the rules currently in effect and future boundaries.
 - [Implementation progress](docs/阡陌纵横-实现进度.md) — stage completion and acceptance records.
 - [Code structure and mechanics](docs/代码结构与机制.md) — how sources, regression tests and scripts are split, call traces and change scope.
 - [Contributing and porting](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).

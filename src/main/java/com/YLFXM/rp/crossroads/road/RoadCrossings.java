@@ -375,7 +375,10 @@ public final class RoadCrossings {
             write(out,n.live().anchorPos().subtract(origin),skip);
         }
         // addBlockState invalidates the offset cache, so restore it after all masking.
-        write(out,RoadControllerMigration.target(plan).subtract(origin),skip);
+        // The primary cell holds the leveled controller, so it must not be masked to a
+        // placeholder: it is what the native build tool reads the level from.
+        RoadBlueprintGenerator.writeAnchorCell(out,plan,
+                RoadControllerMigration.target(plan).subtract(origin));
         out.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(plan).subtract(origin));
         plan.planning().crossingIssue(String.join(" ",new LinkedHashSet<>(issues)));
     }

@@ -37,6 +37,7 @@ import com.ldtteam.structurize.storage.SurvivalBlueprintHandlers;
 import com.minecolonies.api.colony.IColonyManager;
 import com.minecolonies.api.entity.ai.workers.util.IBuilderUndestroyable;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -64,8 +65,19 @@ public final class RoadRepair {
             if(interrupted.resumableCommit()) return resumeCommit(level,player,plan,interrupted);
             try {
                 final var retry=RoadRepairSession.retry(interrupted,player.getUUID(),System.currentTimeMillis());
-                if(!retry.workBlueprint().isEmpty() && RoadCrossings.verifyFrozen(level,retry))
-                    return openPrepared(level,player,plan,retry,com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(retry.workBlueprint(),level.registryAccess()));
+                if(!retry.workBlueprint().isEmpty() && RoadCrossings.verifyFrozen(level,retry)) {
+                    // A resumed session carries the level it was frozen with; its other
+                    // levels were never published, so the reopened list offers that one.
+                    final Blueprint work=com.ldtteam.structurize.blueprints.v1.BlueprintUtil
+                            .readBlueprintFromNBT(retry.workBlueprint(),level.registryAccess());
+                    final Blueprint primary=retry.primaryBlueprint().isEmpty() ? work
+                            : com.ldtteam.structurize.blueprints.v1.BlueprintUtil
+                                    .readBlueprintFromNBT(retry.primaryBlueprint(),level.registryAccess());
+                    final RoadJointWork.Prepared prepared=new RoadJointWork.Prepared(
+                            work,primary,retry.neighborUpdates(),retry.clearTargets());
+                    return openPrepared(level,player,plan,retry,
+                            Map.of(Math.max(1,retry.target().unitLevel()),prepared));
+                }
                 // The shared footprint really changed. Report what moved, release the frozen
                 // record and prepare again from the current roads; the player may still build.
                 final var changes=RoadCrossings.frozenChanges(level,retry);
@@ -202,15 +214,13 @@ public final class RoadRepair {
      *
      * @return the work blueprint, or {@code null} when preparation was refused
      */
-    private static Blueprint prepareJoint(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
-                                          final RoadRepairSession session) {
+    private static Map<Integer, RoadJointWork.Prepared> prepareJoint(final ServerLevel level, final ServerPlayer player,
+                                                                     final RoadPlan plan, final RoadRepairSession session,
+                                                                     final boolean allTiers) {
+        final Map<Integer,RoadJointWork.Prepared> tiers=prepareTiers(level,player,plan,session,allTiers);
+        if(tiers==null)return null;
         final RoadPlan target=session.target();
-        final RoadJointWork.Prepared joint;
-        try {
-            var authorized=RoadCrossingConsent.prepare(level,player,target);if(authorized==null)return null;
-            joint=authorized.work();session.setCrossingGrants(authorized.grants());
-        }
-        catch(IllegalArgumentException ex) {Crossroads.LOGGER.warn("Road preparation refused: road={} reason={}",plan.id(),ex.getMessage());tellReason(player,ex);return null;}
+        final RoadJointWork.Prepared joint=tiers.get(baseTier(session,tiers));
         RoadCrossings.freeze(level,session,target);
         // Generation binds the primary on the frozen copy and on the plan the manager
         // holds. The object this flow publishes the tool with can be a third one (the
@@ -220,18 +230,106 @@ public final class RoadRepair {
             plan.setBlueprintAnchor(target.blueprintAnchor());
         }
         RoadCrossings.extendFrozen(level,session,joint.updates());
-        session.setJointBlueprints(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(joint.primary()),joint.updates());
-        final Blueprint blueprint=joint.work();
-        session.setWorkBlueprint(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint));
+        session.setJointBlueprints(writeBlueprint(joint.primary()),joint.updates());
+        session.setWorkBlueprint(writeBlueprint(joint.work()));
         session.setClearTargets(joint.clearTargets());
-        return blueprint;
+        session.setBlueprintBase(RoadNames.blueprintBase(plan));
+        session.setBlueprintTiers(tiers.keySet());
+        return tiers;
+    }
+
+    /**
+     * Freezes every level this series ships.
+     *
+     * <p>Each level is a full proposal, not just its image: the native list shows
+     * these very work volumes, so choosing Level 3 has to place the volume that was
+     * shown for Level 3. One level is the common case and costs exactly what it did
+     * before; the rest are only computed while the tool is open.</p>
+     */
+    private static Map<Integer, RoadJointWork.Prepared> prepareTiers(final ServerLevel level, final ServerPlayer player,
+                                                                     final RoadPlan plan, final RoadRepairSession session,
+                                                                     final boolean allTiers) {
+        final int max=maxTier(level,session.target());
+        if (max<1) {
+            tell(player,"rp_crossroads.plan.upgrade_unavailable");
+            return null;
+        }
+        final int baseTier=Math.max(1,Math.min(max,session.target().unitLevel()));
+        // Only the tool lists levels. A builder order places one level, so it does not
+        // pay for the other proposals.
+        final int highest=allTiers ? max : baseTier;
+        final Map<Integer,RoadJointWork.Prepared> tiers=new java.util.LinkedHashMap<>();
+        CompoundTag grants=null;
+        try {
+            for (int tier=1; tier<=highest; tier++) {
+                final RoadPlan tierTarget=withTier(session.target(),tier);
+                final var authorized=RoadCrossingConsent.prepare(level,player,tierTarget);
+                if (authorized==null) return null;
+                // Grants bind the shared junction cells of one level's work volume, so
+                // the set installed on the session has to be the one frozen with it.
+                if (tier==baseTier) grants=authorized.grants();
+                tiers.put(tier,authorized.work());
+            }
+        } catch (IllegalArgumentException ex) {
+            Crossroads.LOGGER.warn("Road preparation refused: road={} reason={}",plan.id(),ex.getMessage());
+            tellReason(player,ex); return null;
+        }
+        session.setCrossingGrants(grants==null ? new CompoundTag() : grants);
+        return tiers;
+    }
+
+    /** One level's proposal, for a session whose cached set is gone (server restart). */
+    private static RoadJointWork.Prepared prepareTier(final ServerLevel level, final ServerPlayer player,
+                                                      final RoadRepairSession session, final int tier) {
+        final RoadPlan tierTarget=withTier(session.target(),tier);
+        try {
+            final var authorized=RoadCrossingConsent.prepare(level,player,tierTarget);
+            if (authorized==null) return null;
+            // The pair grants bind the shared junction cells of the work volume, and
+            // those cells carry the level's blocks: a level chosen at confirmation needs
+            // its own receipts, not the ones prepared for another level.
+            session.setCrossingGrants(authorized.grants());
+            return authorized.work();
+        } catch (IllegalArgumentException ex) {
+            tellReason(player,ex); return null;
+        }
+    }
+
+    private static RoadPlan withTier(final RoadPlan base,final int tier) {
+        final RoadPlan copy=RoadPlan.load(base.save());copy.setRepairSession(null);copy.setUnitLevel(tier);return copy;
+    }
+
+    /**
+     * Highest level this series ships, or -1 when it cannot be listed.
+     *
+     * <p>The native list derives "Level: N" from a single digit in the file name,
+     * so a series with ten or more tiers could not be addressed by name.</p>
+     */
+    static int maxTier(final ServerLevel level,final RoadPlan plan) {
+        final int max=RoadUnitLibrary.maxLevel(level.getServer(),plan.unitStyle(),plan.series());
+        return max<1 || max>9 ? -1 : max;
+    }
+
+    private static int baseTier(final RoadRepairSession session,final Map<Integer,RoadJointWork.Prepared> tiers) {
+        final int wanted=session.target().unitLevel();
+        return tiers.containsKey(wanted) ? wanted : java.util.Collections.min(tiers.keySet());
+    }
+
+    private static Map<Integer,Blueprint> workByTier(final Map<Integer,RoadJointWork.Prepared> tiers) {
+        final Map<Integer,Blueprint> out=new java.util.LinkedHashMap<>();
+        tiers.forEach((level,prepared) -> out.put(level,prepared.work()));
+        return out;
+    }
+
+    private static CompoundTag writeBlueprint(final Blueprint blueprint) {
+        return com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(blueprint);
     }
 
     private static boolean prepareAndOpen(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
                                           final RoadRepairSession session) {
-        final Blueprint blueprint=prepareJoint(level,player,plan,session);
-        if (blueprint==null) return false;
-        return openPrepared(level,player,plan,session,blueprint);
+        final Map<Integer,RoadJointWork.Prepared> tiers=prepareJoint(level,player,plan,session,true);
+        if (tiers==null) return false;
+        return openPrepared(level,player,plan,session,tiers);
     }
 
     /**
@@ -241,10 +339,12 @@ public final class RoadRepair {
      * its joint blueprints intact, so only publishing and opening are left.</p>
      */
     private static boolean openPrepared(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
-                                        final RoadRepairSession session, final Blueprint blueprint) {
-        final long version=publish(level,player,plan,session,blueprint);
+                                        final RoadRepairSession session,
+                                        final Map<Integer,RoadJointWork.Prepared> tiers) {
+        final long version=publish(level,player,plan,session,tiers);
         if (version<0) { cancel(level,plan,"publishing the prepared road failed"); return false; }
-        RoadNativeBuildTool.open(player,plan,blueprint,version,session.token());
+        RoadNativeBuildTool.open(player,plan,tiers.get(baseTier(session,tiers)).work(),version,session.token(),
+                workByTier(tiers));
         Crossroads.LOGGER.info("Road construction prepared: road={} session={} owner={} previous={}",plan.id(),session.token(),player.getUUID(),session.previousState());
         return true;
     }
@@ -258,9 +358,10 @@ public final class RoadRepair {
      */
     private static boolean prepareAndDispatch(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
                                              final RoadRepairSession session) {
-        final Blueprint blueprint=prepareJoint(level,player,plan,session);
-        if (blueprint==null) return false;
-        if (publish(level,player,plan,session,blueprint)<0) {
+        final Map<Integer,RoadJointWork.Prepared> tiers=prepareJoint(level,player,plan,session,false);
+        if (tiers==null) return false;
+        final Blueprint blueprint=tiers.get(baseTier(session,tiers)).work();
+        if (publish(level,player,plan,session,tiers)<0) {
             cancel(level,plan,"publishing the prepared road failed"); return false;
         }
         try {
@@ -283,7 +384,8 @@ public final class RoadRepair {
      * @return the published pack version, or -1 when anything refused
      */
     private static long publish(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
-                                final RoadRepairSession session, final Blueprint blueprint) {
+                                final RoadRepairSession session,
+                                final Map<Integer,RoadJointWork.Prepared> tiers) {
         // Every native build tool open funnels through here (first build and repair
         // alike). Checking the preview assets now means a deleted or half-written
         // unit file heals before the panel opens instead of on the next restart.
@@ -302,10 +404,11 @@ public final class RoadRepair {
         }
         try {RoadCrossingConsent.validate(level,player.getUUID(),session);}
         catch(IllegalArgumentException ex) {tellReason(player,ex);return -1;}
-        if(!RoadBlueprintStore.saveChecked(level,plan,blueprint)) {
+        final Blueprint chosen=tiers.get(baseTier(session,tiers)).work();
+        if(!RoadBlueprintStore.saveChecked(level,plan,chosen)) {
             tell(player,"rp_crossroads.repair.save_failed");return -1;
         }
-        final long version=RoadTemporaryPack.replace(level,plan,session.target(),blueprint);
+        final long version=RoadTemporaryPack.publishTiers(level,plan,workByTier(tiers));
         if (version<0) { tell(player,"rp_crossroads.repair.publish_failed"); return -1; }
         RoadBuildWatcher.stop(plan);
         plan.setRepairSession(session); plan.setState(RoadState.PLANNED);
@@ -335,13 +438,29 @@ public final class RoadRepair {
         if (RoadNativeBuildTool.findToolSlot(player.getInventory())<0) {
             cancel(level,plan,"tool missing"); tell(player,"rp_crossroads.plan.no_build_tool"); return;
         }
-        final var mismatch=RoadRepairSelection.validate(CustomRoadPack.PACK_NAME,RoadTemporaryPack.pathFor(plan),
+        final String base=session.blueprintBase().isEmpty()?RoadNames.blueprintBase(plan):session.blueprintBase();
+        final int maxLevel=maxTier(level,plan);
+        if (maxLevel<1) { cancel(level,plan,"no build levels"); tell(player,"rp_crossroads.plan.upgrade_unavailable"); return; }
+        final var mismatch=RoadRepairSelection.validateTier(CustomRoadPack.PACK_NAME,RoadTemporaryPack.ROOT_DIR,base,maxLevel,
                 com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),RotationMirror.NONE.ordinal(),
                 payload.pack(),payload.path(),payload.pos(),payload.rotation());
         if (mismatch!=RoadRepairSelection.Mismatch.NONE) {
-            Crossroads.LOGGER.warn("Repair confirmation rejected: road={} reason={} path={} anchor={} rotation={}",
-                    plan.id(),mismatch,payload.path(),payload.pos(),payload.rotation());
+            Crossroads.LOGGER.warn("Repair confirmation rejected: road={} reason={} path={} base={} anchor={} rotation={}",
+                    plan.id(),mismatch,payload.path(),base,payload.pos(),payload.rotation());
             RoadNotices.chatMessage(player,null,Component.translatable("rp_crossroads.repair.selection_"+mismatch.name().toLowerCase(java.util.Locale.ROOT))); return;
+        }
+        // The native tool lists every level, so the chosen file decides the tier. The
+        // session already froze that level's work; only a level the player picked after
+        // a restart needs it rebuilt.
+        final int tier=RoadRepairSelection.tierOf(payload.path(),base);
+        if (tier!=plan.unitLevel()) {
+            final RoadJointWork.Prepared chosen=prepareTier(level,player,session,tier);
+            if (chosen==null) { cancel(level,plan,"chosen level could not be prepared"); return; }
+            installTier(level,plan,session,chosen,tier);
+            if (!RoadBlueprintStore.saveChecked(level,plan,chosen.work())) {
+                cancel(level,plan,"chosen level could not be saved"); tell(player,"rp_crossroads.repair.save_failed"); return;
+            }
+            RoadTemporaryPack.deleteTierFiles(level,plan,java.util.Set.of(RoadNames.fileName(plan,tier)+".blueprint"));
         }
         if(!RoadJointWork.impact(level,session).isEmpty() && !payload.jointApproved()) {
             RoadNotices.chatMessage(player,null,Component.translatable("rp_crossroads.crossing.approve_required"));return;
@@ -515,6 +634,19 @@ public final class RoadRepair {
             Crossroads.LOGGER.error("Joint snapshot checkpoint will be retried for {}",plan.id(),ex);
         }
     }
+    /** Swaps the session's frozen work for the chosen level, without touching the world. */
+    private static void installTier(final ServerLevel level,final RoadPlan plan,final RoadRepairSession session,
+                                    final RoadJointWork.Prepared prepared,final int tier) {
+        plan.setUnitLevel(tier);
+        RoadManager.get(level).add(plan);
+        final RoadPlan target=session.target();
+        target.setUnitLevel(tier);
+        session.replacePreparedTarget(target);
+        session.setJointBlueprints(writeBlueprint(prepared.primary()),prepared.updates());
+        session.setWorkBlueprint(writeBlueprint(prepared.work()));
+        session.setClearTargets(prepared.clearTargets());
+    }
+
     private static Blueprint frozenBlueprint(ServerLevel level,RoadPlan plan,RoadRepairSession session) {
         return session.workBlueprint().isEmpty() ? RoadBlueprintStore.load(level,plan)
                 : com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(session.workBlueprint(),level.registryAccess());
@@ -561,7 +693,9 @@ public final class RoadRepair {
         plan.setUnitLevel(session.originLevel());
         plan.setState(unconfirmed ? session.previousState() : RoadState.PLANNED);
         RoadManager.get(level).add(plan);
-        if (plan.state()==RoadState.BUILT) RoadTemporaryPack.delete(level,plan);
+        // Every level published for this session goes away; a frozen (interrupted)
+        // session keeps its files because the resume path reads them.
+        if (unconfirmed || plan.state()==RoadState.BUILT) RoadTemporaryPack.deleteTierFiles(level,plan,java.util.Set.of());
         sync(level);
         final ServerPlayer owner=level.getServer().getPlayerList().getPlayer(session.owner());
         if (owner!=null) tell(owner,unconfirmed ? "rp_crossroads.repair.cancelled" : "rp_crossroads.repair.interrupted");

@@ -61,23 +61,31 @@ public final class BlueprintAnchor {
     /**
      * Pure decision, with the stored-frame rewrite supplied by the caller.
      *
-     * <p>Split out so the regression can drive every branch - first bind, draft
-     * re-bind, frozen plan, failed rewrite - without a level or files.</p>
+     * <p>Split out so the regression can drive every branch - first bind, stable
+     * geometry, a reserved cell that moved, failed rewrite - without a level or
+     * files.</p>
+     *
+     * <p>The invariant is "the primary is the cell this geometry reserves for the
+     * controller", not "the primary stops moving once the plan leaves DRAFT". A
+     * mirror flips the body to the other side of the anchor, so a built road's
+     * reserved cell moves at a time when the plan is long past DRAFT; freezing the
+     * field then leaves the primary outside the new image, which both inflates the
+     * joint work volume into a slab of placeholders and breaks completion checks.
+     * Geometry that did not change yields the same target, so nothing moves.</p>
      *
      * @param plan         plan being bound; its recorded field is updated on success
      * @param legacyAnchor anchor the stored blueprints were authored against
-     * @param target       cell the controller will reserve now
-     * @param mutable      true while the plan is still a draft, i.e. the target may follow its geometry
+     * @param target       cell the controller reserves for this geometry
      * @param shift        rewrites every stored frame by a delta; false when that was not possible
      */
     public static Binding decide(final RoadPlan plan, final BlockPos legacyAnchor, final BlockPos target,
-                                 final boolean mutable, final Predicate<BlockPos> shift) {
+                                 final Predicate<BlockPos> shift) {
         final BlockPos recorded = plan.blueprintAnchor();
-        if (recorded != null && !mutable) {
+        if (recorded != null && recorded.equals(target)) {
             return new Binding(recorded, Outcome.KEPT);
         }
         // First bind: the images in the store were authored against the geometry
-        // anchor. Draft re-bind: they were authored against the previous target.
+        // anchor. Every later bind: they were authored against the previous target.
         final BlockPos from = recorded != null ? recorded : legacyAnchor;
         final BlockPos delta = target.subtract(from);
         if (!delta.equals(BlockPos.ZERO) && !shift.test(delta)) {
@@ -97,16 +105,14 @@ public final class BlueprintAnchor {
      * carry a primary on the reserved cell while every later reader still derived
      * the origin from the anchor, i.e. one cell off.</p>
      */
-    public static BlockPos bind(final ServerLevel level, final RoadPlan plan, final BlockPos legacyAnchor) {
+    public static Binding bind(final ServerLevel level, final RoadPlan plan, final BlockPos legacyAnchor) {
         final RoadPlan live = RoadManager.get(level).get(plan.id());
         if (plan.blueprintAnchor() == null && live != null && live != plan) {
             // A copy of a plan that is already bound must not fall back to the anchor.
             plan.setBlueprintAnchor(live.blueprintAnchor());
         }
-        final RoadPlan owner = live != null ? live : plan;
         final BlockPos target = RoadControllerMigration.candidates(plan).get(0);
-        final boolean mutable = owner.state() == RoadState.DRAFT || plan.state() == RoadState.DRAFT;
-        final Binding binding = decide(plan, legacyAnchor, target, mutable,
+        final Binding binding = decide(plan, legacyAnchor, target,
                 delta -> RoadBlueprintStore.shiftFrame(level, plan, delta));
         if (binding.migrated()) {
             if (live != null && live != plan) {
@@ -118,7 +124,7 @@ public final class BlueprintAnchor {
             Crossroads.LOGGER.warn("Road {}: kept blueprint primary {} (moving it to {} failed)",
                     plan.id(), binding.anchor(), target);
         }
-        return binding.anchor();
+        return binding;
     }
 
     private BlueprintAnchor() {

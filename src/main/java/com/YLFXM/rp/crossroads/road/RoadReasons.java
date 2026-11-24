@@ -50,6 +50,7 @@ public final class RoadReasons {
         exact("Select road endpoints first.", "no_endpoints");
         exact("Road foundation, stairs or lamps exceed this world's build height.", "height_limit");
         exact("Generated road blueprint exceeds the permitted volume.", "volume_limit");
+        exact("Could not move the blueprint frame to the reserved cell.", "frame_move_failed");
 
         // Joint (crossing) work.
         exact("Open blueprint editing on the existing road before changing its junction height.",

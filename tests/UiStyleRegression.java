@@ -38,7 +38,6 @@ public final class UiStyleRegression {
         SIZES.put("windowroadcrossings.xml", new int[]{336, 228});
         SIZES.put("windowroadremovalchoice.xml", new int[]{244, 150});
         SIZES.put("windowroadsurveyor.xml", new int[]{280, 176});
-        SIZES.put("windowroadtier.xml", new int[]{232, 144});
         SIZES.put("windowworkorderlist.xml", new int[]{288, 180});
         SIZES.put("windowroadstylelist.xml", new int[]{420, 240});
     }

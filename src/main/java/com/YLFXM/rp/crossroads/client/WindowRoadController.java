@@ -280,15 +280,8 @@ public class WindowRoadController extends AbstractWindowSkeleton {
             }
             return;
         }
-        // Creative hands the blocks to the player, and the native build tool has no
-        // tier picker for our unit files, so the tier has to be asked for now.
-        // Survival roads start at tier 1 and are upgraded by a builder later.
-        if (this.mc.player != null && this.mc.player.isCreative()
-                && com.YLFXM.rp.crossroads.road.RoadUnitLibrary
-                        .maxLevel(plan.unitStyle(), plan.series()) > 1) {
-            WindowRoadTier.open(this, plan, tier -> this.sendConfigure(plan, RoadPlacementMode.PLAN, -1, tier));
-            return;
-        }
+        // The level is picked inside the native tool now: every level is generated
+        // and listed there as "Level: N", so nothing has to be asked here.
         this.sendConfigure(plan, RoadPlacementMode.PLAN, -1, -1);
     }
 

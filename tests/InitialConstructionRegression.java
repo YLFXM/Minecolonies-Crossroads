@@ -74,10 +74,10 @@ public final class InitialConstructionRegression {
         check(worker.orderObserved() && worker.phase()==RoadRepairSession.Phase.SURVIVAL,"initial worker session survives restart");
         worker.commitRows(first); first.setRepairSession(null);
         check(first.editedRowCount()==0 && first.cellType(8)==CellType.STAIR_UP,"successful first construction commits the exact frozen rows");
-        check(RoadRepairSelection.validate("Crossroads","generated/first.blueprint",first.anchorPos(),0,
-                "Crossroads","generated/wrong.blueprint",first.anchorPos(),0)==RoadRepairSelection.Mismatch.PATH,"wrong initial blueprint rejected even in the same pack");
-        check(RoadRepairSelection.validate("Crossroads","generated/first.blueprint",first.anchorPos(),0,
-                "Crossroads","generated/first.blueprint",first.anchorPos().east(),0)==RoadRepairSelection.Mismatch.ANCHOR,"moved initial blueprint rejected at confirmation");
+        check(RoadRepairSelection.validateTier("Crossroads","generated","first",1,first.anchorPos(),0,
+                "Crossroads","generated/wrong1.blueprint",first.anchorPos(),0)==RoadRepairSelection.Mismatch.PATH,"wrong initial blueprint rejected even in the same pack");
+        check(RoadRepairSelection.validateTier("Crossroads","generated","first",1,first.anchorPos(),0,
+                "Crossroads","generated/first1.blueprint",first.anchorPos().east(),0)==RoadRepairSelection.Mismatch.ANCHOR,"moved initial blueprint rejected at confirmation");
         System.out.println("PASS "+checks+" initial construction assertions");
     }
 }

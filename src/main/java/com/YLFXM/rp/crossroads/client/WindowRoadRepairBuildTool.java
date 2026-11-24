@@ -50,7 +50,8 @@ public final class WindowRoadRepairBuildTool {
         this.repair=repair;
         this.window=new WindowExtendedBuildTool(repair.anchorPos(),Constants.GROUNDSTYLE_RELATIVE,
                 (nativeWindow,blueprint) -> showChoices(nativeWindow),
-                blueprint -> repair.blueprintPath().endsWith("/"+blueprint.getFileName()+".blueprint"),registries);
+                blueprint -> com.YLFXM.rp.crossroads.road.RoadRepairSelection.sameRoad(
+                        repair.blueprintPath(), blueprint.getFileName()+".blueprint"),registries);
     }
     public void open() { window.open(); }
 
@@ -138,8 +139,11 @@ public final class WindowRoadRepairBuildTool {
         if(data==null || data.getBlueprint()==null || pack==null) return false;
         final var blueprint=data.getBlueprint();
         final String path=com.YLFXM.rp.crossroads.road.RoadRepairSelection.path(pack.getSubPath(blueprint.getFilePath().resolve(blueprint.getFileName()+".blueprint")));
-        final var mismatch=com.YLFXM.rp.crossroads.road.RoadRepairSelection.validate(
-                CustomRoadPack.PACK_NAME,repair.blueprintPath(),repair.anchorPos(),RotationMirror.NONE.ordinal(),
+        final String base=com.YLFXM.rp.crossroads.road.RoadNames.stripTier(
+                com.YLFXM.rp.crossroads.road.RoadRepairSelection.stem(repair.blueprintPath()));
+        final var mismatch=com.YLFXM.rp.crossroads.road.RoadRepairSelection.validateTier(
+                CustomRoadPack.PACK_NAME,com.YLFXM.rp.crossroads.road.RoadTemporaryPack.ROOT_DIR,base,
+                Math.max(1,repair.tiers().size()),repair.anchorPos(),RotationMirror.NONE.ordinal(),
                 pack.getName(),path,data.getPos(),data.getRotationMirror().ordinal());
         if(mismatch!=com.YLFXM.rp.crossroads.road.RoadRepairSelection.Mismatch.NONE) {
             com.YLFXM.rp.crossroads.Crossroads.LOGGER.warn(

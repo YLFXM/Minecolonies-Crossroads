@@ -72,7 +72,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 public final class Network {
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("17");
+        final var registrar = event.registrar("18");
         registrar.playToServer(RoadPlanningPayload.TYPE,RoadPlanningPayload.CODEC,(payload,context) ->
                 context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
                     com.YLFXM.rp.crossroads.road.RoadPlanningActions.handle(player,payload); }));
@@ -646,15 +646,9 @@ public final class Network {
             }
 
             RoadReplanning.handoff(level,old,plan,player.getUUID(),mode==RoadPlacementMode.CONFIGURE);
-            // Creative picks the tier before the first build, and it has to be set
-            // after handoff (which carries the old tier over) but before the
-            // blueprint is generated. Clamped here as well: the client's list is
-            // only a hint about what the series ships.
-            if (payload.tier() > 0) {
-                final int highest = com.YLFXM.rp.crossroads.road.RoadUnitLibrary
-                        .maxLevel(level.getServer(), plan.unitStyle(), plan.series());
-                plan.setUnitLevel(Math.max(1, Math.min(payload.tier(), highest)));
-            }
+            // The level is chosen inside the native tool now (the contract lists
+            // Level 1..N), so the configure payload never decides it: the plan keeps
+            // the level it had until the player confirms a file.
             if (RoadRules.canCreate(old) && RoadReplanning.clearRowsOnAxisChange(old,plan))RoadReplanning.noticeAxisChanged(player);
             reportRemap(player, old, plan);
             if (!old.displayName().isBlank()) {
@@ -1482,8 +1476,18 @@ public final class Network {
                 }
                 final com.minecolonies.api.colony.IColony owner = IColonyManager.getInstance()
                         .getColonyByPosFromWorld(other, plan.controllerPos());
-                if (isEntitledToBlueprint(plan, owner, player) && seen.add(RoadNames.fileName(plan))) {
-                    names.add(net.minecraft.nbt.StringTag.valueOf(RoadNames.fileName(plan)));
+                if (!isEntitledToBlueprint(plan, owner, player)) {
+                    continue;
+                }
+                // Every level is published while the road is being built; the client
+                // prunes anything not listed here, so all of them have to be named.
+                final int levels = Math.max(1, Math.min(9, com.YLFXM.rp.crossroads.road.RoadUnitLibrary
+                        .maxLevel(player.server, plan.unitStyle(), plan.series())));
+                for (int tier = 1; tier <= levels; tier++) {
+                    final String name = RoadNames.fileName(plan, tier);
+                    if (seen.add(name)) {
+                        names.add(net.minecraft.nbt.StringTag.valueOf(name));
+                    }
                 }
             }
         }

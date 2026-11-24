@@ -32,10 +32,16 @@ public final class RoadProtectedStructurePlacer extends StructurePlacer {
             Operation operation,Supplier<AbstractBlueprintIterator.Result> advance,boolean entities) {
         Supplier<AbstractBlueprintIterator.Result> filtered=() -> {
             AbstractBlueprintIterator.Result result=advance.get();
-            while(result==AbstractBlueprintIterator.Result.NEW_BLOCK && handler.getBluePrint().getBlockState(iterator.getProgressPos())
-                    .is(com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get())) result=advance.get();
+            while(result==AbstractBlueprintIterator.Result.NEW_BLOCK && protectedState(
+                    handler.getBluePrint().getBlockState(iterator.getProgressPos()))) result=advance.get();
             return result;
         };
         return super.executeStructureStep(world,storage,start,operation,filtered,entities);
+    }
+
+    /** Placeholders plus the leveled controller at the blueprint primary; never placed by hand. */
+    static boolean protectedState(final net.minecraft.world.level.block.state.BlockState state) {
+        return state.is(com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get())
+                || state.getBlock() instanceof com.minecolonies.core.blocks.BlockDecorationController;
     }
 }

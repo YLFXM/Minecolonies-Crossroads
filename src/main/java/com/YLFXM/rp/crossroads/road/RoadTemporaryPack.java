@@ -68,13 +68,20 @@ public final class RoadTemporaryPack {
     public static final String PACK_NAME = CustomRoadPack.PACK_NAME;
     /** Sub-path under the pack used for road blueprints (server and client). */
     private static final String ROOT = "generated";
+    /** Directory under the pack that holds blueprints of roads still under construction. */
+    public static final String ROOT_DIR = ROOT;
 
     /**
      * Path of the blueprint inside the pack. Meaningful on both sides: the server
      * keeps the file while building, the client receives it point-to-point.
      */
     public static String pathFor(final RoadPlan plan) {
-        return ROOT + "/" + RoadNames.fileName(plan) + ".blueprint";
+        return pathFor(plan, plan.unitLevel());
+    }
+
+    /** Pack path of one tier of this road; every tier is published while the tool is open. */
+    public static String pathFor(final RoadPlan plan, final int tier) {
+        return ROOT + "/" + RoadNames.fileName(plan, tier) + ".blueprint";
     }
 
     /**
@@ -88,19 +95,75 @@ public final class RoadTemporaryPack {
      */
     public static long replace(final ServerLevel level, final RoadPlan previous, final RoadPlan plan,
                                final Blueprint blueprint) {
+        if (previous != null && !RoadNames.blueprintBase(previous).equals(RoadNames.blueprintBase(plan))) {
+            deleteTierFiles(level, previous, java.util.Set.of());
+        }
+        return publishTiers(level, plan, java.util.Map.of(plan.unitLevel(), blueprint));
+    }
+
+    /**
+     * Publishes every generated tier and removes any other tier file of the same road.
+     *
+     * <p>The directory is shared by all roads, so cleanup is scoped by the road's
+     * digit-free base: only files that parse as {@code <thisBase><1..9>} are touched.</p>
+     *
+     * @return the pack's content version after the write, or {@code -1} on error
+     */
+    public static long publishTiers(final ServerLevel level, final RoadPlan plan,
+                                    final java.util.Map<Integer, Blueprint> tiers) {
+        final java.util.Set<String> keep = new java.util.HashSet<>();
         try {
-            if (previous != null && !RoadNames.fileName(previous).equals(RoadNames.fileName(plan))) {
-                Files.deleteIfExists(blueprintPath(level, previous));
+            for (final java.util.Map.Entry<Integer, Blueprint> tier : tiers.entrySet()) {
+                final Path path = blueprintPath(level, plan, tier.getKey());
+                Files.createDirectories(path.getParent());
+                NbtIo.writeCompressed(BlueprintUtil.writeBlueprintToNBT(tier.getValue()), path);
+                keep.add(path.getFileName().toString());
             }
-            final Path blueprintPath = blueprintPath(level, plan);
-            Files.createDirectories(blueprintPath.getParent());
-            final CompoundTag tag = BlueprintUtil.writeBlueprintToNBT(blueprint);
-            NbtIo.writeCompressed(tag, blueprintPath);
         } catch (final IOException ex) {
-            Crossroads.LOGGER.error("Could not write road blueprint {}", plan.id(), ex);
+            Crossroads.LOGGER.error("Could not write road blueprints for {}", plan.id(), ex);
             return -1;
         }
+        deleteTierFiles(level, plan, keep);
         return CustomRoadPack.install(level.getServer());
+    }
+
+    /** Removes every published tier of this road except the file names in {@code keep}. */
+    public static void deleteTierFiles(final ServerLevel level, final RoadPlan plan,
+                                       final java.util.Set<String> keep) {
+        final Path dir = packRoot(level).resolve(ROOT);
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            for (final String name : staleTierFiles(files.map(p -> p.getFileName().toString()).toList(),
+                    RoadNames.blueprintBase(plan), keep)) {
+                Files.deleteIfExists(dir.resolve(name));
+            }
+        } catch (final IOException ex) {
+            Crossroads.LOGGER.warn("Could not clean road blueprints for {}", plan.id(), ex);
+        }
+    }
+
+    /**
+     * File names this road's cleanup must delete.
+     *
+     * <p>Only files that parse as {@code <base><1..9>} belong to the road; everything
+     * else in the shared directory belongs to another road and stays. Kept separate
+     * from the listing so the rule can be exercised without a filesystem.</p>
+     */
+    static java.util.List<String> staleTierFiles(final java.util.Collection<String> names,
+                                                 final String base, final java.util.Set<String> keep) {
+        final java.util.List<String> stale = new java.util.ArrayList<>();
+        for (final String name : names) {
+            if (!name.endsWith(".blueprint") || keep.contains(name)) {
+                continue;
+            }
+            final String stem = name.substring(0, name.length() - ".blueprint".length());
+            if (RoadNames.tierOf(stem, base) > 0) {
+                stale.add(name);
+            }
+        }
+        return java.util.List.copyOf(stale);
     }
 
     /**
@@ -109,11 +172,7 @@ public final class RoadTemporaryPack {
      * {@link RoadBlueprintStore} snapshot instead — and when the plan is released.
      */
     public static void delete(final ServerLevel level, final RoadPlan plan) {
-        try {
-            Files.deleteIfExists(blueprintPath(level, plan));
-        } catch (final IOException ex) {
-            Crossroads.LOGGER.warn("Could not delete road blueprint {}", plan.id(), ex);
-        }
+        deleteTierFiles(level, plan, java.util.Set.of());
         CustomRoadPack.install(level.getServer());
     }
 
@@ -138,7 +197,7 @@ public final class RoadTemporaryPack {
                     continue;
                 }
                 try {
-                    final Path path = blueprintPath(level, plan);
+                    final Path path = blueprintPath(level, plan, plan.unitLevel());
                     Files.createDirectories(path.getParent());
                     NbtIo.writeCompressed(BlueprintUtil.writeBlueprintToNBT(blueprint), path);
                 } catch (final IOException ex) {
@@ -168,8 +227,8 @@ public final class RoadTemporaryPack {
         return CustomRoadPack.packRoot(level.getServer());
     }
 
-    private static Path blueprintPath(final ServerLevel level, final RoadPlan plan) {
-        return packRoot(level).resolve(ROOT).resolve(RoadNames.fileName(plan) + ".blueprint");
+    private static Path blueprintPath(final ServerLevel level, final RoadPlan plan, final int tier) {
+        return packRoot(level).resolve(ROOT).resolve(RoadNames.fileName(plan, tier) + ".blueprint");
     }
 
     private RoadTemporaryPack() {

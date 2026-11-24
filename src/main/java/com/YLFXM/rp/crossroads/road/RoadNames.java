@@ -144,16 +144,69 @@ public final class RoadNames {
      * readable and unique.
      */
     public static String fileName(final RoadPlan plan) {
-        String name = shortName(plan);
+        return fileName(plan, plan.unitLevel());
+    }
+
+    /**
+     * Blueprint file stem of one tier: {@code <base><tier>}.
+     *
+     * <p>The tier has to be the <b>only</b> digit in the name. The decoration
+     * controller's {@code getLevel} reads every digit in the schematic name and
+     * parses it as one number, and the native tool groups files by removing that
+     * number from the file name ({@code replace(level,"")}) — a digit anywhere in
+     * the base would join the number or dodge the removal.</p>
+     */
+    public static String fileName(final RoadPlan plan, final int tier) {
+        return blueprintBase(plan) + tier;
+    }
+
+    /**
+     * Digit-free, per-road file stem shared by every tier of a road.
+     *
+     * <p>Bases come from generated display names, which are only unique together
+     * with their owner prefix; the {@code generated/} pack directory is shared by
+     * every road in the save, so the stem carries a four-letter tag derived from
+     * the plan id. Four letters keep the uniqueness of the old {@code -<id4>}
+     * suffix (one letter per hex digit, a-j for 0-9 and k-p for a-f) without
+     * introducing a second number.</p>
+     */
+    public static String blueprintBase(final RoadPlan plan) {
+        String name = shortName(plan).replaceAll("[0-9]", "");
         name = name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").trim();
         if (name.isBlank()) {
-            name = "road_" + plan.id();
+            name = "road";
         }
-        if (name.length() > 40) {
-            name = name.substring(0, 40).trim();
+        if (name.length() > 32) {
+            name = name.substring(0, 32).trim();
         }
-        final String suffix = plan.id().toString().substring(0, 4);
-        return name + "-" + suffix;
+        return name + "-" + idTag(plan);
+    }
+
+    /** Four letters, one per hex digit of the id prefix. */
+    private static String idTag(final RoadPlan plan) {
+        final String id = plan.id().toString().replace("-", "");
+        final StringBuilder tag = new StringBuilder(4);
+        for (int i = 0; i < 4 && i < id.length(); i++) {
+            tag.append((char) ('a' + Character.digit(id.charAt(i), 16)));
+        }
+        return tag.toString();
+    }
+
+    /** Tier encoded in a file stem, or {@code -1} when the stem is not exactly {@code base<1..9>}. */
+    public static int tierOf(final String stem, final String base) {
+        if (stem == null || base == null || !stem.startsWith(base)) {
+            return -1;
+        }
+        final String suffix = stem.substring(base.length());
+        if (!suffix.matches("[1-9]")) {
+            return -1;
+        }
+        return Integer.parseInt(suffix);
+    }
+
+    /** File stem with its trailing tier digits removed, for "same road" comparisons. */
+    public static String stripTier(final String stem) {
+        return stem == null ? "" : stem.replaceAll("[0-9]+$", "");
     }
 
     public static String label(final RoadPlan plan) {

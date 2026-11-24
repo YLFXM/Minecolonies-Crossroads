@@ -43,7 +43,8 @@ import net.minecraft.resources.ResourceLocation;
  * player happens to face instead of sitting on the road controller.</p>
  */
 public record OpenBuildToolPayload(UUID planId, String blueprintPath,
-                                   CompoundTag blueprint, double packVersion,
+                                   CompoundTag blueprint, java.util.Map<String, CompoundTag> tiers,
+                                   double packVersion,
                                    BlockPos anchorPos, UUID repairToken, java.util.List<String> jointImpact)
         implements CustomPacketPayload {
     public static final Type<OpenBuildToolPayload> TYPE =
@@ -55,6 +56,11 @@ public record OpenBuildToolPayload(UUID planId, String blueprintPath,
                 buf.writeDouble(payload.packVersion());
                 buf.writeBlockPos(payload.anchorPos());
                 buf.writeNbt(payload.blueprint());
+                buf.writeVarInt(payload.tiers().size());
+                for (final var tier : payload.tiers().entrySet()) {
+                    buf.writeUtf(tier.getKey());
+                    buf.writeNbt(tier.getValue());
+                }
                 buf.writeUUID(payload.repairToken());
                 buf.writeCollection(payload.jointImpact(),(b,line) -> b.writeUtf(line,512));
             },
@@ -63,11 +69,25 @@ public record OpenBuildToolPayload(UUID planId, String blueprintPath,
                 final String path = buf.readUtf();
                 final double version = buf.readDouble();
                 final BlockPos anchor = buf.readBlockPos();
-                return new OpenBuildToolPayload(planId, path, buf.readNbt(), version, anchor, buf.readUUID(),buf.readList(b -> b.readUtf(512)));
+                final CompoundTag blueprint = buf.readNbt();
+                final int tierCount = buf.readVarInt();
+                if (tierCount < 0 || tierCount > 9) throw new IllegalArgumentException("Invalid road tier count");
+                final java.util.Map<String, CompoundTag> tiers = new java.util.LinkedHashMap<>();
+                for (int i = 0; i < tierCount; i++) {
+                    final String tierPath = buf.readUtf();
+                    final CompoundTag tierBlueprint = buf.readNbt();
+                    if (tierBlueprint != null) tiers.put(tierPath, tierBlueprint);
+                }
+                return new OpenBuildToolPayload(planId, path, blueprint, java.util.Map.copyOf(tiers), version, anchor,
+                        buf.readUUID(), buf.readList(b -> b.readUtf(512)));
             });
 
     public OpenBuildToolPayload(UUID planId,String path,CompoundTag blueprint,double version,BlockPos anchor,UUID token) {
-        this(planId,path,blueprint,version,anchor,token,java.util.List.of());
+        this(planId,path,blueprint,java.util.Map.of(),version,anchor,token,java.util.List.of());
+    }
+    public OpenBuildToolPayload(UUID planId,String path,CompoundTag blueprint,double version,BlockPos anchor,UUID token,
+                               java.util.List<String> jointImpact) {
+        this(planId,path,blueprint,java.util.Map.of(),version,anchor,token,jointImpact);
     }
     public OpenBuildToolPayload(UUID planId, String path, CompoundTag blueprint, double version, BlockPos anchor) {
         this(planId,path,blueprint,version,anchor,com.YLFXM.rp.crossroads.road.RoadNativeBuildTool.NO_SESSION);
