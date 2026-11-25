@@ -1,0 +1,90 @@
+{
+  "zh": {
+    "stems": {
+      "plant": [
+        "梧桐", "银杏", "枫林", "松涛", "白桦", "玉兰",
+        "桂花", "翠竹", "杨柳", "槐荫", "梅岭", "竹林"
+      ],
+      "water": [
+        "望江", "清溪", "明月", "星河", "云水", "碧潭",
+        "沧浪", "澄湖", "溪桥", "泉石", "沙洲", "潮音"
+      ],
+      "land": [
+        "远山", "青岭", "东冈", "南陌", "石桥", "平原",
+        "岗上", "河湾", "山麓", "沙岭", "长堤", "高坡"
+      ],
+      "virtue": [
+        "安宁", "长乐", "广安", "永宁", "和风", "春晖",
+        "文华", "锦绣", "崇德", "怀仁", "景行", "归善"
+      ],
+      "era": [
+        "开元", "承平", "嘉禾", "天宝", "永昌", "平成",
+        "绍兴", "淳熙", "永乐", "宣和", "靖康", "元丰"
+      ]
+    },
+    "suffix": {
+      "road": 55,
+      "street": 30,
+      "avenue": 15
+    },
+    "suffixNames": {
+      "road": "路",
+      "street": "街",
+      "avenue": "大道"
+    },
+    "direction": ["东", "西", "南", "北", "中"],
+    "ordinal": [
+      "第一", "第二", "第三", "第四", "第五",
+      "第六", "第七", "第八", "第九", "第十"
+    ]
+  },
+  "en": {
+    "stems": {
+      "tree": [
+        "Oak", "Willow", "Maple", "Pine", "Birch", "Cedar",
+        "Elm", "Aspen", "Alder", "Rowan", "Poplar", "Sycamore"
+      ],
+      "water": [
+        "River", "Brook", "Creek", "Lake", "Tide", "Harbor",
+        "Marsh", "Bay", "Spring", "Falls", "Well", "Strand"
+      ],
+      "land": [
+        "Hill", "Meadow", "Ridge", "Vale", "Field", "Grove",
+        "Stone", "Cliff", "Moor", "Heath", "Dale", "Bank"
+      ],
+      "virtue": [
+        "Hope", "Grace", "Peace", "Concord", "Honor", "Merit",
+        "Faith", "Amity", "Prudence", "Temperance", "Valor", "Mercy"
+      ],
+      "royal": [
+        "Kings", "Queens", "Crown", "Regent", "Castle", "Palace",
+        "Throne", "Sceptre", "Court", "Noble", "Royal", "Baron"
+      ]
+    },
+    "suffix": {
+      "street": 30,
+      "avenue": 20,
+      "road": 20,
+      "lane": 10,
+      "drive": 8,
+      "court": 4,
+      "place": 4,
+      "way": 4
+    },
+    "suffixNames": {
+      "street": "Street",
+      "avenue": "Avenue",
+      "road": "Road",
+      "lane": "Lane",
+      "drive": "Drive",
+      "court": "Court",
+      "place": "Place",
+      "way": "Way"
+    },
+    "direction": ["North", "South", "East", "West", "Central", "Upper", "Lower"],
+    "ordinal": [
+      "First", "Second", "Third", "Fourth", "Fifth",
+      "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"
+    ]
+  }
+}

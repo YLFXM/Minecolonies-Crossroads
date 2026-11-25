@@ -13,7 +13,7 @@ Requires Minecraft 1.21.1 · NeoForge 21.1.259 · MineColonies 1.1.1403-1.21.1 �
 ## Prerequisites and Installation
 
 1. Install MineColonies and its dependencies (Structurize, BlockUI, Domum Ornamentum), and make sure they run on 1.21.1 / NeoForge 21.1.259.
-2. Put `rp_crossroads-0.3.4.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
+2. Put `rp_crossroads-0.3.5.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
 3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (14) is rejected at login.
 
 For single-player, steps 1–2 are enough. On a server, ship the same jar to the server and to all players.
@@ -79,6 +79,7 @@ Closing the window before confirming rolls back to unstarted the first time; an 
 - Right-click a non-controller block of this road (road mode) to switch it between flat / step up / step down. The anchor row and any active same-level junction must stay flat. For a road that is already built, enable "Edit Blueprint" in the controller panel first.
 - "Build / Upgrade" is one button: "Build" while the road is unstarted, "Upgrade to N" afterwards, "In progress" and disabled while construction runs. "Mirror" and the lamp spacing apply immediately and are stored on the plan.
 - There is no "Clear" button any more: re-picking A/B overwrites the selection, and giving up on the whole road is what "Remove" is for.
+- New roads are named by combining words: a stem plus a suffix (`Oak Road`), sometimes with a direction (`North Oak Street`) or an ordinal (`Third Avenue`), prefixed with the colony name. A server can put its own book at `config/rp_crossroads/road_names.json` to **replace** the bundled one wholesale (restart to apply; an unusable file falls back to the bundled book with a single warning), and names already stored in older saves are never rewritten.
 - The style and series buttons open one picker in the vanilla pack picker's style (dark backdrop, cover cards): a card shows the style's cover, name, description and authors, "Select" opens that style's series list (each with its tier count) and picking a series applies it. The search box at the top filters by style name. The list comes from the server scanning the save's pack (`units/`), so a third-party style folder appears as soon as it is there; a style may describe itself in `units/<style>/style.json` (name / desc / authors / cover). A switch lands on tier 1 and the panel's Upgrade walks it up (streets 1–3, main 1–4).
 - Terrain selections have no button: shift-right-click cycles "road → dig → fill" on a block or in the air (the action bar names the mode; entering dig or fill clears A/B, and switching back to road mode reloads that road's own A/B), then right-click a block or the air to turn the two corners into a blueprint and open the build tool.
 - A road that already shares a junction cannot switch style / series / tier (the shared cells are written by both roads); remove the relation first.
@@ -146,7 +147,7 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 The documents below are written in Chinese.
 
-- [Design document](docs/阡陌纵横-设计文档-0.3.4.md) — the rules currently in effect and future boundaries.
+- [Design document](docs/阡陌纵横-设计文档-0.3.5.md) — the rules currently in effect and future boundaries.
 - [Implementation progress](docs/阡陌纵横-实现进度.md) — stage completion and acceptance records.
 - [Code structure and mechanics](docs/代码结构与机制.md) — how sources, regression tests and scripts are split, call traces and change scope.
 - [Contributing and porting](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).

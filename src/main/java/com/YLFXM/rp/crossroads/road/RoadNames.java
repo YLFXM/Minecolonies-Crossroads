@@ -20,27 +20,19 @@ package com.YLFXM.rp.crossroads.road;
 
 import com.minecolonies.api.colony.IColony;
 import com.minecolonies.api.colony.IColonyManager;
-import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 /**
- * Road display-name generator. Chinese/English word lists are bundled; they can
- * be replaced by a larger pack later without changing the plan format.
+ * Road display-name generator.
+ *
+ * <p>Words come from {@link NameBook} (bundled JSON, optionally replaced by the
+ * server's own file); this class only decides the shape of a name, the ownership
+ * prefix and the file stem. Old saves keep their stored names — nothing here
+ * regenerates a label that already exists.</p>
  */
 public final class RoadNames {
-    private static final List<String> ZH_NAMES = List.of(
-            "梧桐", "青云", "望江", "长乐", "安宁", "白桦", "枫林", "松涛",
-            "朝阳", "明月", "清溪", "玉兰", "桂花", "银杏", "春晖", "锦绣",
-            "广安", "永宁", "文华", "和风", "远山", "星河", "翠竹", "清河");
-
-    private static final List<String> EN_NAMES = List.of(
-            "Oak", "Willow", "Maple", "Pine", "Birch", "Cedar", "Elm", "Aspen",
-            "River", "Hill", "Meadow", "Sunset", "Dawn", "Harbor", "Kings",
-            "Queens", "Market", "Mill", "Stone", "Green", "Rose", "Lark",
-            "Foxglove", "Amber");
-
     /** Prefix used for roads that stand outside every colony. */
     public static final String WILDERNESS_ZH = "野外";
     public static final String WILDERNESS_EN = "Wilderness";
@@ -214,21 +206,25 @@ public final class RoadNames {
                 ? plan.id().toString() : plan.displayName();
     }
 
+    /** Attempts before a name is numbered instead of generated. */
+    private static final int NAME_ATTEMPTS = 32;
+    /** Longest generated Chinese base, in code points. */
+    private static final int MAX_ZH = 12;
+    /** Longest generated English base, in characters. */
+    private static final int MAX_EN = 40;
+
     public static Name generate(final ServerLevel level,
                                 final BlockPos pos,
                                 final ServerPlayer player) {
         final boolean chinese = player.getLanguage() != null
                 && player.getLanguage().toLowerCase(java.util.Locale.ROOT).startsWith("zh");
         final String prefix = ownerPrefix(level, pos, chinese);
+        final NameBook.Section words = NameBook.current().section(chinese);
 
-        for (int attempt = 0; attempt < 64; attempt++) {
-            final String base;
-            if (chinese) {
-                final String word = ZH_NAMES.get(level.getRandom().nextInt(ZH_NAMES.size()));
-                base = word + (level.getRandom().nextInt(4) == 0 ? "大道" : "路");
-            } else {
-                final String word = EN_NAMES.get(level.getRandom().nextInt(EN_NAMES.size()));
-                base = word + (level.getRandom().nextInt(4) == 0 ? " Avenue" : " Road");
+        for (int attempt = 0; attempt < NAME_ATTEMPTS; attempt++) {
+            final String base = clamp(words.name(level.getRandom()), chinese);
+            if (base.isBlank()) {
+                continue;
             }
             final String candidate = compose(prefix, base);
             if (isUnique(level, candidate)) {
@@ -236,14 +232,32 @@ public final class RoadNames {
             }
         }
 
-        // Extremely unlikely fallback: suffix until unique.
-        final String base = chinese ? "道路" : "Road";
-        int suffix = 2;
-        while (!isUnique(level, compose(prefix, base + " " + suffix))) {
-            suffix++;
+        // A small word list can repeat itself; the numbered form says "another one
+        // of these" without reusing a name, and reads differently from 第一街 on
+        // purpose.
+        int number = 2;
+        while (true) {
+            final String base = chinese ? number + "号街" : "Street " + number;
+            if (isUnique(level, compose(prefix, base))) {
+                return new Name(base, compose(prefix, base));
+            }
+            number++;
         }
-        final String numbered = base + " " + suffix;
-        return new Name(numbered, compose(prefix, numbered));
+    }
+
+    /**
+     * Keeps a generated base inside the limits {@link #fileName} assumes.
+     *
+     * <p>Word lists are data, so a long entry must not be able to push the stem
+     * past what the native tool can show or what the pack path tolerates.</p>
+     */
+    private static String clamp(final String base, final boolean chinese) {
+        final String trimmed = base == null ? "" : base.trim();
+        final int limit = chinese ? MAX_ZH : MAX_EN;
+        if (trimmed.codePointCount(0, trimmed.length()) <= limit) {
+            return trimmed;
+        }
+        return trimmed.substring(0, trimmed.offsetByCodePoints(0, limit)).trim();
     }
 
     private static boolean isUnique(final ServerLevel level, final String name) {
