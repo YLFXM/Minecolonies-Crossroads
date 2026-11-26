@@ -13,18 +13,18 @@ Requires Minecraft 1.21.1 · NeoForge 21.1.259 · MineColonies 1.1.1403-1.21.1 �
 ## Prerequisites and Installation
 
 1. Install MineColonies and its dependencies (Structurize, BlockUI, Domum Ornamentum), and make sure they run on 1.21.1 / NeoForge 21.1.259.
-2. Put `rp_crossroads-0.3.5.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
-3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (14) is rejected at login.
+2. Put `rp_crossroads-1.0.0.jar` into `mods/`. **Do not keep a jar under the old name** (`mcreconstruction`): it is incompatible with the latest version, and having both loads two copies of the mod.
+3. The client, the server and every multiplayer player must use the same JAR. A mismatched network protocol (19) is rejected at login.
 
 For single-player, steps 1–2 are enough. On a server, ship the same jar to the server and to all players.
 
-## Completion Status and Feedback
+## Release Status and Feedback
 
-### Completion status
+### Release status
 
-The basic gameplay loop works, but treat this as a preview. Units are picked by style / series / tier: only the bundled `original` style ships today, with streets (4 blocks wide, tiers 1–3) and main roads (5 blocks wide, tiers 1–4). A style without a unit folder is not offered.
+Feature-complete as of 1.0.0. Units are picked by style / series / tier: the bundled `original` style ships with streets (4 blocks wide, tiers 1–3) and main roads (5 blocks wide, tiers 1–4); drop a third-party style folder with `units/` into the save pack and it appears in the picker.
 
-Saved data is still unstable: the road data file was renamed and the row state layout changed, so **saves from the old-named version cannot be read**, and later versions may change it again without migration. Test on a new world, keep backups, and do not use it on a main save.
+The save format is frozen from 1.0.0: later patches in the same major version reuse the same road data. Only saves from the old-named version (`mcreconstruction`) are unreadable. Back up your world before upgrading anyway.
 
 ### Feedback
 
@@ -100,7 +100,7 @@ Closing the window before confirming rolls back to unstarted the first time; an 
 - If you have no permission on a neighboring road, you can send a request from the panel: 2-second debounce, and no answer within 120 seconds counts as a refusal, with both sides notified. Once approved, both roads may change the shared platform height, and the approval lasts until the road is actually built.
 - Without approval the solver strictly avoids the neighboring road: for an overpass it yields to the neighbor's actual surface and tallest lamp, and for an underpass it keeps one block of its own foundation plus this road's lamp space.
 - If the solve fails only because one of your own hand-edited rows is in the way, it reports "conflicts with N manually edited rows": click the same relation button again within 60 seconds to confirm the override, which drops only the rows that really must change.
-- A grade separation guarantees at least 3 blocks of surface difference and a real 2-block clearance, cell by cell; the upper span gets no foundation or piers, the lower road's lamps are fully avoided, and placeholders protect the other layer's actual structure.
+- A grade separation guarantees at least 5 blocks of surface difference (3 blocks of clearance + one foundation layer + the deck) and a real 3-block walking clearance, cell by cell; the upper span gets no foundation or piers, the lower road's lamps are fully avoided, and placeholders protect the other layer's actual structure.
 - Demolishing a road rebuilds the blueprints of roads adjacent to it and shows a notice. Demolition and Release only affect truly adjacent roads, never a third one.
 
 ![Same-level junction](docs/images/junction-same-level.jpg)
@@ -149,9 +149,9 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 The documents below are written in Chinese.
 
-- [Design document](docs/阡陌纵横-设计文档-0.3.6.md) — the rules currently in effect and future boundaries.
+- [Design document](docs/阡陌纵横-设计文档-1.0.0.md) — the rules currently in effect and future boundaries.
 - [Implementation progress](docs/阡陌纵横-实现进度.md) — stage completion and acceptance records.
 - [Code structure and mechanics](docs/代码结构与机制.md) — how sources, regression tests and scripts are split, call traces and change scope.
-- [Contributing and porting](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).
+- [Contributing](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).
 
 Released under [GPL-3.0](LICENSE).

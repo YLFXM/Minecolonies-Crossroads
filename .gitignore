@@ -31,9 +31,7 @@ run/
 /RELEASE-*.md
 
 # 发布用描述词（内容与 README 重复，GitHub 首页即展示 README，不入库）
-/docs/description-en.md
-/docs/description-zh.md
-/docs/description-short.md
+/docs/description-*.md
 
 # 前置 mod 的源码快照（放在仓库外 D:\PCL\workspace\refs，此处仅作兜底）
 /refs/
