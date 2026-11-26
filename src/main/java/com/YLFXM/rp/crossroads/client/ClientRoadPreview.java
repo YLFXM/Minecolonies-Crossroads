@@ -41,7 +41,9 @@ public final class ClientRoadPreview {
 
     public static String mode() {
         final var mc = Minecraft.getInstance();
-        if (mc.player == null) return "none";
+        // Also reached from diagnostics outside a running client (regressions call the
+        // preview handler directly), where there is no Minecraft instance at all.
+        if (mc == null || mc.player == null) return "none";
         final var main = mc.player.getMainHandItem();
         final var off = mc.player.getOffhandItem();
         if (main.is(ModRegistry.ROAD_WAND.get())) return "wand";
@@ -129,6 +131,10 @@ public final class ClientRoadPreview {
             ClientRoadPreviewRenderer.expect(base.id(), sequence);
             PacketDistributor.sendToServer(new RequestRoadPreviewPayload(base.controllerPos(),base.anchorPos(),
                     a,b,mirror,base.width(),base.lampSpacing(),sequence,base.id(),jointPeer(base.id())));
+            // One line per refresh: without it, "the ghost never changed" cannot be told
+            // apart from "the client never asked".
+            com.YLFXM.rp.crossroads.Crossroads.LOGGER.info("Road preview request: road={} seq={} revision={} key={}",
+                    base.id(),sequence,preview.planning().revision(),Integer.toHexString(key.hashCode()));
         }
         return preview;
     }

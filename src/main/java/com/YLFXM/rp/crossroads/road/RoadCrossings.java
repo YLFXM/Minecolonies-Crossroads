@@ -34,6 +34,18 @@ import com.YLFXM.rp.crossroads.road.common.RoadAxisMath;
 
 /** Exact junction geometry and per-world-position native write/removal protection. */
 public final class RoadCrossings {
+    /**
+     * Deck-to-deck separation of a layered crossing.
+     *
+     * <p>Three cells of walking room underneath ({@link #WALKING_CLEARANCE}) plus the
+     * one-cell foundation the upper deck stands on. A road deck alone would be one
+     * cell thinner than this, which is why the planner keeps the extra: main tiers
+     * 1-2 are gravel, a gravity block, and gravel with air below it falls the moment
+     * the build order completes — the road then never finishes and stays locked.</p>
+     */
+    public static final int LAYERED_SEPARATION=5;
+    /** Air kept between the lower road's surface and the upper road's foundation. */
+    public static final int WALKING_CLEARANCE=3;
     private record Context(Map<UUID,RoadPlan> models,Map<UUID,Blueprint> blueprints,UUID operation) { }
     private static final ThreadLocal<Context> CONTEXT=new ThreadLocal<>();
     public static final class Scope implements AutoCloseable {
@@ -118,8 +130,8 @@ public final class RoadCrossings {
                 int ya=a.row(RoadAxisMath.along(plan.axis(),x,z)).baseY();
                 int yb=b.row(RoadAxisMath.along(n.model().axis(),x,z)).baseY();
                 int sign=Integer.signum(ya-yb);
-                if(Math.abs((long)ya-yb)<3 || order!=0 && sign!=order || n.setting().order()!=0 && sign!=n.setting().order())
-                    throw new IllegalArgumentException("Layered crossings need a consistent upper road and at least 3 blocks of surface separation everywhere.");
+                if(Math.abs((long)ya-yb)<LAYERED_SEPARATION || order!=0 && sign!=order || n.setting().order()!=0 && sign!=n.setting().order())
+                    throw new IllegalArgumentException("Layered crossings need a consistent upper road and at least "+LAYERED_SEPARATION+" blocks of deck separation ("+WALKING_CLEARANCE+" blocks of walking room plus the upper deck's foundation) everywhere.");
                 order=sign;
             }
         }
@@ -136,7 +148,7 @@ public final class RoadCrossings {
                 throw new IllegalArgumentException("A crossing road is busy: "+RoadNames.label(n.live()));
         }
     }
-    public static boolean hasWalkingClearance(double lowerTop,double upperBottom) {return upperBottom-lowerTop>=2.0-1.0e-7;}
+    public static boolean hasWalkingClearance(double lowerTop,double upperBottom) {return upperBottom-lowerTop>=WALKING_CLEARANCE-1.0e-7;}
     /** Inspect the final decorated cells, including real stairs/kerbs, after bridge fill has been removed. */
     public static void validateClearance(ServerLevel level,RoadPlan plan,Blueprint blueprint) {
         for(var n:neighbors(level,plan)) {
@@ -158,7 +170,7 @@ public final class RoadCrossings {
                     var collision=info.getState().getCollisionShape(level,pos);
                     if(collision.isEmpty() && !RoadBlocks.isSolidFill(info.getState()))continue;
                     double bottom=pos.getY()+(collision.isEmpty() ? 0 : collision.min(net.minecraft.core.Direction.Axis.Y));
-                    if(!hasWalkingClearance(top,bottom))throw new IllegalArgumentException("The final bridge blocks intrude into the lower road's two-block walking clearance.");
+                    if(!hasWalkingClearance(top,bottom))throw new IllegalArgumentException("The final bridge blocks intrude into the lower road's "+WALKING_CLEARANCE+"-block walking clearance.");
                 }
             }
         }
@@ -317,10 +329,24 @@ public final class RoadCrossings {
         var p=world.subtract(BlueprintCells.origin(model,blueprint));
         return inside(blueprint,p) ? blueprint.getBlockState(p) : Blocks.AIR.defaultBlockState();
     }
+    /**
+     * A cell the other road cannot clear.
+     *
+     * <p>Concrete counts, and so does the fill the deck stands on: the deck itself, and the
+     * one cell directly beneath it. That lower cell is the foundation — main tiers 1-2 are
+     * gravel, so clearing it drops the bridge the moment the order completes. Leaving it
+     * out also made the two images disagree (fill vs air) and aborted the joint merge.</p>
+     */
     public static boolean structuralAt(Blueprint image,RoadPlan model,BlockPos world) {
         var state=stateAt(image,model,world);
         if(RoadBlocks.isConcrete(state))return true;
-        return RoadBlocks.isSolidFill(state) && deckCell(model,world);
+        return RoadBlocks.isSolidFill(state) && (deckCell(model,world) || foundationCell(model,world));
+    }
+    /** The cell the deck stands on: one below a road's own surface. */
+    public static boolean foundationCell(RoadPlan model,BlockPos world) {
+        if(!RoadCrossingGeometry.body(model).contains(world.getX(),world.getZ()))return false;
+        int along=RoadAxisMath.alongOf(model.axis(),world);
+        return world.getY()==RoadHeightProfile.of(model).row(along).baseY()-1;
     }
     /** Real blocks only: a terrain fill marker must never make another road defer. */
     public static boolean concreteAt(Blueprint image,RoadPlan model,BlockPos world) {
@@ -348,7 +374,10 @@ public final class RoadCrossings {
         // Both sides therefore resolve the same winner: higher tier first, and
         // the main series wins a tier tie.
         final var neighbours=neighbors(level,plan);
-        BlockState pavement=junctionPavement(level,junctionDominant(plan,neighbours));
+        // State and block entity together: a Domum block stores its material in the
+        // entity, so writing the state alone left every flat junction cell in the
+        // default colour (a brick that appears in no unit of either road).
+        final RoadJointWork.Cell pavement=junctionPavement(level,junctionDominant(plan,neighbours));
         for(var n:neighbours) {
             try { validate(plan,n); } catch(IllegalArgumentException ex) {issues.add(RoadNotices.reasonKey(ex));}
             var profile=RoadHeightProfile.of(n.model());
@@ -357,14 +386,21 @@ public final class RoadCrossings {
                 int y=own.row(RoadAxisMath.alongOf(plan.axis(),world)).baseY();
                 int otherY=profile.row(RoadAxisMath.alongOf(n.model().axis(),world)).baseY();
                 if(n.setting().layered()) {
-                    if(y>otherY && world.getY()<y && RoadBlocks.isSolidFill(info.getState()))
-                        write(out,info.getPos(),world.getY()>otherY ? Blocks.AIR.defaultBlockState() : skip);
+                    // Clear the bridge's own fill down to the clearance height, but keep the
+                    // cell the deck stands on: main tiers 1-2 are gravel, which falls out of a
+                    // bridge with air underneath, and the fill is the only thing holding it up.
+                    // A legacy crossing with no room for the foundation (separation below
+                    // LAYERED_SEPARATION) keeps the old behaviour and clears to air.
+                    if(y>otherY && world.getY()<y && RoadBlocks.isSolidFill(info.getState())) {
+                        boolean foundation=world.getY()==y-1 && y-1>otherY+WALKING_CLEARANCE;
+                        if(!foundation) write(out,info.getPos(),world.getY()>otherY ? Blocks.AIR.defaultBlockState() : skip);
+                    }
                     if(n.applied()!=null && structuralAt(n.applied(),n.model(),world))
                         write(out,info.getPos(),skip);
                 } else {
                     boolean walkCell=RoadCrossingGeometry.walk(n.model()).contains(world.getX(),world.getZ());
                     if(y==otherY && world.getY()==y && walkCell)
-                        write(out,info.getPos(),pavement);
+                        RoadJointWork.writeCell(out,info.getPos(),pavement);
                     else if(n.applied()!=null && (info.getState().isAir() || RoadBlocks.isSolidFill(info.getState()))
                             && concreteAt(n.applied(),n.model(),world)) write(out,info.getPos(),skip);
                 }
@@ -413,11 +449,19 @@ public final class RoadCrossings {
         return bMain && !aMain ? b : a;
     }
 
-    /** Pavement colour of one series/tier: the first walkable column of its road unit. */
-    private static BlockState junctionPavement(final ServerLevel level,final RoadPlan model) {
-        return RoadUnitLibrary.get(model.unitStyle(),model.series(),RoadUnitLibrary.ROAD,model.unitLevel(),level).entries().stream()
+    /**
+     * Pavement of one series/tier: the first walkable column of its road unit.
+     *
+     * <p>Carries the unit's block entity, not just the state. The junction cell is
+     * written by both roads and by neither road's own units, so this is the only
+     * place the material can come from — and a Domum block without its entity
+     * renders in the default colour instead of the series' own.</p>
+     */
+    private static RoadJointWork.Cell junctionPavement(final ServerLevel level,final RoadPlan model) {
+        final var entry=RoadUnitLibrary.get(model.unitStyle(),model.series(),RoadUnitLibrary.ROAD,model.unitLevel(),level).entries().stream()
                 .filter(e -> e.pos().getY()==1 && e.pos().getZ()==model.walkRange().from())
-                .findFirst().orElseThrow().state();
+                .findFirst().orElseThrow();
+        return new RoadJointWork.Cell(entry.state(),entry.tileEntity());
     }
 
     public static Set<Integer> suppressedLamps(ServerLevel level,RoadPlan plan,UnitTemplate lamp,RoadHeightProfile profile) {
@@ -500,6 +544,23 @@ public final class RoadCrossings {
     /** Native REMOVE consumes only private targets; shared floor and other layers become no-ops. */
     record RemovalNeighbor(RoadPlan live,RoadPlan model,Blueprint image) { }
     public static Blueprint removalMask(ServerLevel level,RoadPlan plan,Blueprint applied) {
+        return removalMask(level,plan,applied,false);
+    }
+    /**
+     * @param keepReserved also protect this road's own marker block, for a two-phase
+     *                     rebuild that keeps the plan alive across the demolition.
+     *
+     *                     <p>The controller and the primary cell are deliberately
+     *                     <em>not</em> masked: the controller is
+     *                     {@code IBuilderUndestroyable}, so the native demolition
+     *                     never removes it anyway, and it is the only block in the
+     *                     image that carries {@code blueprintdata}. Masking it
+     *                     would erase the one anchor the primary offset is derived
+     *                     from once the image is re-read from disk (a restart), and
+     *                     the fallback is the blueprint centre — a demolition
+     *                     shifted by the offset/centre difference.</p>
+     */
+    public static Blueprint removalMask(ServerLevel level,RoadPlan plan,Blueprint applied,boolean keepReserved) {
         RoadPlan actualModel=RoadBlueprintStore.appliedPlan(level,plan);if(actualModel==null)actualModel=plan;
         List<RemovalNeighbor> peers=new ArrayList<>();
         for(var other:RoadManager.get(level).all()) {
@@ -508,21 +569,55 @@ public final class RoadCrossings {
             var model=RoadBlueprintStore.appliedPlan(level,other);
             peers.add(new RemovalNeighbor(other,model==null ? other:model,image));
         }
-        return removalMask(level,actualModel,applied,peers,level.registryAccess());
+        return removalMask(plan,actualModel,applied,peers,level.registryAccess(),
+                (own,model) -> setting(level,own,model),keepReserved);
+    }
+    /** Protected cell: a placeholder, with no block entity left behind. */
+    private static void mask(Blueprint blueprint,BlockPos local) {
+        // By id, not through the deferred holder: the regressions run before Structurize's
+        // holders are bound, and the id is already the identity `RoadBlocks.isPlaceholder` uses.
+        write(blueprint,local,RoadBlocks.blockState("structurize:blocksubstitution"));
+    }
+    /**
+     * True when another road's body shares this footprint — the same test the
+     * junction tables are built from, so callers never invent a second one.
+     */
+    public static boolean crossesAnotherRoad(ServerLevel level,RoadPlan plan) {
+        if(plan.segments().isEmpty())return false;
+        final var body=RoadCrossingGeometry.body(plan);
+        for(final RoadPlan other:RoadManager.get(level).all()) {
+            if(other.id().equals(plan.id()) || other.segments().isEmpty())continue;
+            if(body.intersect(RoadCrossingGeometry.body(other))!=null)return true;
+        }
+        return false;
     }
     /** Native removal copy and protection, without substituting environmental fill with world blocks. */
     static Blueprint removalMask(ServerLevel level,RoadPlan actualModel,Blueprint applied,List<RemovalNeighbor> peers,net.minecraft.core.HolderLookup.Provider registries) {
-        return removalMask(actualModel,applied,peers,registries,(own,model) -> setting(level,own,model));
+        return removalMask(actualModel,actualModel,applied,peers,registries,
+                (own,model) -> setting(level,own,model),false);
     }
     /** Level-free form: no junction record is consulted, so every pair is treated as same-level. */
     static Blueprint removalMask(RoadPlan actualModel,Blueprint applied,List<RemovalNeighbor> peers,net.minecraft.core.HolderLookup.Provider registries) {
-        return removalMask(actualModel,applied,peers,registries,(own,model) -> new RoadPlanningState.Crossing(false,0));
+        return removalMask(actualModel,actualModel,applied,peers,registries,false);
     }
-    private static Blueprint removalMask(RoadPlan actualModel,Blueprint applied,List<RemovalNeighbor> peers,
+    /** Level-free form with the rebuild flag, so the regressions can drive the frame rules. */
+    static Blueprint removalMask(RoadPlan plan,RoadPlan actualModel,Blueprint applied,List<RemovalNeighbor> peers,
+                                 net.minecraft.core.HolderLookup.Provider registries,boolean keepReserved) {
+        return removalMask(plan,actualModel,applied,peers,registries,
+                (own,model) -> new RoadPlanningState.Crossing(false,0),keepReserved);
+    }
+    private static Blueprint removalMask(RoadPlan plan,RoadPlan actualModel,Blueprint applied,List<RemovalNeighbor> peers,
                                          net.minecraft.core.HolderLookup.Provider registries,
-                                         java.util.function.BiFunction<RoadPlan,RoadPlan,RoadPlanningState.Crossing> ruleFor) {
+                                         java.util.function.BiFunction<RoadPlan,RoadPlan,RoadPlanningState.Crossing> ruleFor,
+                                         boolean keepReserved) {
+        // One frame for the whole operation. The demolition order is placed with the
+        // live plan's primary, and the stored image offsets follow it (a mirror moves
+        // both). An applied snapshot taken before that move still records the old
+        // primary, which would shift every cell this mask protects.
+        actualModel.setBlueprintAnchor(BlueprintCells.blueprintAnchor(plan));
         var result=BlueprintUtil.readBlueprintFromNBT(BlueprintUtil.writeBlueprintToNBT(applied),registries);
-        var origin=BlueprintCells.origin(actualModel,result);var offset=result.getPrimaryBlockOffset();
+        // Read the frame while the cache is still valid; every write below clears it.
+        var origin=BlueprintCells.origin(actualModel,result);
         for(var peer:peers) {
             var other=peer.live();var model=peer.model();var snapshot=peer.image();
             var rule=ruleFor.apply(actualModel,model);var profile=RoadHeightProfile.of(model);var body=RoadCrossingGeometry.body(model);
@@ -534,10 +629,22 @@ public final class RoadCrossings {
                         ? profile.row(RoadAxisMath.alongOf(model.axis(),world)).baseY():Integer.MIN_VALUE;
                 boolean reserved=rule.layered() && floor!=Integer.MIN_VALUE && world.getY()>=floor-1 && world.getY()<=floor+2;
                 if(column || reserved || structuralAt(snapshot,model,world) || world.equals(other.controllerPos()) || world.equals(other.anchorPos()))
-                    write(result,info.getPos(),com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get().defaultBlockState());
+                    mask(result,info.getPos());
             }
         }
-        result.setCachePrimaryOffset(offset);return result;
+        // The primary cell holds the decoration controller and its block entity. Masking it
+        // keeps the controller (it is IBuilderUndestroyable, so a demolition could never take
+        // it) and drops that block entity, so native completion has nothing to write there: a
+        // demolition must not stamp its own path onto a controller that outlives it, and a
+        // nameless demolition blueprint used to throw inside COMPLETE_BUILD.
+        mask(result,BlueprintCells.blueprintAnchor(plan).subtract(origin));
+        if(keepReserved && !plan.anchorPos().equals(BlueprintCells.blueprintAnchor(plan)))
+            mask(result,plan.anchorPos().subtract(origin));
+        // addBlockState invalidates the cached primary offset and nothing else records
+        // it: the native order derives its world origin from this value. Losing it
+        // falls back to the blueprint centre, which shifts the demolition.
+        result.setCachePrimaryOffset(BlueprintCells.blueprintAnchor(plan).subtract(origin));
+        return result;
     }
     public static boolean removalColumn(RoadPlan own,RoadPlan other,BlockPos world) {
         var overlap=RoadCrossingGeometry.body(own).intersect(RoadCrossingGeometry.body(other));

@@ -60,7 +60,8 @@ public final class RoadJointRegression {
         var sync=p.saveForSync();check(!sync.contains("interruptedConstruction") && sync.getBoolean("interrupted"),"client receives only unfinished-work marker");
         check(!RoadRules.canEdit(RoadPlan.load(sync)),"client edit policy honors unfinished-work marker");
         p.setInterruptedConstruction(null);check(RoadRules.canEdit(p),"successful recovery releases edit lock");
-        check(RoadCrossings.hasWalkingClearance(65,67),"exact two-block collision clearance accepted");
+        check(RoadCrossings.hasWalkingClearance(65,68),"exact three-block walking clearance accepted");
+        check(!RoadCrossings.hasWalkingClearance(65,67.9),"two blocks of room is not enough under a bridge");
         check(!RoadCrossings.hasWalkingClearance(65,66.5),"half-block intrusion rejected");
         check(!RoadCrossings.hasWalkingClearance(65.5,67),"raised lower walking shape cannot be ignored");
         var partner=road();

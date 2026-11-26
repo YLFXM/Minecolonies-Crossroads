@@ -71,6 +71,7 @@ public class WindowRoadController extends AbstractWindowSkeleton {
     private final Button seriesButton;
     private final Button lampValueButton;
     private final Button mirrorButton;
+    private final Button redrawButton;
 
     public WindowRoadController(final BlockPos controllerPos) {
         super(ResourceLocation.fromNamespaceAndPath(Crossroads.MODID, "gui/windowroadcontroller.xml"));
@@ -88,11 +89,12 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         this.seriesButton = this.findPaneOfTypeByID("series", Button.class);
         this.lampValueButton = this.findPaneOfTypeByID("lampValue", Button.class);
         this.mirrorButton = this.findPaneOfTypeByID("mirror", Button.class);
+        this.redrawButton = this.findPaneOfTypeByID("redraw", Button.class);
         // BlockUI derives the disabled colour from "color" when only that is set,
         // so disabled buttons would look identical to enabled ones.
         for (final Button button : new Button[]{this.buildButton, this.repairButton, this.editButton,
                 this.crossingButton, this.removeButton, this.styleButton, this.seriesButton,
-                this.lampValueButton, this.mirrorButton,
+                this.lampValueButton, this.mirrorButton, this.redrawButton,
                 this.findPaneOfTypeByID("lampDown", Button.class), this.findPaneOfTypeByID("lampUp", Button.class)}) {
             UiStyle.disable(button);
         }
@@ -130,6 +132,10 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         this.registerButton("lampDown", button -> this.adjustLampSpacing(-1));
         this.registerButton("lampUp", button -> this.adjustLampSpacing(1));
         this.registerButton("mirror", button -> this.toggleMirror());
+        // The wand's "redraw" went missing in the merge: the server side (planning
+        // action 1) survived, but only the crossings window offered it. Same action,
+        // now where the player edits the road.
+        this.registerButton("redraw", button -> this.send(RoadControllerActionPayload.Action.REDRAW));
     }
 
     @Override
@@ -223,6 +229,7 @@ public class WindowRoadController extends AbstractWindowSkeleton {
         this.findPaneOfTypeByID("lampDown", Button.class).setEnabled(editable && canManage);
         this.findPaneOfTypeByID("lampUp", Button.class).setEnabled(editable && canManage);
         this.mirrorButton.setEnabled(editable && canManage);
+        this.redrawButton.setEnabled(editable && canManage && !working && plan != null && !plan.segments().isEmpty());
         this.mirrorButton.setText(Component.translatable(plan != null && plan.mirror()
                 ? "rp_crossroads.gui.mirror_on" : "rp_crossroads.gui.mirror_off"));
     }

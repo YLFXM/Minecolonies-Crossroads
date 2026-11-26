@@ -47,6 +47,18 @@ public final class RoadStage7Round5Regression {
         check(RoadJointWork.sharedCell(kerb,dom,false).tile().equals(material),"shared stair selection retains block-entity material data");
         var support=new RoadJointWork.Cell(fill.defaultBlockState(),null);var air=new RoadJointWork.Cell(Blocks.AIR.defaultBlockState(),null);
         check(RoadJointWork.sharedCell(air,support,true).equals(support),"shared fill is not cleared by the other road's background AIR");
+        // The flat junction pavement is written by both roads and by neither road's own
+        // unit, so this pair is the one that reaches the world: same block, one side with
+        // the Domum material entity and one without. Picking the bare copy renders the
+        // junction in the block's default colour — a brick no unit of either road has.
+        var brick=new RoadJointWork.Cell(Blocks.STONE_BRICKS.defaultBlockState(),material);
+        var bareBrick=new RoadJointWork.Cell(Blocks.STONE_BRICKS.defaultBlockState(),null);
+        check(RoadJointWork.sharedCell(bareBrick,brick,true).tile().equals(material),
+                "same pavement keeps the side that carries the material when the owning road has none");
+        check(RoadJointWork.sharedCell(brick,bareBrick,false).tile().equals(material),
+                "which side owns the junction cannot strip the material either");
+        check(RoadJointWork.sharedCell(bareBrick,new RoadJointWork.Cell(Blocks.STONE_BRICKS.defaultBlockState(),null),true)
+                .tile()==null,"two bare copies stay bare: nothing is invented");
         var gold=new RoadJointWork.Cell(Blocks.GOLD_BLOCK.defaultBlockState(),null);
         check(RoadJointWork.sharedCell(kerb,gold,true).equals(kerb) && RoadJointWork.sharedCell(kerb,gold,false).equals(gold),
                 "two different pavements are decided by the owning road, not aborted");

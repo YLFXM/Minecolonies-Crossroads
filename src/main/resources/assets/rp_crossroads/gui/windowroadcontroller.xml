@@ -1,4 +1,4 @@
-<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="248 150"
+<window xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" size="248 169"
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/ldtteam/BlockUI/version/main/src/main/resources/assets/blockui/gui/block_ui.xsd">
     <image source="minecolonies:textures/gui/builderhut/builder_paper_wide2.png" size="100% 100%"/>
 
@@ -46,5 +46,9 @@
             source="minecolonies:textures/gui/builderhut/builder_button_medium.png"
             label="$(rp_crossroads.gui.mirror_off)" color="black"/>
 
-    <text id="issue" size="232 10" pos="8 132" color="red" textscale="0.7"/>
+    <button id="redraw" size="232 17" pos="8 133"
+            source="minecolonies:textures/gui/builderhut/builder_button_large.png"
+            label="$(rp_crossroads.gui.reset_manual)" color="black"/>
+
+    <text id="issue" size="232 10" pos="8 151" color="red" textscale="0.7"/>
 </window>

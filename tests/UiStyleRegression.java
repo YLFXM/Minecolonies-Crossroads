@@ -34,7 +34,7 @@ public final class UiStyleRegression {
             "builder_button_mini", 15);
 
     static {
-        SIZES.put("windowroadcontroller.xml", new int[]{248, 150});
+        SIZES.put("windowroadcontroller.xml", new int[]{248, 169});
         SIZES.put("windowroadcrossings.xml", new int[]{336, 228});
         SIZES.put("windowroadremovalchoice.xml", new int[]{244, 150});
         SIZES.put("windowroadsurveyor.xml", new int[]{280, 176});

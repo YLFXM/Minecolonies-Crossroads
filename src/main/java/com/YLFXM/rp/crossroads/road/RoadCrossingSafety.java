@@ -30,8 +30,20 @@ public final class RoadCrossingSafety {
         return lamp.entries().stream().filter(e -> !e.placeholder() && RoadBlocks.isConcrete(e.state()))
                 .mapToInt(e -> e.pos().getY()-lamp.surfaceY()).max().orElse(0);
     }
-    public static int upperFloor(int neighborFloor,int neighborLampHeight) {return Math.max(neighborFloor+3,neighborFloor+neighborLampHeight+1);}
-    public static int lowerFloor(int neighborFloor,int ownLampHeight) {return Math.min(neighborFloor-3,neighborFloor-2-ownLampHeight);}
+    /**
+     * Deck height a road passing above must reach over a foreign deck.
+     *
+     * <p>Same contract as {@link RoadCrossings#LAYERED_SEPARATION}: the cell the deck
+     * stands on is part of the reservation now, and a lamp on the lower road still
+     * pushes it up by its own height.</p>
+     */
+    public static int upperFloor(int neighborFloor,int neighborLampHeight) {
+        return Math.max(neighborFloor+RoadCrossings.LAYERED_SEPARATION,neighborFloor+neighborLampHeight+2);
+    }
+    /** Deck ceiling for a road passing below a foreign deck, lamp included. */
+    public static int lowerFloor(int neighborFloor,int ownLampHeight) {
+        return Math.min(neighborFloor-RoadCrossings.LAYERED_SEPARATION,neighborFloor-4-ownLampHeight);
+    }
     public static boolean permits(ServerLevel level,RoadPlan own,RoadPlan peer,int order) {
         var overlap=RoadCrossingGeometry.body(own).intersect(RoadCrossingGeometry.body(peer));if(overlap==null)return true;
         var a=RoadHeightProfile.of(own);var b=RoadHeightProfile.of(peer);

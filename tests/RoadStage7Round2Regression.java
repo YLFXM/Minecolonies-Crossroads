@@ -45,10 +45,10 @@ public final class RoadStage7Round2Regression {
         var pairs=new ListTag();var legacy=new CompoundTag();legacy.putUUID("road",peer.id());legacy.putBoolean("layered",true);legacy.putBoolean("arch",true);legacy.putInt("order",1);pairs.add(legacy);fake.getCompound("planning").put("pairs",pairs);
         check(RoadPlan.load(fake).save().getCompound("planning").getList("pairs",10).isEmpty(),
                 "legacy pair mirrors are ignored and never persisted into a road plan");
-        check(RoadCrossingSafety.upperFloor(64,6)==71,"upper route clears the highest lamp, not just three blocks above pavement");
-        check(RoadCrossingSafety.upperFloor(64,0)==67,"baseline walking clearance remains mandatory");
-        check(RoadCrossingSafety.lowerFloor(64,6)==56,"underpass reserves one foundation layer and its own full highest lamp");
-        check(RoadCrossingSafety.lowerFloor(64,0)==61,"underpass preserves baseline surface separation");
+        check(RoadCrossingSafety.upperFloor(64,6)==72,"upper route clears the highest lamp plus the upper deck foundation");
+        check(RoadCrossingSafety.upperFloor(64,0)==69,"baseline is three blocks of room plus the deck foundation");
+        check(RoadCrossingSafety.lowerFloor(64,6)==54,"underpass reserves the clearance, the deck and its own full highest lamp");
+        check(RoadCrossingSafety.lowerFloor(64,0)==59,"underpass keeps the same baseline separation as the overpass");
         check(RoadCrossings.removalColumn(own,peer,new BlockPos(16,-50,2)),"same-level demolition protects the actual seven-wide peer, at the bottom");
         check(RoadCrossings.removalColumn(own,peer,new BlockPos(16,200,2)),"same-level demolition protects the entire crossing column");
         check(!RoadCrossings.removalColumn(own,peer,new BlockPos(17,64,2)),"the rest of the main road remains demolishable");

@@ -108,6 +108,11 @@ public final class ClientRoadPreviewRenderer {
         if (payload.sequence() < staleBelow || payload.sequence() != expectedSequence
                 || !payload.roadId().equals(expectedRoad)
                 || !"wand".equals(ClientRoadPreview.mode()) || ClientNativeBuildTracker.isActive()) {
+            // A dropped reply and a ghost that never changed look identical on screen.
+            com.YLFXM.rp.crossroads.Crossroads.LOGGER.info(
+                    "Road preview dropped: seq={} expected={} staleBelow={} road={} expectedRoad={} mode={}",
+                    payload.sequence(),expectedSequence,staleBelow,payload.roadId(),expectedRoad,
+                    ClientRoadPreview.mode());
             return false;
         }
         final Minecraft minecraft = Minecraft.getInstance();

@@ -107,8 +107,12 @@ public final class BlueprintAnchor {
      */
     public static Binding bind(final ServerLevel level, final RoadPlan plan, final BlockPos legacyAnchor) {
         final RoadPlan live = RoadManager.get(level).get(plan.id());
-        if (plan.blueprintAnchor() == null && live != null && live != plan) {
-            // A copy of a plan that is already bound must not fall back to the anchor.
+        if (live != null && live != plan && live.blueprintAnchor() != null) {
+            // The plan the manager holds owns the frame. A copy can predate the last move
+            // (a frozen repair target, a joint model, a rebuilt candidate); deciding from
+            // its stale cell would shift both stored images a second time for a move that
+            // already happened, and nothing would report it. The result is an image whose
+            // origin is a whole delta away from the blocks it describes.
             plan.setBlueprintAnchor(live.blueprintAnchor());
         }
         final BlockPos target = RoadControllerMigration.candidates(plan).get(0);

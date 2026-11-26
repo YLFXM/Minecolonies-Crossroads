@@ -62,6 +62,16 @@ public final class RoadNativeRemoval {
         Active(ServerLevel level, Blueprint blueprint) { this.level=level; this.blueprint=blueprint; }
     }
     public static boolean begin(ServerLevel level, ServerPlayer player, RoadPlan plan, boolean instant) {
+        return begin(level,player,plan,instant,null);
+    }
+    /**
+     * @param rebuild two-phase rebuild payload. When present this demolition is the
+     *                first half of a shape change: the plan survives it, the applied
+     *                snapshot is dropped and the build half is dispatched once the
+     *                site is clear.
+     */
+    public static boolean begin(ServerLevel level, ServerPlayer player, RoadPlan plan, boolean instant,
+                                net.minecraft.nbt.CompoundTag rebuild) {
         if (!RoadPermissions.canManage(level,player,plan) || !RoadRules.canRemove(plan)
                 || (instant && !player.isCreative())) return false;
         if(RoadRules.busy(plan,RoadRules.MUTATION)) {tell(player,"rp_crossroads.remove.busy");return false;}
@@ -75,8 +85,11 @@ public final class RoadNativeRemoval {
             tell(player,"rp_crossroads.road.session_open"); return false;
         }
         RoadBlueprintStore.preserveBuilt(level,plan);
+        // The demolition is placed from this image's primary offset; a frame that drifted
+        // earlier in the session would land the whole order beside the road.
+        RoadBlueprintStore.resyncFrame(level,plan);
         Blueprint sourceApplied=RoadJointWork.interruptedRemoval(level,plan,RoadBlueprintStore.loadApplied(level,plan));
-        final Blueprint applied=sourceApplied==null ? null : RoadCrossings.removalMask(level,plan,sourceApplied);
+        final Blueprint applied=sourceApplied==null ? null : RoadCrossings.removalMask(level,plan,sourceApplied,rebuild!=null);
         Crossroads.LOGGER.info("Road demolition targets: road={} source={} protected={} appliedModel={}",plan.id(),
                 sourceApplied==null ? -1:sourceApplied.getBlockInfoAsList().stream().filter(i -> target(i.getState())).count(),
                 applied==null ? -1:applied.getBlockInfoAsList().stream().filter(i -> target(i.getState())).count(),plan.appliedGeometry()!=null);
@@ -110,6 +123,7 @@ public final class RoadNativeRemoval {
             }
         }
         final RoadRemovalSession session=new RoadRemovalSession(player.getUUID(),instant,colony==null ? 0 : colony.getID());
+        session.setRebuild(rebuild);
         if (!RoadBlueprintStore.saveRemoval(level,plan,session,applied)) {
             tell(player,"rp_crossroads.remove.save_failed"); return false;
         }
@@ -154,6 +168,18 @@ public final class RoadNativeRemoval {
                 WorkOrderDecoration order=WorkOrderDecoration.create(WorkOrderType.REMOVE,
                         CustomRoadPack.PACK_NAME,session.path(plan.id()),plan.displayName(),
                         com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),RotationMirror.NONE,1);
+                // The native flow derives the world origin as "location − primary offset".
+                // The offset is not stored in the file; it is cached on the image and would
+                // otherwise be re-derived from the contents. Log both so a misplaced
+                // demolition is visible in the log before a builder starts.
+                Crossroads.LOGGER.info("Road demolition order: road={} location={} primaryOffset={} origin={} size={}x{}x{}",
+                        plan.id(),com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),
+                        applied.getPrimaryBlockOffset(),BlueprintCells.origin(plan,applied),
+                        applied.getSizeX(),applied.getSizeY(),applied.getSizeZ());
+                // A demolition blueprint is our own image too: without the pack identity the
+                // native completion throws on the surviving controller's block entity and the
+                // order never finishes, which leaves the plan stuck in REMOVING.
+                RoadBlueprintIdentity.stamp(applied,plan);
                 order.setBlueprint(applied,level); order.setColony(colony); order.setClaimedBy(builder.getPosition());
                 // The normal admission path rejects decoration bounds outside colony chunks.
                 // This trusted, permission-checked road uses native restoration admission;
@@ -163,8 +189,14 @@ public final class RoadNativeRemoval {
                 order.onAdded(colony,false);
                 session.setOrderId(order.getID()); RoadManager.get(level).add(plan);
             }
+            // The demolition blueprint is on disk and in the pack by now, so the
+            // shared-cell protection is already part of what the builder will run.
+            // Only then may the junction records go: releasing them first would let
+            // removalMask treat the neighbour's pavement as this road's own.
+            if (rebuild!=null) RoadJunctions.removeRoad(level,plan.id());
             sync(level);
-            tell(player,instant ? "rp_crossroads.remove.queued_creative" : "rp_crossroads.remove.ordered_builder");
+            tell(player,rebuild!=null ? "rp_crossroads.style.rebuild_queued"
+                    : instant ? "rp_crossroads.remove.queued_creative" : "rp_crossroads.remove.ordered_builder");
             Crossroads.LOGGER.info("Removal started: road={} token={} instant={} colony={} order={}",plan.id(),session.token(),instant,session.colonyId(),session.orderId());
             return true;
         } catch (RuntimeException ex) {
@@ -264,6 +296,7 @@ public final class RoadNativeRemoval {
             cancel(active.level,plan,"demolition incomplete or cancelled"); return;
         }
         Crossroads.LOGGER.info("Removal completed: road={} token={}",plan.id(),session.token());
+        if(session.rebuilds()) {RoadRebuild.finish(active.level,plan,session);return;}
         if(!RoadDataCleaner.clear(active.level,plan,true))
             Crossroads.LOGGER.warn("Road removal cleanup refused: road={} state={}",plan.id(),plan.state());
     }
@@ -273,6 +306,9 @@ public final class RoadNativeRemoval {
         final var session=plan.removalSession();
         RoadDataCleaner.releaseWorkOrders(plan);
         if(session!=null) {
+            // A cancelled rebuild must put the crossings back: the old road is still
+            // standing, and its junction records were released when the demolition began.
+            RoadRebuild.abort(level,plan,session);
             final var owner=level.getServer().getPlayerList().getPlayer(session.owner());
             if(owner!=null) tell(owner,"rp_crossroads.remove.cancelled");
         }

@@ -179,14 +179,22 @@ public final class TierBlueprintRegression {
         // object. Native completion writes its pack and path into every decoration
         // controller it contains; a null pack name threw an NPE there and left the
         // builder paused, which is what broke upgrades of a finished road.
-        final String dispatch = java.nio.file.Files.readString(java.nio.file.Path.of(
-                "src/main/java/com/YLFXM/rp/crossroads/road/RoadBuilderDispatch.java"));
-        check(dispatch.contains("setPackName(CustomRoadPack.PACK_NAME)"),
-                "the dispatched work volume carries the pack name");
-        check(dispatch.contains("setFilePath(java.nio.file.Path.of(RoadTemporaryPack.ROOT_DIR))"),
-                "the dispatched work volume carries the pack-relative directory");
-        check(dispatch.contains("setFileName(RoadNames.fileName(plan,plan.unitLevel()))"),
-                "the dispatched work volume carries this level's stem");
+        final String identity = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/YLFXM/rp/crossroads/road/RoadBlueprintIdentity.java"));
+        check(identity.contains("setPackName(CustomRoadPack.PACK_NAME)"),
+                "the stamped work volume carries the pack name");
+        check(identity.contains("setFilePath(java.nio.file.Path.of(RoadTemporaryPack.ROOT_DIR))"),
+                "the stamped work volume carries the pack-relative directory");
+        check(identity.contains("setFileName(RoadNames.fileName(plan, plan.unitLevel()))"),
+                "the stamped work volume carries this level's stem");
+        // Both order types hand the native flow a blueprint built in memory, and the same
+        // completion writes its identity into the controller: build and demolition share it.
+        for (final String file : java.util.List.of("RoadBuilderDispatch", "RoadNativeRemoval")) {
+            final String source = java.nio.file.Files.readString(java.nio.file.Path.of(
+                    "src/main/java/com/YLFXM/rp/crossroads/road/" + file + ".java"));
+            check(source.contains("RoadBlueprintIdentity.stamp("),
+                    file + " stamps the work volume it dispatches");
+        }
         final String frame = java.nio.file.Files.readString(java.nio.file.Path.of(
                 "src/main/java/com/YLFXM/rp/crossroads/road/BlueprintAnchor.java"));
         check(frame.contains("recorded.equals(target)"),

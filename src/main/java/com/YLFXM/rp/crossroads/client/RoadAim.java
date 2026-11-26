@@ -23,6 +23,7 @@ import com.YLFXM.rp.crossroads.network.ClientRoadCache;
 import com.YLFXM.rp.crossroads.road.CellType;
 import com.YLFXM.rp.crossroads.road.RoadPlan;
 import com.YLFXM.rp.crossroads.road.RoadRules;
+import com.YLFXM.rp.crossroads.road.RowState;
 import com.YLFXM.rp.crossroads.road.RoadWandBinding;
 import com.YLFXM.rp.crossroads.road.common.RoadGeometry;
 import net.minecraft.client.Minecraft;
@@ -49,6 +50,8 @@ public final class RoadAim {
     /** The aimed row as players count it: 1-based from endpoint A, used by the label. */
     private static int rowNumber;
     private static CellType type = CellType.FLAT;
+    /** How the row is owned: the player's, the solver's, or fixed by a junction. */
+    private static RowState.RowLevel level = RowState.RowLevel.AUTO;
     private static AABB box;
 
     /** Recomputes the snapshot for this frame; clears it when nothing qualifies. */
@@ -100,6 +103,7 @@ public final class RoadAim {
         plan = bound;
         rowNumber = bound.rowNumber(row);
         type = bound.cellType(row);
+        level = bound.row(row).level();
         box = new AABB(minX, y, minZ, maxX, y + 1.0, maxZ);
     }
 
@@ -108,6 +112,7 @@ public final class RoadAim {
         box = null;
         rowNumber = 0;
         type = CellType.FLAT;
+        level = RowState.RowLevel.AUTO;
     }
 
     public static boolean visible() {
@@ -125,6 +130,17 @@ public final class RoadAim {
 
     public static CellType type() {
         return type;
+    }
+
+    /**
+     * Ownership of the aimed row.
+     *
+     * <p>Shown next to the row type because the two are otherwise indistinguishable:
+     * a hand edit and a solved row look the same on screen, and only the level says
+     * whether clearing hand edits will change this row at all.</p>
+     */
+    public static RowState.RowLevel level() {
+        return level;
     }
 
     /** Same cycle the Shift + right-click gesture applies. */

@@ -96,6 +96,11 @@ public final class RoadCrossingUpdates {
     @SubscribeEvent public static void started(ServerStartedEvent event) {
         PENDING.clear();BATCH.clear();
         for(ServerLevel level:event.getServer().getAllLevels()) {
+            // A frame that drifted while the game ran (a doubled mirror move) is invisible
+            // in every later read: the image is simply interpreted beside its blocks. The
+            // road footprint is the check, so it runs once per load, before anything is
+            // published or demolished from these files.
+            for(var road:List.copyOf(RoadManager.get(level).all())) RoadBlueprintStore.resyncFrame(level,road);
             for(var road:RoadManager.get(level).all()) {
                 for(var junction:RoadJunctions.forRoad(level,road.id())) {
                     if(RoadManager.get(level).get(junction.a())==null || RoadManager.get(level).get(junction.b())==null)

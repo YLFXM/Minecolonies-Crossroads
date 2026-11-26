@@ -68,9 +68,11 @@ public final class RoadReasons {
         exact("Parallel road overlap is not a junction.", "parallel_overlap");
         exact("A controller would obstruct the junction; move the crossing away from its anchor.",
                 "controller_obstruct");
-        exact("Layered crossings need a consistent upper road and at least 3 blocks of surface separation everywhere.",
-                "layered_config");
-        exact("The final bridge blocks intrude into the lower road's two-block walking clearance.", "bridge_intrudes");
+        // Both carry numbers now, so an exact match can never hit; the prefix is the part
+        // that is stable. Left as exact matches they silently degraded to "internal error",
+        // which is what the player saw instead of the clearance reason.
+        prefix("Layered crossings need", "layered_config");
+        prefix("The final bridge blocks intrude", "bridge_intrudes");
         exact("A junction must be one level platform.", "junction_one_level");
         exact("Empty junction", "empty_junction");
 
@@ -83,6 +85,8 @@ public final class RoadReasons {
         exact("A manually locked stair conflicts with a flat platform.", "locked_stair_conflict");
         exact("No profile can connect the fixed heights with the available rows and manual edits.", "no_profile");
         exact("Road planning exceeds the computation budget.", "computation_budget");
+        exact("This road has no stored endpoints; re-select them before changing its width or mirror.",
+                "no_stored_endpoints");
 
         // Automatic planning.
         exact("Unsupported automatic road length.", "bad_length");

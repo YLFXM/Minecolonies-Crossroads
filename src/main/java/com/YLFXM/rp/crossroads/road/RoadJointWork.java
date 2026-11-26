@@ -184,6 +184,13 @@ public final class RoadJointWork {
      */
     static Cell sharedCell(Cell a,Cell b,boolean aWins) {
         if(equal(a,b))return a;
+        // Same block, but only one side carries the block entity. For a Domum block the
+        // entity is the material: the bare copy renders in the default colour, which is
+        // how a junction ended up in a brick no unit of either road ever contains.
+        if(a.state().equals(b.state())) {
+            if(a.tile()!=null && b.tile()==null)return a;
+            if(b.tile()!=null && a.tile()==null)return b;
+        }
         if(RoadBlocks.isStair(a.state()) && !RoadBlocks.isStair(b.state()))return a;
         if(RoadBlocks.isStair(b.state()) && !RoadBlocks.isStair(a.state()))return b;
         if(a.state().isAir())return b;if(b.state().isAir())return a;
@@ -197,7 +204,8 @@ public final class RoadJointWork {
             if(RoadBlocks.isSolidFill(source.state()) && RoadCrossings.deckCell(model,world))return source;}
         return cell;
     }
-    private static void writeCell(Blueprint image,BlockPos local,Cell cell) {
+    /** Writes state and block entity together; a bare state silently drops a Domum material. */
+    static void writeCell(Blueprint image,BlockPos local,Cell cell) {
         image.addBlockState(local,cell.state());var tile=cell.tile()==null ? null:cell.tile().copy();
         if(tile!=null){tile.putInt("x",local.getX());tile.putInt("y",local.getY());tile.putInt("z",local.getZ());}
         image.getTileEntities()[local.getY()][local.getZ()][local.getX()]=tile;
@@ -550,7 +558,14 @@ public final class RoadJointWork {
         if(RoadBlocks.isSolidFill(next.state()) && RoadBlocks.isConcrete(previous.state()))return;
         if(previous.state().isAir() && RoadBlocks.isConcrete(next.state())) {cells.put(pos.immutable(),next);return;}
         if(next.state().isAir() && RoadBlocks.isConcrete(previous.state()))return;
-        throw new IllegalArgumentException("Conflicting native work targets at "+pos.toShortString());
+        // A deck foundation outranks absence: main tiers 1-2 are gravel, and the fill the
+        // upper road writes under its deck is the only thing holding it up. The lower road
+        // almost always has nothing to say about that cell and writes air there, which used
+        // to abort the whole layered merge with "conflicting native work targets".
+        if(previous.state().isAir() && RoadBlocks.isSolidFill(next.state())) {cells.put(pos.immutable(),next);return;}
+        if(next.state().isAir() && RoadBlocks.isSolidFill(previous.state()))return;
+        throw new IllegalArgumentException("Conflicting native work targets at "+pos.toShortString()
+                +" ("+previous.state()+" vs "+next.state()+")");
     }
     private static Blueprint volume(ServerLevel level,RoadPlan primary,Map<BlockPos,Cell> cells) {
         return volume(level,primary,cells,false);

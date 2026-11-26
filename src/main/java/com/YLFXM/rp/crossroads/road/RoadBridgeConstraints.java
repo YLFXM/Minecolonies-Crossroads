@@ -28,12 +28,12 @@ public final class RoadBridgeConstraints {
         if(first<0 || last>=n || first>last || order==0)throw new IllegalArgumentException("Invalid bridge span.");
         if(selected!=null)shift=selected+(rows[first]==CellType.STAIR_UP ? 0 : 1)-heights[first];
         else for(int i=first;i<=last;i++) {
-            if(order>0)shift=Math.max(shift,high+(rows[i]==CellType.STAIR_UP ? 3 : 4)-heights[i]);
-            else shift=Math.min(shift,low-(rows[i]==CellType.STAIR_UP ? 3 : 2)-heights[i]);
+            if(order>0)shift=Math.max(shift,high+above(rows[i])-heights[i]);
+            else shift=Math.min(shift,low-below(rows[i])-heights[i]);
         }
         for(int i=first;i<=last;i++) {
-            if(order>0)lower.merge(i,high+(rows[i]==CellType.STAIR_UP ? 3 : 4),Math::max);
-            else upper.merge(i,low-(rows[i]==CellType.STAIR_UP ? 3 : 2),Math::min);
+            if(order>0)lower.merge(i,high+above(rows[i]),Math::max);
+            else upper.merge(i,low-below(rows[i]),Math::min);
             if(shift!=0 || selected!=null) {
                 manual.putIfAbsent(i,rows[i]);put(pins,i,heights[i]+shift);
             }
@@ -57,6 +57,22 @@ public final class RoadBridgeConstraints {
                 for(int i=last.getKey()+1;i<=end;i++)preferred[i]=last.getValue();
         }
         return new RoadSlopeSolver.Profile(preferred,base.rows());
+    }
+    /**
+     * Entry height this road needs above the other road's deck when it passes over.
+     *
+     * <p>Deck separation is {@link RoadCrossings#LAYERED_SEPARATION}: one deck for the
+     * bridge itself, {@link RoadCrossings#WALKING_CLEARANCE} cells of room underneath,
+     * and one cell of foundation the deck stands on — main tiers 1-2 are gravel, which
+     * falls the moment nothing supports it. Entry is deck + 1, and a stair row already
+     * reaches one cell higher, so it needs one less.</p>
+     */
+    private static int above(CellType row) {
+        return RoadCrossings.LAYERED_SEPARATION+1-(row==CellType.STAIR_UP ? 1 : 0);
+    }
+    /** Entry ceiling under the other road's deck when this road passes below; a stair row sits one lower. */
+    private static int below(CellType row) {
+        return RoadCrossings.LAYERED_SEPARATION-1+(row==CellType.STAIR_UP ? 1 : 0);
     }
     private static void put(Map<Integer,Integer> pins,int row,int height) {
         Integer old=pins.put(row,height);if(old!=null && old!=height)throw new IllegalArgumentException("Crossing height constraints conflict.");

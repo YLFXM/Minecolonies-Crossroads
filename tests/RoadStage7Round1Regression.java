@@ -72,21 +72,22 @@ public final class RoadStage7Round1Regression {
         check(!RoadCrossings.deckCell(x,new BlockPos(10,63,3)),"foundation below the deck is classified separately");
         var noWalk=new RoadCrossings.Neighbor(z,z,null,RoadCrossingGeometry.body(x),null,same);RoadCrossings.validate(x,noWalk);check(true,"edge contact alone does not block construction as a junction");
         var shortTail=bridge(21,1,10,13,65,null);
-        check(shortTail.heights()[10]==68 && shortTail.heights()[20]==68,"S13 short three-row return tail stays raised to endpoint");
+        check(shortTail.heights()[10]==70 && shortTail.heights()[20]==70,"S13 short three-row return tail stays raised to endpoint");
         check(shortTail.heights()[1]==65 && shortTail.rows()[1]==CellType.FLAT,"bridge never moves fixed anchor");
         for(int i=10;i<=13;i++)check(shortTail.rows()[i]==CellType.FLAT,"new bridge lift does not insert unsupported steps in the span");
-        var longTail=bridge(31,1,10,13,65,null);check(longTail.heights()[17]==65 && longTail.heights()[10]==68,"long supported approach returns to original curve");
+        var longTail=bridge(31,1,10,13,65,null);
+        check(longTail.heights()[20]==65 && longTail.heights()[10]==70,"long supported approach returns to the original curve inside the tail");
         var again=bridge(longTail,1,10,13,64,64,1,null);
         check(Arrays.equals(longTail.heights(),again.heights()),"already-raised bridge does not receive another forced +1");
         var manualHeight=bridge(31,1,10,13,65,69);check(manualHeight.heights()[10]==70,"layered own-height selection overrides automatic height");
         int[] flatTerrain=new int[31];Arrays.fill(flatTerrain,65);CellType[] flatRows=new CellType[31];Arrays.fill(flatRows,CellType.FLAT);
         var base=new RoadSlopeSolver.Profile(flatTerrain,flatRows);Map<Integer,Integer> multiple=new HashMap<>(),lower=new HashMap<>(),upper=new HashMap<>();Map<Integer,CellType> manual=new HashMap<>();
-        RoadBridgeConstraints.add(base,1,10,12,64,64,1,67,multiple,lower,upper,manual);
-        RoadBridgeConstraints.add(base,1,18,20,64,64,1,68,multiple,lower,upper,manual);
+        RoadBridgeConstraints.add(base,1,10,12,64,64,1,69,multiple,lower,upper,manual);
+        RoadBridgeConstraints.add(base,1,18,20,64,64,1,70,multiple,lower,upper,manual);
         var smooth=RoadSlopeSolver.balance(RoadBridgeConstraints.prefer(base,1,65,multiple),1,65,multiple,Set.of(),manual,lower,upper,-62,310);
-        check(smooth.heights()[10]==68 && smooth.heights()[18]==69,"multiple raised spans retain independent reachable heights");
-        check(Arrays.stream(smooth.heights(),12,19).min().orElse(0)>=68,"short gap between raised crossings does not force a dip to anchor terrain");
-        try {bridge(31,1,10,13,65,66);throw new AssertionError("unsafe selected clearance accepted");}catch(IllegalArgumentException expected){checks++;}
+        check(smooth.heights()[10]==70 && smooth.heights()[18]==71,"multiple raised spans retain independent reachable heights");
+        check(Arrays.stream(smooth.heights(),12,19).min().orElse(0)>=70,"short gap between raised crossings does not force a dip to anchor terrain");
+        try {bridge(31,1,10,13,65,68);throw new AssertionError("unsafe selected clearance accepted");}catch(IllegalArgumentException expected){checks++;}
         try {bridge(12,1,2,4,65,90);throw new AssertionError("bridge moved anchor to reach impossible height");}catch(IllegalArgumentException expected){checks++;}
         System.out.println("PASS "+checks+" stage7 round1/consent assertions");
     }

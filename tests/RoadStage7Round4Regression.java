@@ -135,6 +135,29 @@ public final class RoadStage7Round4Regression {
         check(RoadBlocks.isSolidFill(roundtrip.getBlockState(BlockPos.ZERO)),"fill retention survives the actual saved native demolition blueprint");
         check(maskSource.getBlockState(BlockPos.ZERO).is(fill),"masking leaves the applied source immutable");
 
+        // The demolition image owns its frame through the cached primary offset: every
+        // addBlockState clears that cache, so the mask has to restore it last, or the native
+        // order falls back to the blueprint centre and shifts the whole demolition. The
+        // primary and marker cells are masked (which also drops the controller block entity
+        // native completion would otherwise write a null pack name into).
+        var framed=RoadBlueprintGenerator.emptyBlueprint((short)4,(short)3,(short)4,registries);
+        framed.addBlockState(new BlockPos(1,1,1),Blocks.COBBLESTONE.defaultBlockState());
+        framed.addBlockState(new BlockPos(3,1,3),Blocks.COBBLESTONE.defaultBlockState());
+        framed.setCachePrimaryOffset(new BlockPos(1,1,1));
+        var framedPlan=RoadPlan.load(primary.save());
+        framedPlan.setBlueprintAnchor(framedPlan.anchorPos().offset(1,0,0));
+        var kept=RoadCrossings.removalMask(framedPlan,framedPlan,framed,List.of(),registries,true);
+        check(kept.getPrimaryBlockOffset().equals(new BlockPos(1,1,1)),
+                "demolition mask restores the primary offset after writing protected cells");
+        check(!kept.getPrimaryBlockOffset().equals(new BlockPos(framed.getSizeX()/2,0,framed.getSizeZ()/2)),
+                "a lost offset would fall back to the blueprint centre and shift the demolition");
+        check(!kept.getBlockState(new BlockPos(1,1,1)).isAir(),
+                "the primary cell is protected in the demolition image");
+        check(!kept.getBlockState(new BlockPos(0,1,1)).isAir(),
+                "the marker cell is protected in the demolition image");
+        check(kept.getBlockState(new BlockPos(3,1,3)).is(Blocks.COBBLESTONE),
+                "non reserved cells stay demolishable");
+
         // A raised junction step may sit above the old applied image's top; the applied mask
         // must grow to cover both volumes instead of refusing the commit.
         var small=RoadBlueprintGenerator.emptyBlueprint((short)2,(short)2,(short)2,registries);

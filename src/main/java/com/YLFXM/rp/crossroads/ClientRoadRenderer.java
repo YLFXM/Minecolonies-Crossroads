@@ -195,7 +195,9 @@ public final class ClientRoadRenderer {
         final var text = net.minecraft.network.chat.Component.translatable("rp_crossroads.aim.row",
                 RoadAim.rowNumber(),
                 net.minecraft.network.chat.Component.translatable(RoadAim.key(RoadAim.type())),
-                net.minecraft.network.chat.Component.translatable(RoadAim.key(RoadAim.next())));
+                net.minecraft.network.chat.Component.translatable(RoadAim.key(RoadAim.next())),
+                net.minecraft.network.chat.Component.translatable(
+                        "rp_crossroads.row.level." + RoadAim.level().name().toLowerCase(java.util.Locale.ROOT)));
         final var gui = event.getGuiGraphics();
         gui.drawCenteredString(Minecraft.getInstance().font, text,
                 gui.guiWidth() / 2, gui.guiHeight() / 2 + 26, 0xFFFFFFFF);

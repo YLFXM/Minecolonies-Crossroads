@@ -105,7 +105,9 @@ public final class RoadAutoPlanning {
             int[] raw=terrain.clone();
             for(int i=1;i<n-1;i++) {int[] local={raw[i-1],raw[i],raw[i+1]};Arrays.sort(local);terrain[i]=local[1];}
         }
-        if(p.planning().sampleKey().isEmpty()) p.pendingRows().forEach((row,type) -> p.editRow(row,type));
+        // Rows that differ from the applied table are the solver's business, not the
+        // player's: re-marking them as hand edits left no way to clear hand edits at
+        // all, because "edit it back to flat" is still a hand edit.
         Map<Integer,CellType> manual=new HashMap<>();
         p.manualRows().forEach((row,type) -> {if(row>=p.minAlong() && row<=p.maxAlong())manual.put(index(p,row),type);});
         int anchor=index(p,RoadHeightProfile.anchorAlong(p));

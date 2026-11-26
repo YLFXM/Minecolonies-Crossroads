@@ -28,6 +28,14 @@ public final class RoadRemovalSession {
     private final boolean instant;
     private final int colonyId;
     private int orderId;
+    /**
+     * Two-phase rebuild carried by this demolition, empty for a plain removal.
+     *
+     * <p>The demolition is the only record of "a road is currently being taken
+     * down", so the shape to build afterwards rides with it: a server restart
+     * mid-demolition must still know what to build once the site is clear.</p>
+     */
+    private CompoundTag rebuild = new CompoundTag();
     public RoadRemovalSession(UUID owner, boolean instant, int colonyId) {
         this(UUID.randomUUID(),owner,instant,colonyId,0);
     }
@@ -40,12 +48,17 @@ public final class RoadRemovalSession {
     public int colonyId() { return colonyId; }
     public int orderId() { return orderId; }
     public void setOrderId(int id) { orderId=id; }
+    public CompoundTag rebuild() { return rebuild.copy(); }
+    public void setRebuild(CompoundTag tag) { rebuild=tag==null ? new CompoundTag() : tag.copy(); }
+    public boolean rebuilds() { return !rebuild.isEmpty(); }
     public String path(UUID road) { return "removal/"+road+"_"+token+".blueprint"; }
     public CompoundTag save() {
         var tag=new CompoundTag(); tag.putUUID("token",token); tag.putUUID("owner",owner);
-        tag.putBoolean("instant",instant); tag.putInt("colony",colonyId); tag.putInt("order",orderId); return tag;
+        tag.putBoolean("instant",instant); tag.putInt("colony",colonyId); tag.putInt("order",orderId);
+        if(!rebuild.isEmpty()) tag.put("rebuild",rebuild.copy()); return tag;
     }
     public static RoadRemovalSession load(CompoundTag tag) {
-        return new RoadRemovalSession(tag.getUUID("token"),tag.getUUID("owner"),tag.getBoolean("instant"),tag.getInt("colony"),tag.getInt("order"));
+        final var session=new RoadRemovalSession(tag.getUUID("token"),tag.getUUID("owner"),tag.getBoolean("instant"),tag.getInt("colony"),tag.getInt("order"));
+        session.setRebuild(tag.getCompound("rebuild")); return session;
     }
 }

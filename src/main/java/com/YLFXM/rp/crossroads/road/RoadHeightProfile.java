@@ -74,7 +74,20 @@ public final class RoadHeightProfile {
                 : (plan.travelDir()>0 ? Direction.SOUTH : Direction.NORTH);
         return type==CellType.STAIR_DOWN ? forward.getOpposite() : forward;
     }
+    /**
+     * Shape fingerprint for the ghost: what the road looks like, not what was bookkept.
+     *
+     * <p>The planning revision moves for things no ghost can show — a planner id, an
+     * issue line, a refresh flag. Keying the preview on it made the client re-request
+     * and the server regenerate for bookkeeping only, and once something bumped the
+     * revision every second the two fed each other: the ghost was cleared and rebuilt
+     * about twice a second and never settled. Row types and per-row surface heights are
+     * the whole visible shape, so they are the whole key.</p>
+     */
     public static String editSignature(final RoadPlan plan) {
-        return plan.planning().revision()+":"+plan.travelDir()+":"+new java.util.TreeMap<>(plan.rowOverrides())+":"+new java.util.TreeMap<>(plan.pendingRows());
+        final java.lang.StringBuilder heights=new java.lang.StringBuilder();
+        for(final var row:of(plan).rows()) heights.append(row.baseY()).append(',');
+        return plan.travelDir()+":"+new java.util.TreeMap<>(plan.rowOverrides())+":"
+                +new java.util.TreeMap<>(plan.pendingRows())+":"+heights;
     }
 }

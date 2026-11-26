@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
@@ -114,6 +115,40 @@ public final class RoadBlueprintStore {
             }
         }
         return true;
+    }
+
+    /**
+     * Puts a stored image back into the frame its model describes.
+     *
+     * <p>A blueprint's world origin is {@code primary - primaryOffset}, and the stored
+     * offset is the only record of it. A frame move that ran twice for one anchor change
+     * leaves that offset drifted without any error: the image is then interpreted whole
+     * cells away from the blocks it describes, which shows up as a demolition or a build
+     * that lands beside the road. The road's own footprint is the independent check — an
+     * image covers exactly the body of the model that authored it, so its origin XZ must
+     * be that body's minimum corner.</p>
+     *
+     * @return true when a correction was written; a shape mismatch writes nothing
+     */
+    public static boolean resyncFrame(final ServerLevel level, final RoadPlan plan) {
+        if (plan.appliedGeometry() == null) return false;
+        final RoadPlan model;
+        try { model = RoadPlan.load(plan.appliedGeometry()); }
+        catch (final RuntimeException ex) { return false; }
+        if (model.segments().isEmpty()) return false;
+        final Blueprint applied = loadApplied(level, plan);
+        if (applied == null) return false;
+        final var body = com.YLFXM.rp.crossroads.road.RoadCrossingGeometry.body(model);
+        // Only a shape that matches the applied model can be measured this way; a repaired
+        // road keeps its applied model, so this is the normal case.
+        if (applied.getSizeX() != body.maxX() - body.minX() + 1
+                || applied.getSizeZ() != body.maxZ() - body.minZ() + 1) return false;
+        final BlockPos origin = BlueprintCells.origin(plan, applied);
+        final int dx = body.minX() - origin.getX(), dz = body.minZ() - origin.getZ();
+        if (dx == 0 && dz == 0) return false;
+        Crossroads.LOGGER.warn("Road {}: stored blueprint frame is off its footprint by {}/{}; moving both snapshots",
+                plan.id(), dx, dz);
+        return shiftFrame(level, plan, new BlockPos(-dx, 0, -dz));
     }
 
     /** Geometry of actual applied content, never a neighbor's pending proposal. */
@@ -248,6 +283,21 @@ public final class RoadBlueprintStore {
             Files.deleteIfExists(appliedFile(level, plan));
         } catch (final IOException ex) {
             Crossroads.LOGGER.warn("Could not delete road blueprint for {}", plan.id(), ex);
+        }
+    }
+
+    /**
+     * Drops only the snapshot of what the world held, keeping the proposal.
+     *
+     * <p>Used by the two-phase rebuild: the demolition really removed the road,
+     * so the applied image describes nothing any more, while the proposal file
+     * is the shape about to be built and has to stay.</p>
+     */
+    public static void deleteApplied(final ServerLevel level, final RoadPlan plan) {
+        try {
+            Files.deleteIfExists(appliedFile(level, plan));
+        } catch (final IOException ex) {
+            Crossroads.LOGGER.warn("Could not delete applied road snapshot for {}", plan.id(), ex);
         }
     }
 

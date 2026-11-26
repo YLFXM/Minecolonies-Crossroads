@@ -60,6 +60,9 @@ public final class RoadRepair {
     public static boolean begin(final ServerLevel level, final ServerPlayer player, final RoadPlan plan) {
         if (!RoadPermissions.canManage(level,player,plan) || !RoadRules.canRepair(plan)) return false;
         if (!canPrepare(player,plan)) return false;
+        // Same reason as the survival path: a stale clearance would refuse every attempt
+        // and the player has no other way to raise a built bridge.
+        RoadClearanceHeal.heal(level,player,plan);
         if(plan.interruptedConstruction()!=null) {
             final var interrupted=RoadRepairSession.load(plan.interruptedConstruction());
             if(interrupted.resumableCommit()) return resumeCommit(level,player,plan,interrupted);
@@ -147,6 +150,17 @@ public final class RoadRepair {
     public static boolean beginSurvival(final ServerLevel level, final ServerPlayer player, final RoadPlan plan,
                                         final int targetLevel, final int originLevel) {
         if (!RoadPermissions.canManage(level,player,plan) || !RoadRules.canRepair(plan)) return false;
+        // The clearance rule is a hard contract and a repair only validates. Without this a
+        // crossing built under the old rule can never be repaired again: the pre-flight
+        // refuses and there is no other entry point that raises a deck. It runs before the
+        // shape decision so a rebuild request on such a road heals too.
+        RoadClearanceHeal.heal(level,player,plan);
+        // A width or mirror change moves the footprint, and a repair can only write
+        // the new one — it never takes the old pavement away. Demolish and build in
+        // one shape change instead, but only after the new footprint proved it can
+        // keep every crossing it touches.
+        final RoadRebuild.Shape shape = RoadRebuild.shapeOf(plan, targetLevel);
+        if (RoadRebuild.needed(level, plan, shape)) return RoadRebuild.begin(level, player, plan, shape);
         if (RoadBuildWatcher.hasWorkOrder(plan) || RoadBuildWatcher.isWatching(plan)) {
             tellSessionOpen(player,plan); return false;
         }

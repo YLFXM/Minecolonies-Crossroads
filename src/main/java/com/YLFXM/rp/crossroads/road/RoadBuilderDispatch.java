@@ -43,13 +43,9 @@ final class RoadBuilderDispatch {
                 RoadNames.label(plan),com.YLFXM.rp.crossroads.road.common.BlueprintCells.blueprintAnchor(plan),
                 RotationMirror.NONE,0);
         // The order carries the merged work volume itself instead of re-reading a file.
-        // Native completion (AbstractWorkOrder.onCompleted) writes this blueprint's pack
-        // and path into every decoration controller it contains -- and the primary cell of
-        // a road is one. A blueprint object built in memory has no pack name, so completing
-        // an upgrade threw a NullPointerException and left the builder paused in a loop.
-        frozen.setPackName(CustomRoadPack.PACK_NAME);
-        frozen.setFilePath(java.nio.file.Path.of(RoadTemporaryPack.ROOT_DIR));
-        frozen.setFileName(RoadNames.fileName(plan,plan.unitLevel()));
+        // Native completion writes this blueprint's pack and path into every decoration
+        // controller it contains -- and the primary cell of a road is one.
+        RoadBlueprintIdentity.stamp(frozen, plan);
         order.setBlueprint(frozen,level);order.setColony(colony);
         boolean accepted=admit(colony,order);
         if(accepted)try {RoadProtectedIterator.protectOrders(plan);}

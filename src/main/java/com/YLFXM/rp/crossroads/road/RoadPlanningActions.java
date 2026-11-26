@@ -28,8 +28,21 @@ import net.minecraft.network.chat.Component;
 
 /** Explicit auto planning/settings changes validate a copy before replacing a proposal. */
 public final class RoadPlanningActions {
+    /**
+     * How far a confirmed press may reach into the player's own row edits.
+     *
+     * <p>A hand edit is a hint, not a veto: when it is the only thing standing
+     * between the player and the geometry they asked for, the second press drops
+     * it. The levels are tried in order so the smallest loss wins — the bend span
+     * around the junction first, the whole road only if that still will not solve.</p>
+     */
+    public enum Override {
+        NONE,
+        SPAN,
+        ALL
+    }
     /** Players confirm a manual-row override by pressing the same relation button again. */
-    private record Offer(String boundary,int mode,int rows,long expires) { }
+    private record Offer(String boundary,int mode,int rows,Override reach,long expires) { }
     private static final java.util.Map<String,Offer> OFFERS=new java.util.HashMap<>();
     private static final long OFFER_TTL=60_000L;
     /** Height changes wait for the player: override the hand rows, or keep the automatic height. */
@@ -93,25 +106,50 @@ public final class RoadPlanningActions {
                 String boundary=RoadCrossingConsent.pairDigest(level,old,other);
                 Offer live=OFFERS.get(key);
                 boolean override=live!=null && live.mode()==request.mode() && live.boundary().equals(boundary) && live.expires()>System.currentTimeMillis();
+                Override reach=override ? live.reach() : Override.NONE;
+                // Counted before the attempt: a successful override clears these rows, so
+                // afterwards there is nothing left to report as dropped.
+                int droppable=manualRowsInReach(source,other,reach,level);
                 if(override)OFFERS.remove(key);
                 ModeChoice<ModeAttempt> selected;
-                try {selected=chooseMode(current,request.mode(),mode -> modeAttempt(player,source,other,mode,override));}
+                try {selected=chooseMode(current,request.mode(),mode -> modeAttempt(player,source,other,mode,reach));}
                 catch(IllegalArgumentException ex) {
                     if(!override) {
-                        int rows=manualRowsInSpan(plan,other);
-                        if(rows>0 && overrideSucceeds(player,source,other,request.mode())) {
-                            OFFERS.put(key,new Offer(boundary,request.mode(),rows,System.currentTimeMillis()+OFFER_TTL));
+                        // Hand rows are the first suspect, so try the ladder before refusing:
+                        // the span around the junction, then the whole road. A level only
+                        // counts when it actually solves, and the offer repeats that level,
+                        // so the second press can never drop more than the first explained.
+                        Override proven=null;int rows=0;boolean tried=false;IllegalArgumentException last=ex;
+                        for(Override candidate:new Override[]{Override.SPAN,Override.ALL}) {
+                            int count=manualRowsInReach(source,other,candidate,level);
+                            if(count==0)continue;
+                            tried=true;
+                            try {modeAttempt(player,source,other,request.mode(),candidate);proven=candidate;rows=count;break;}
+                            catch(IllegalArgumentException retry) {last=retry;}
+                        }
+                        if(proven!=null) {
+                            OFFERS.put(key,new Offer(boundary,request.mode(),rows,proven,System.currentTimeMillis()+OFFER_TTL));
                             RoadNotices.send(player,old.id(),"manual:"+boundary,Component.translatable("rp_crossroads.planning.manual_conflict",rows));
                             return;
                         }
+                        // Everything the player wrote by hand is now out of the way and it still
+                        // does not solve, so the reason is the geometry. Say that, or the next
+                        // reading of "rows and manual edits" blames the hand rows again.
+                        if(tried)RoadNotices.chat(player,old.id(),"manual_cleared:"+boundary,
+                                "rp_crossroads.planning.manual_cleared_failed",RoadNotices.reason(last));
                     }
                     RoadNotices.send(player,old.id(),"modes:"+RoadNotices.reasonKey(ex),Component.translatable("rp_crossroads.planning.modes_unavailable",RoadNotices.reason(ex)));return;
                 }
                 plan=selected.value().plan();peerUpdate=selected.value().peer();
                 if(override) {
-                    int restored=restoreUnchangedManual(old,plan,other);boolean peerRestored=peerUpdate!=null && restoreUnchangedManual(RoadManager.get(level).get(peerUpdate.id()),peerUpdate,plan)>0;
-                    RoadNotices.send(player,old.id(),"manual_applied",Component.translatable("rp_crossroads.planning.manual_overridden",Math.max(1,manualRowsInSpan(old,other)-restored)));
-                    Crossroads.LOGGER.info("Manual rows overridden on {} for junction with {} (kept {} peer={})",old.id(),other.id(),restored,peerRestored);
+                    // A confirmed override is the player saying "my solved result wins".
+                    // Restoring hand rows that happen to match the solve would hand them
+                    // right back: a hand edit is usually "make this flat" and the solve
+                    // flattens it too, so the override silently did nothing and every
+                    // later height change asked for confirmation again.
+                    RoadNotices.send(player,old.id(),"manual_applied",Component.translatable("rp_crossroads.planning.manual_overridden",Math.max(1,droppable)));
+                    Crossroads.LOGGER.info("Manual rows dropped on {} for junction with {} (reach={} dropped={})",
+                            old.id(),other.id(),reach,droppable);
                 }
                 if(selected.fallback())RoadNotices.actionBar(player,"rp_crossroads.planning.mode_fallback");
             }
@@ -144,8 +182,28 @@ public final class RoadPlanningActions {
                 RoadJunctions.flush(level);
                 RoadNotices.send(player,plan.id(),"planning:"+plan.planning().issue(),Component.translatable(plan.planning().issue().isEmpty()
                         ? "rp_crossroads.planning.updated" : "rp_crossroads.planning.conflict",RoadNotices.issue(plan.planning().issue())));
+                Crossroads.LOGGER.info("Planning action {} on {} published: revision={} edited={} issue={}",
+                        request.action(),plan.id(),plan.planning().revision(),plan.editedRowCount(),plan.planning().issue());
             }
         } catch(IllegalArgumentException ex) { RoadNotices.send(player,request.road(),"conflict:"+RoadNotices.reasonKey(ex),Component.translatable("rp_crossroads.planning.conflict",RoadNotices.reason(ex))); }
+    }
+
+    /**
+     * "Redraw from terrain": drop every hand edit and re-sample the ground.
+     *
+     * <p>The panel knows which road it belongs to, so the endpoints come from the
+     * plan itself. Requiring the wand's selection here would leave the button dead
+     * for the player who opens the panel without carrying one, which is the whole
+     * reason the merged panel exists.</p>
+     */
+    public static void redraw(ServerPlayer player,RoadPlan plan) {
+        if(plan==null)return;
+        if(!plan.hasEndpoints()) {
+            RoadNotices.chat(player,plan.id(),"redraw_endpoints","rp_crossroads.plan.redraw_need_endpoints");
+            return;
+        }
+        handle(player,new RoadPlanningPayload(plan.id(),plan.controllerPos(),plan.endpointA(),plan.endpointB(),
+                plan.mirror(),1,new UUID(0,0),0));
     }
 
     private static void solve(ServerLevel level,RoadPlan plan,boolean restore,boolean resample) {
@@ -194,15 +252,15 @@ public final class RoadPlanningActions {
         throw new IllegalArgumentException(failure);
     }
     private record ModeAttempt(RoadPlan plan,RoadPlan peer) { }
-    private static ModeAttempt modeAttempt(ServerPlayer player,RoadPlan source,RoadPlan other,int mode,boolean override) {
+    private static ModeAttempt modeAttempt(ServerPlayer player,RoadPlan source,RoadPlan other,int mode,Override reach) {
         var level=player.serverLevel();RoadPlan plan=RoadPlan.load(source.save());
         boolean authorized=RoadCrossingConsent.canPlan(level,player,plan,other);
         if(!authorized && mode==0)throw new IllegalArgumentException("Same-level junction changes require the neighbor's approval.");
         int order=mode==1 ? 1:mode==2 ? -1:0;
         plan.planning().spanFloor(other.id(),null);
         stageRelation(level,plan,other,new RoadPlanningState.Crossing(mode!=0,order,0,null));
-        if(override)clearManualInSpan(plan,other);
-        var peer=rebuildPeer(player,plan,other,override);
+        clearManualInReach(plan,other,reach);
+        var peer=rebuildPeer(player,plan,other,reach);
         try(var scope=RoadCrossings.scope(peer==null ? java.util.Map.of(plan.id(),plan):java.util.Map.of(plan.id(),plan,peer.id(),peer),java.util.Map.of(),plan.id())) {
             RoadAutoPlanning.restoreBase(level,plan);RoadCrossings.validateGeometry(level,plan);
         }
@@ -222,7 +280,7 @@ public final class RoadPlanningActions {
         }
         RoadCrossingConsent.ensureEditable(level,player,neighbor,plan);
         RoadPlan peer=null;
-        try {peer=rebuildPeer(player,plan,neighbor,false);}
+        try {peer=rebuildPeer(player,plan,neighbor,Override.NONE);}
         catch(IllegalArgumentException ex){plan.planning().issue(RoadNotices.reasonKey(ex));}
         // Approval records formation intent even when further manual balancing is necessary.
         var metadata=peer==null ? RoadPlan.load(neighbor.save()):peer;
@@ -242,13 +300,14 @@ public final class RoadPlanningActions {
         // Approval refresh only rewrites the canonical snapshot; the pack copy is intentionally left alone.
         if(image!=null)RoadProposal.publish(level,plan,plan,image,false,RoadProposal.Audience.ALL,player,null);
     }
-    private static RoadPlan rebuildPeer(ServerPlayer player,RoadPlan plan,RoadPlan peer,boolean override) {
+    private static RoadPlan rebuildPeer(ServerPlayer player,RoadPlan plan,RoadPlan peer,Override reach) {
         var level=player.serverLevel();
         if(!RoadCrossingConsent.canPlan(level,player,plan,peer))return null;
         if(RoadRules.busy(peer,RoadRules.MUTATION))return null;
-        if(override && !RoadRules.canEdit(peer))return null;
+        // Dropping someone else's hand edits needs a right to edit that road, at any reach.
+        if(reach!=Override.NONE && !RoadRules.canEdit(peer))return null;
         var next=RoadPlan.load(peer.save());next.planning().spanFloor(plan.id(),null);
-        if(override)clearManualInSpan(next,plan);
+        clearManualInReach(next,plan,reach);
         RoadPlan base=RoadAutoPlanning.baseSource(next);base.pruneOutOfRangeRows();next.adoptPendingRows(java.util.Map.of());next.adoptCommittedRows(base.rowOverrides());
         try(var scope=RoadCrossings.scope(java.util.Map.of(plan.id(),plan,peer.id(),next),java.util.Map.of())) {
             RoadAutoPlanning.restoreBase(level,plan);plan.pruneOutOfRangeRows();
@@ -286,19 +345,38 @@ public final class RoadPlanningActions {
         try {RoadJointWork.alignUnbuilt(level,a,b,requested);HEIGHTS.remove(key);}
         catch(IllegalArgumentException ex) {
             if(ex.getMessage()!=null && ex.getMessage().contains("budget"))throw ex;
-            var retry=overrideHeight(level,plan,peer,requested);
+            // The same ladder a relation change uses: the bend span first, the whole road
+            // only if that still cannot reach the requested height. A level counts only
+            // when the solve really succeeds, so the offer matches what will be dropped.
+            final int droppable=manualRowsInReach(plan,peer,Override.ALL,level);
+            RoadPlan[] retry=null;Override reached=Override.NONE;int rows=0;
+            for(Override candidate:new Override[]{Override.SPAN,Override.ALL}) {
+                int count=manualRowsInReach(plan,peer,candidate,level);
+                if(count==0)continue;
+                retry=overrideHeight(level,plan,peer,requested,candidate);
+                if(retry!=null) {reached=candidate;rows=count;break;}
+            }
             if(confirmed && retry!=null) {
                 a=retry[0];b=retry[1];
-                RoadNotices.send(player,plan.id(),"height_applied",Component.translatable("rp_crossroads.planning.manual_overridden",manualRowsInSpan(plan,peer)));
+                // The solve ran on copies, so its cleared rows never reached the live plans:
+                // copyProposalRows writes through setAutoType, which refuses to touch a hand
+                // row. Without this the confirmation reported success, dropped nothing, and
+                // the next height change asked again.
+                clearManualInReach(plan,peer,reached);
+                if(RoadRules.canEdit(peer))clearManualInReach(peer,plan,reached);
+                RoadNotices.send(player,plan.id(),"height_applied",Component.translatable("rp_crossroads.planning.manual_overridden",rows));
+                Crossroads.LOGGER.info("Junction height forced on {} with {}: cleared {} hand row(s)",plan.id(),reached,rows);
             } else if(!confirmed && retry!=null) {
-                int rows=manualRowsInSpan(plan,peer)+(RoadRules.canEdit(peer) ? manualRowsInSpan(peer,plan) : 0);
-                if(rows>0) {
-                    HEIGHTS.put(key,new PendingHeight(player.getUUID(),plan.id(),peer.id(),request.heightDelta(),boundary,System.currentTimeMillis()+OFFER_TTL));
-                    RoadNotices.send(player,plan.id(),"height:"+boundary+":"+request.heightDelta(),Component.translatable("rp_crossroads.planning.manual_conflict",rows));
-                    return;
-                }
-                a=autoA;b=autoB;requested=automatic;fallback=true;
+                HEIGHTS.put(key,new PendingHeight(player.getUUID(),plan.id(),peer.id(),request.heightDelta(),boundary,System.currentTimeMillis()+OFFER_TTL));
+                RoadNotices.send(player,plan.id(),"height:"+boundary+":"+request.heightDelta(),Component.translatable("rp_crossroads.planning.manual_conflict",rows));
+                return;
             } else {
+                // Nothing the player wrote by hand is in the way any more, so the height
+                // really is unreachable. Reporting it as a hand-edit conflict sent the
+                // player looking for rows to delete that were never the problem.
+                if(confirmed && droppable>0)
+                    RoadNotices.chat(player,plan.id(),"height_cleared:"+boundary,
+                            "rp_crossroads.planning.manual_cleared_failed",RoadNotices.reason(ex));
                 a=autoA;b=autoB;requested=automatic;fallback=true;
             }
         }
@@ -321,6 +399,8 @@ public final class RoadPlanningActions {
         RoadProposal.sync(level,RoadProposal.Audience.ALL,player,null);
         if(fallback)RoadNotices.chat(player,plan.id(),"height_fallback","rp_crossroads.planning.height_fallback",requested);
         else RoadNotices.actionBar(player,"rp_crossroads.planning.height_updated",requested);
+        Crossroads.LOGGER.info("Junction height on {} published: platform={} revision={} fallback={}",
+                plan.id(),requested,plan.planning().revision(),fallback);
     }
     private static void adjustLayered(ServerLevel level,ServerPlayer player,RoadPlan plan,RoadPlan peer,int delta) {
         if(Math.abs(delta)!=1 || RoadRules.busy(peer,Set.of(RoadRules.Busy.SESSION,RoadRules.Busy.REMOVING)))
@@ -343,6 +423,35 @@ public final class RoadPlanningActions {
     private static void copyProposalRows(RoadPlan live,RoadPlan desired) {
         for(int row=live.minAlong();row<=live.maxAlong();row++)live.setAutoType(row,desired.cellType(row));
     }
+    /** Hand rows on the whole road. */
+    private static int manualRowsInRange(RoadPlan road) {
+        int count=0;
+        for(int row:road.manualRows().keySet())if(row>=road.minAlong() && row<=road.maxAlong())count++;
+        return count;
+    }
+    /**
+     * Hand rows a confirmed press at this reach would drop, on both roads.
+     *
+     * <p>Both sides count: a hand edit on the neighbouring road bends its approach
+     * just as hard, and it used to fall outside the count, which is why a blocked
+     * switch could report "cannot be done" without ever offering the override.</p>
+     */
+    public static int manualRowsInReach(RoadPlan road,RoadPlan other,Override reach,ServerLevel level) {
+        if(reach==Override.NONE)return 0;
+        int rows=reach==Override.SPAN ? manualRowsInSpan(road,other) : manualRowsInRange(road);
+        RoadPlan peer=level==null ? other : RoadManager.get(level).get(other.id());
+        if(peer!=null && !peer.id().equals(road.id()) && RoadRules.canEdit(peer))
+            rows+=reach==Override.SPAN ? manualRowsInSpan(peer,road) : manualRowsInRange(peer);
+        return rows;
+    }
+    /** Drops the hand rows this reach covers; nothing else is touched. */
+    private static void clearManualInReach(RoadPlan road,RoadPlan other,Override reach) {
+        switch(reach) {
+            case NONE -> { }
+            case SPAN -> clearManualInSpan(road,other);
+            case ALL -> new java.util.ArrayList<>(road.manualRows().keySet()).forEach(road::clearManual);
+        }
+    }
     /** Hand-edited rows inside the span the solver is allowed to bend. */
     private static int manualRowsInSpan(RoadPlan road,RoadPlan other) {
         var walk=RoadCrossingGeometry.walk(road).intersect(RoadCrossingGeometry.walk(other));
@@ -351,20 +460,16 @@ public final class RoadPlanningActions {
         for(int row:road.manualRows().keySet())if(row>=span[0] && row<=span[1])count++;
         return count;
     }
-    /** Height retry with the hand rows inside the bend span cleared; null when still impossible. */
-    private static RoadPlan[] overrideHeight(ServerLevel level,RoadPlan plan,RoadPlan peer,int requested) {
+    /** Height retry with the hand rows at this reach cleared; null when still impossible. */
+    private static RoadPlan[] overrideHeight(ServerLevel level,RoadPlan plan,RoadPlan peer,int requested,Override reach) {
         try {
             var a=RoadAutoPlanning.baseSource(plan);var b=RoadAutoPlanning.baseSource(peer);
             a.pruneOutOfRangeRows();b.pruneOutOfRangeRows();
-            clearManualInSpan(a,peer);
-            if(RoadRules.canEdit(peer))clearManualInSpan(b,plan);
+            clearManualInReach(a,peer,reach);
+            if(RoadRules.canEdit(peer))clearManualInReach(b,plan,reach);
             RoadJointWork.alignUnbuilt(level,a,b,requested);
             return new RoadPlan[]{a,b};
         } catch(IllegalArgumentException ex) {return null;}
-    }
-    private static boolean overrideSucceeds(ServerPlayer player,RoadPlan source,RoadPlan other,int mode) {
-        try {modeAttempt(player,source,other,mode,true);return true;}
-        catch(IllegalArgumentException ex) {return false;}
     }
     private static void clearManualInSpan(RoadPlan road,RoadPlan other) {
         var walk=RoadCrossingGeometry.walk(road).intersect(RoadCrossingGeometry.walk(other));
@@ -374,19 +479,6 @@ public final class RoadPlanningActions {
         kept.keySet().removeIf(row -> row>=span[0] && row<=span[1]);
         new java.util.ArrayList<>(road.manualRows().keySet()).forEach(road::clearManual);
         kept.forEach((row,type) -> road.editRow(row,type));
-    }
-    /** Restores hand edits that the solved result happened to keep, so only real changes are dropped. */
-    private static int restoreUnchangedManual(RoadPlan before,RoadPlan after,RoadPlan other) {
-        if(before==null || after==null)return 0;
-        var walk=RoadCrossingGeometry.walk(before).intersect(RoadCrossingGeometry.walk(other));
-        if(walk==null)return 0;
-        int[] span=RoadLockReconcile.span(before,walk.first(before),walk.last(before));int restored=0;
-        for(var entry:before.manualRows().entrySet()) {
-            int row=entry.getKey();if(row<span[0] || row>span[1])continue;
-            try {if(after.cellType(row)==entry.getValue()){after.editRow(row,entry.getValue());restored++;}}
-            catch(RuntimeException ignored) { }
-        }
-        return restored;
     }
     private RoadPlanningActions() { }
 }

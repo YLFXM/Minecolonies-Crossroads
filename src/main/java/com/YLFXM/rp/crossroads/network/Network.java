@@ -72,7 +72,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 public final class Network {
     public static void register(final RegisterPayloadHandlersEvent event) {
-        final var registrar = event.registrar("18");
+        final var registrar = event.registrar("19");
         registrar.playToServer(RoadPlanningPayload.TYPE,RoadPlanningPayload.CODEC,(payload,context) ->
                 context.enqueueWork(() -> { if(context.player() instanceof ServerPlayer player)
                     com.YLFXM.rp.crossroads.road.RoadPlanningActions.handle(player,payload); }));
@@ -243,7 +243,11 @@ public final class Network {
                     plan.planning().issue(RoadNotices.reasonKey(ex));
                 }
             }
-            final int oldPlanningRevision=plan.planning().revision();
+            // A preview is a read: the only thing it can legitimately change for the
+            // panel is the text it displays. Syncing on the planning revision turned
+            // any bookkeeping bump into a road sync, which the client answered with a
+            // new preview request — the ghost flickered twice a second and never settled.
+            final String oldDisplay=plan.planning().issue()+"|"+plan.planning().crossingIssue();
             final Blueprint blueprint = RoadBlueprintGenerator.generateQuiet(plan, level,
                     Config.defaultLampReserveHeight(),player);
             if (blueprint == null) {
@@ -259,7 +263,7 @@ public final class Network {
                 RoadProposal.index(level,boundPlan,RoadProposal.Audience.NONE,player,colony);
                 RoadProposal.save(level,boundPlan,blueprint,RoadProposal.Save.CHECKED);
                 RoadProposal.sync(level,RoadProposal.Audience.ALL,player,colony);
-            } else if(plan==boundPlan && oldPlanningRevision!=plan.planning().revision()) {
+            } else if(plan==boundPlan && !oldDisplay.equals(plan.planning().issue()+"|"+plan.planning().crossingIssue())) {
                 RoadProposal.index(level,plan,RoadProposal.Audience.PLAYER,player,colony);
             }
             // The preview position is the blueprint primary itself, NOT primary - offset.
@@ -900,6 +904,9 @@ public final class Network {
                         RoadRepair.beginSurvival(level,player,plan,plan.unitLevel());
                     }
                 }
+                // The panel is the road's own entry point, so the endpoints come from
+                // the plan: no wand selection is involved in "redraw from terrain".
+                case REDRAW -> com.YLFXM.rp.crossroads.road.RoadPlanningActions.redraw(player,plan);
                 case UPGRADE -> {
                     final int max = com.YLFXM.rp.crossroads.road.RoadUnitLibrary
                             .maxLevel(plan.unitStyle(),plan.series());
@@ -1039,13 +1046,18 @@ public final class Network {
             // A tier change keeps the footprint and is reconciled per junction cell
             // like any other repair, so it does not need the crossing refusal.
             final boolean widthChanged = width != plan.width();
-            // A crossing is a shared cell contract: the junction cell is written
-            // by both roads, and a series switch changes that cell's block. Letting
-            // the switch through would either silently rewrite the neighbour's
-            // junction or abort deep inside the merge with "conflicting native work
-            // targets". Refuse up front and say why.
-            if (crossesAnotherRoad(level, plan)) {
-                RoadNotices.chat(player, plan.id(), "style_crossing", "rp_crossroads.style.crossing");
+            // A shape whose footprint differs from what the world holds is not a
+            // repair: a build order never takes blocks away outside its own
+            // blueprint, so the stale pavement would survive, and at a crossing the
+            // shared cells belong to the neighbour as well. Demolish first, build
+            // afterwards; the crossing relations are checked before any of it.
+            final com.YLFXM.rp.crossroads.road.RoadRebuild.Shape shape =
+                    new com.YLFXM.rp.crossroads.road.RoadRebuild.Shape(
+                            style, series, width, range, tier, plan.mirror());
+            if (com.YLFXM.rp.crossroads.road.RoadRebuild.needed(level, plan, shape)) {
+                com.YLFXM.rp.crossroads.road.RoadRebuild.begin(level, player, plan, shape);
+                sendRoads(player, IColonyManager.getInstance()
+                        .getColonyByPosFromWorld(level, plan.controllerPos()));
                 return;
             }
             final int previousLevel = plan.unitLevel();
@@ -1120,30 +1132,6 @@ public final class Network {
         // generated/ is outside contentVersion: without a bump the client keeps
         // the old file until it restarts, which reads as a failed switch.
         com.YLFXM.rp.crossroads.CustomRoadPack.install(level.getServer(), true);
-    }
-
-    /**
-     * True when any other road shares a cell with this one.
-     *
-     * <p>Crossings are the one case a series switch cannot handle on its own: the
-     * junction cell belongs to both roads, so changing the primary's units would
-     * contradict the neighbour's blueprint. Refusing beats writing a half-merged
-     * target and failing later.</p>
-     */
-    private static boolean crossesAnotherRoad(final ServerLevel level, final RoadPlan plan) {
-        if (plan.segments().isEmpty()) {
-            return false;
-        }
-        final var body = com.YLFXM.rp.crossroads.road.RoadCrossingGeometry.body(plan);
-        for (final RoadPlan other : RoadManager.get(level).all()) {
-            if (other.id().equals(plan.id()) || other.segments().isEmpty()) {
-                continue;
-            }
-            if (body.intersect(com.YLFXM.rp.crossroads.road.RoadCrossingGeometry.body(other)) != null) {
-                return true;
-            }
-        }
-        return false;
     }
 
     public static void sendWorkOrders(final ServerPlayer player,

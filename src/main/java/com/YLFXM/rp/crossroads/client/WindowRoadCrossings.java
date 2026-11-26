@@ -119,11 +119,24 @@ public final class WindowRoadCrossings extends AbstractWindowSkeleton {
         findPaneOfTypeByID("reset",Button.class).setEnabled(own!=null && RoadRules.canEdit(own) && ClientRoadCache.canManage(road));
     }
     private void send(int action,UUID other,int mode) {
-        if(own==null || !RoadSelectionClient.hasBoth()) return;
+        if(!ready()) return;
         PacketDistributor.sendToServer(new RoadPlanningPayload(road,own.controllerPos(),RoadSelectionClient.a(),RoadSelectionClient.b(),RoadSelectionClient.mirror(),action,other,mode));
     }
+    /**
+     * A dropped packet looks like a dead button, so say why instead of returning.
+     *
+     * <p>The server rebuilds the proposal from these two points; without them it
+     * would either refuse or build a one-block stub, which is why the client never
+     * sends. The panel binds them from the plan, so this only fires for a road
+     * whose selection was lost.</p>
+     */
+    private boolean ready() {
+        if(own!=null && RoadSelectionClient.hasBoth())return true;
+        if(mc.player!=null)RoadNotices.actionBar(mc.player,"rp_crossroads.select.endpoints_first");
+        return false;
+    }
     private void height(RoadPlan other,int delta) {
-        if(own==null || !RoadSelectionClient.hasBoth())return;
+        if(!ready())return;
         ClientRoadPreview.joint(road,other.id());
         PacketDistributor.sendToServer(new RoadPlanningPayload(road,own.controllerPos(),RoadSelectionClient.a(),RoadSelectionClient.b(),RoadSelectionClient.mirror(),3,other.id(),0,delta));
     }

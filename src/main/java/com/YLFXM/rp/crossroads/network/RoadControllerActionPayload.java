@@ -39,7 +39,9 @@ public record RoadControllerActionPayload(BlockPos controllerPos, Action action,
         UPGRADE,
         REPAIR,
         REMOVE,
-        REMOVE_INSTANT
+        REMOVE_INSTANT,
+        /** Drop every hand-edited row and re-sample the terrain. */
+        REDRAW
     }
 
     public RoadControllerActionPayload(final BlockPos controllerPos, final Action action) {

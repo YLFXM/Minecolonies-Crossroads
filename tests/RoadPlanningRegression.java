@@ -46,14 +46,15 @@ public final class RoadPlanningRegression {
         check(RoadCrossingGeometry.walk(mirrored).minZ()==-2 && RoadCrossingGeometry.walk(mirrored).maxZ()==-1,"mirrored walk interval correct");
         var junction=new RoadCrossings.Neighbor(z,z,null,RoadCrossingGeometry.body(x).intersect(RoadCrossingGeometry.body(z)),intersection,new RoadPlanningState.Crossing(false,0));
         RoadCrossings.validate(x,junction);check(true,"same-level intersection validates the exact walk platform");
-        var low=new RoadPlan(UUID.randomUUID(),Level.OVERWORLD,new BlockPos(0,62,0),new BlockPos(0,62,-1),Direction.SOUTH,false,"minecolonies","street",4,WalkRange.of(1,2),1,4);
-        low.addSegment(new RoadSegment(new BlockPos(0,61,-5),11,Direction.Axis.Z,0,SegmentKind.ROAD));
+        var low=new RoadPlan(UUID.randomUUID(),Level.OVERWORLD,new BlockPos(0,60,0),new BlockPos(0,60,-1),Direction.SOUTH,false,"minecolonies","street",4,WalkRange.of(1,2),1,4);
+        low.addSegment(new RoadSegment(new BlockPos(0,59,-5),11,Direction.Axis.Z,0,SegmentKind.ROAD));
         var bridge=new RoadCrossings.Neighbor(low,low,null,RoadCrossingGeometry.body(x).intersect(RoadCrossingGeometry.body(low)),intersection,new RoadPlanningState.Crossing(true,1));
-        RoadCrossings.validate(x,bridge);check(true,"three-block floor separation is accepted");
-        low.setAnchorPos(new BlockPos(0,63,0));
-        try {RoadCrossings.validate(x,bridge);throw new AssertionError("two-block clearance accepted");}
+        RoadCrossings.validate(x,bridge);
+        check(true,"five-block deck separation is accepted: three blocks of room plus the upper deck's foundation");
+        low.setAnchorPos(new BlockPos(0,61,0));
+        try {RoadCrossings.validate(x,bridge);throw new AssertionError("four-block separation without room for a foundation was accepted");}
         catch(IllegalArgumentException expected){checks++;}
-        low.setAnchorPos(new BlockPos(0,62,0));
+        low.setAnchorPos(new BlockPos(0,60,0));
         var junctionRect=RoadCrossingGeometry.body(x).intersect(RoadCrossingGeometry.body(z));
         var lowerOrdered=x.id().compareTo(z.id())<0 ? x:z;
         var upperOrdered=lowerOrdered==x ? z:x;
