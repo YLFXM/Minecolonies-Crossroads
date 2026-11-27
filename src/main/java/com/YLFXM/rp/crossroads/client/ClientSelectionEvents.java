@@ -21,73 +21,142 @@ package com.YLFXM.rp.crossroads.client;
 import com.YLFXM.rp.crossroads.road.RoadRules;
 
 import com.YLFXM.rp.crossroads.ModRegistry;
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 @EventBusSubscriber(modid = com.YLFXM.rp.crossroads.Crossroads.MODID, value = Dist.CLIENT)
 public final class ClientSelectionEvents {
+    /** Last terrain order actually sent, so one press can never queue two. */
+    private static long dispatchedTick = Long.MIN_VALUE;
+    private static BlockPos dispatchedA = BlockPos.ZERO;
+    private static BlockPos dispatchedB = BlockPos.ZERO;
+    private static boolean dispatchedFill;
+    /**
+     * Corner selection, once per press.
+     *
+     * <p>This is deliberately not {@code PlayerInteractEvent.LeftClickBlock}. NeoForge
+     * fires that event from {@code startDestroyBlock} <em>and</em> from
+     * {@code continueDestroyBlock}, so holding the button re-fires it every tick — and in
+     * survival a click is always held for a moment. Each repeat rewrote the corner while
+     * the crosshair drifted, which is why a box collapsed into a one-block line along the
+     * direction the cursor swept. Creative breaks the block instantly, never entering
+     * {@code continueDestroyBlock}, so the same gesture behaved there.</p>
+     *
+     * <p>{@code InteractionKeyMappingTriggered} is raised once per physical press, before
+     * block breaking starts, and cancelling it keeps the wand from mining the block it
+     * just measured. The held path stays guarded by {@code RoadWandHandler}, which cancels
+     * {@code LeftClickBlock} on both sides.</p>
+     */
     @SubscribeEvent
-    public static void onLeftClickBlock(final PlayerInteractEvent.LeftClickBlock event) {
-        if (!event.getLevel().isClientSide()) {
+    public static void onAttackInput(final InputEvent.InteractionKeyMappingTriggered event) {
+        if (!event.isAttack()) {
             return;
         }
-        if (!event.getEntity().getMainHandItem().is(ModRegistry.ROAD_WAND.get())) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null || minecraft.level == null) {
             return;
         }
+        final boolean terrain = TerrainClientState.isTerrain();
+        if (!holdsWand(minecraft.player) || !ownsGesture(minecraft.player, event.getHand())) {
+            if (terrain) {
+                com.YLFXM.rp.crossroads.Crossroads.LOGGER.info(
+                        "Terrain corner ignored: hand={} main={} off={}", event.getHand(),
+                        minecraft.player.getMainHandItem().getItem(),
+                        minecraft.player.getOffhandItem().getItem());
+            }
+            return;
+        }
+        final HitResult hit = minecraft.hitResult;
+        if (!(hit instanceof BlockHitResult blockHit) || hit.getType() != HitResult.Type.BLOCK) {
+            if (terrain) {
+                // The entity flag only follows the sneak input on the next tick, so a quick
+                // shift+click used to arrive as "A". The key's own state is immediate.
+                com.YLFXM.rp.crossroads.Crossroads.LOGGER.info(
+                        "Terrain corner skipped: hit={} shiftKey={}", hit == null ? "null" : hit.getType(),
+                        minecraft.options.keyShift.isDown());
+            }
+            // Air and entity attacks keep their normal meaning.
+            return;
+        }
+        if (!pickCorner(minecraft.player, blockHit.getBlockPos(), minecraft.options.keyShift.isDown())) {
+            return;
+        }
+        event.setCanceled(true);
+        event.setSwingHand(false);
+        // The cancel also suppresses the vanilla swing, so give the press its feedback.
+        minecraft.player.swing(InteractionHand.MAIN_HAND);
+    }
+
+    /**
+     * Records one corner of the current selection.
+     *
+     * @return true when the click was a selection and must not break the block
+     */
+    private static boolean pickCorner(final Player player, final BlockPos pos, final boolean wantB) {
         // Terrain mode owns the corners: a terrain volume has nothing to do with
         // the bound road's axis, so none of the road checks below may run. This is
         // exactly what blocked picking ground off a built road's line.
         if (TerrainClientState.isTerrain()) {
-            final BlockPos terrainPos = event.getPos();
-            if (event.getEntity().isShiftKeyDown()) {
-                RoadSelectionClient.setB(terrainPos);
-            } else {
-                RoadSelectionClient.setA(terrainPos);
+            // The same press can reach this method more than once: NeoForge fires the
+            // input event from startAttack *and* from continueAttack, so holding the
+            // button re-delivers it. Handing the click to the selection state (which keeps
+            // the clicked cells apart from the normalized box) makes that a no-op instead
+            // of shrinking the box by one axis.
+            final boolean changed = RoadSelectionClient.setTerrainCorner(wantB, pos);
+            if (!changed) {
+                com.YLFXM.rp.crossroads.Crossroads.LOGGER.debug(
+                        "Terrain corner repeat ignored: {} pos={}", wantB ? "B" : "A", pos);
+                return true;
             }
-            // Keep A on the box's minimum corner. The blueprint's origin is the
-            // anchor and a blueprint cannot grow towards negative coordinates, so
-            // ordering the corners here is what lets origin and marker be the same
-            // point no matter which corner was clicked first.
-            final BlockPos first = RoadSelectionClient.a();
-            final BlockPos second = RoadSelectionClient.b();
-            if (!first.equals(BlockPos.ZERO) && !second.equals(BlockPos.ZERO)) {
-                final BlockPos low = new BlockPos(Math.min(first.getX(), second.getX()),
-                        Math.min(first.getY(), second.getY()), Math.min(first.getZ(), second.getZ()));
-                final BlockPos high = new BlockPos(Math.max(first.getX(), second.getX()),
-                        Math.max(first.getY(), second.getY()), Math.max(first.getZ(), second.getZ()));
-                if (!low.equals(first)) {
-                    RoadSelectionClient.setA(low);
-                    RoadSelectionClient.setB(high);
-                }
-            }
+            final BlockPos a = RoadSelectionClient.a();
+            final BlockPos b = RoadSelectionClient.b();
+            com.YLFXM.rp.crossroads.Crossroads.LOGGER.info("Terrain corner {}: pos={} a={} b={}",
+                    wantB ? "B" : "A", pos, a, b);
             // Report the clicked cell, not the reordered corner: the box is what
-            // matters and the labels only say which key was used.
-            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
-                    event.getEntity().isShiftKeyDown() ? "rp_crossroads.select.endpoint_b" : "rp_crossroads.select.endpoint_a",
-                    terrainPos.getX(), terrainPos.getY(), terrainPos.getZ());
-            event.setCanceled(true);
-            return;
+            // matters and the labels only say which key was used. Once both corners
+            // exist the size is the useful part — a box that collapsed to one axis is
+            // otherwise indistinguishable from a correct one on screen.
+            if (!a.equals(BlockPos.ZERO) && !b.equals(BlockPos.ZERO)) {
+                com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
+                        "rp_crossroads.select.corner_box",
+                        net.minecraft.network.chat.Component.translatable(
+                                wantB ? "rp_crossroads.select.corner_b" : "rp_crossroads.select.corner_a"),
+                        pos.getX(), pos.getY(), pos.getZ(),
+                        Math.abs(a.getX() - b.getX()) + 1,
+                        Math.abs(a.getY() - b.getY()) + 1,
+                        Math.abs(a.getZ() - b.getZ()) + 1);
+            } else {
+                com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
+                        wantB ? "rp_crossroads.select.endpoint_b" : "rp_crossroads.select.endpoint_a",
+                        pos.getX(), pos.getY(), pos.getZ());
+            }
+            return true;
         }
+
         // A/B belong to the BOUND controller, so the lock is decided by that
         // plan — not by what the click happens to hit. Re-planning a built road
         // normally means clicking ground outside the old footprint, so testing
         // the clicked cell alone let the player keep re-picking A/B freely.
-        final com.YLFXM.rp.crossroads.road.RoadPlan bound = boundPlan(event.getEntity());
+        final com.YLFXM.rp.crossroads.road.RoadPlan bound = boundPlan(player);
         if (bound != null) RoadSelectionClient.bindTo(bound);
         if (bound != null && !RoadRules.canEdit(bound)) {
-            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
                     "rp_crossroads.road.locked");
-            event.setCanceled(true);
-            return;
+            return true;
         }
         // Shift+left is the B key, plain left the A key — but on an existing road
         // the POSITION decides which end a point belongs to (see below), so the
         // key only expresses an intent that may get swapped.
-        boolean assignToB = event.getEntity().isShiftKeyDown();
-        final BlockPos pos = event.getPos();
+        boolean assignToB = wantB;
 
         if (bound != null && bound.state() != com.YLFXM.rp.crossroads.road.RoadState.DRAFT) {
             final net.minecraft.core.Direction.Axis axis = bound.axis();
@@ -97,10 +166,9 @@ public final class ClientSelectionEvents {
             // letting them through and failing later when the blueprint is built.
             final int lateralOrigin = alongX ? bound.anchorPos().getZ() : bound.anchorPos().getX();
             if (!com.YLFXM.rp.crossroads.road.RoadReplanning.pointOnLine(bound, pos)) {
-                com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
+                com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
                         "rp_crossroads.select.on_axis", alongX ? "X" : "Z", alongX ? "z" : "x", lateralOrigin);
-                event.setCanceled(true);
-                return;
+                return true;
             }
 
             // Snap to the stored orientation: a point on A's side of the anchor
@@ -117,14 +185,14 @@ public final class ClientSelectionEvents {
 
         if (assignToB) {
             RoadSelectionClient.setB(pos);
-            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
                     "rp_crossroads.select.endpoint_b", pos.getX(), pos.getY(), pos.getZ());
         } else {
             RoadSelectionClient.setA(pos);
-            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(event.getEntity(),
+            com.YLFXM.rp.crossroads.road.RoadNotices.actionBar(player,
                     "rp_crossroads.select.endpoint_a", pos.getX(), pos.getY(), pos.getZ());
         }
-        event.setCanceled(true);
+        return true;
     }
 
     /**
@@ -146,7 +214,7 @@ public final class ClientSelectionEvents {
             return;
         }
         final net.minecraft.world.entity.player.Player player = event.getEntity();
-        if (!holdsWand(player)) {
+        if (!holdsWand(player) || !ownsGesture(player, event.getHand())) {
             return;
         }
         final BlockPos pos = event.getPos();
@@ -186,7 +254,8 @@ public final class ClientSelectionEvents {
      */
     @SubscribeEvent
     public static void onRightClickItem(final PlayerInteractEvent.RightClickItem event) {
-        if (!event.getLevel().isClientSide() || !holdsWand(event.getEntity())) {
+        if (!event.getLevel().isClientSide() || !holdsWand(event.getEntity())
+                || !ownsGesture(event.getEntity(), event.getHand())) {
             return;
         }
         final net.minecraft.world.phys.HitResult hit = net.minecraft.client.Minecraft.getInstance().hitResult;
@@ -218,10 +287,22 @@ public final class ClientSelectionEvents {
                     "rp_crossroads.select.endpoints_first");
             return;
         }
+        final BlockPos a = RoadSelectionClient.a();
+        final BlockPos b = RoadSelectionClient.b();
+        final boolean fill = TerrainClientState.mode() == TerrainClientState.Mode.FILL;
+        // One press, one order. Vanilla walks the hands for a use, so the same click can
+        // reach both handlers; a second order built from the same corners within the same
+        // tick is a duplicate, never a second intention (two clicks cannot share a tick).
+        final long tick = player.level().getGameTime();
+        if (tick == dispatchedTick && fill == dispatchedFill && a.equals(dispatchedA) && b.equals(dispatchedB)) {
+            return;
+        }
+        dispatchedTick = tick;
+        dispatchedA = a;
+        dispatchedB = b;
+        dispatchedFill = fill;
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                new com.YLFXM.rp.crossroads.network.TerrainOrderPayload(
-                        RoadSelectionClient.a(), RoadSelectionClient.b(),
-                        TerrainClientState.mode() == TerrainClientState.Mode.FILL));
+                new com.YLFXM.rp.crossroads.network.TerrainOrderPayload(a, b, fill));
     }
 
     /**
@@ -264,6 +345,23 @@ public final class ClientSelectionEvents {
     private static boolean holdsWand(final net.minecraft.world.entity.player.Player player) {
         return player.getMainHandItem().is(ModRegistry.ROAD_WAND.get())
                 || player.getOffhandItem().is(ModRegistry.ROAD_WAND.get());
+    }
+
+    /**
+     * The hand that carries the wand owns the gesture.
+     *
+     * <p>Vanilla calls use/use-on once per hand, so without this test a single press ran
+     * the handler twice — that is where the doubled terrain order came from. Picking the
+     * hand from where the wand actually is keeps the offhand wand working and makes the
+     * main-hand case ignore the second pass.</p>
+     */
+    private static boolean ownsGesture(final net.minecraft.world.entity.player.Player player,
+                                       final net.minecraft.world.InteractionHand hand) {
+        if (player.getMainHandItem().is(ModRegistry.ROAD_WAND.get())) {
+            return hand == net.minecraft.world.InteractionHand.MAIN_HAND;
+        }
+        return hand == net.minecraft.world.InteractionHand.OFF_HAND
+                && player.getOffhandItem().is(ModRegistry.ROAD_WAND.get());
     }
 
     /**

@@ -149,7 +149,7 @@ The wand shows only the road it is bound to, while the surveyor shows your filte
 
 The documents below are written in Chinese.
 
-- [Design document](docs/阡陌纵横-设计文档-1.0.0.md) — the rules currently in effect and future boundaries.
+- [Design document](docs/阡陌纵横-设计文档.md) — the rules currently in effect and future boundaries.
 - [Implementation progress](docs/阡陌纵横-实现进度.md) — stage completion and acceptance records.
 - [Code structure and mechanics](docs/代码结构与机制.md) — how sources, regression tests and scripts are split, call traces and change scope.
 - [Contributing](CONTRIBUTING.md), [Changelog](CHANGELOG.md), [Agent collaboration rules](AGENTS.md).

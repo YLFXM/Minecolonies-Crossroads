@@ -24,9 +24,16 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 /**
  * The Road Wand is a selection tool, not a mining tool. Cancel block breaking
- * on both logical sides so creative mode cannot destroy the clicked block.
- * Right-click is deliberately not cancelled here: shift-right on a controller
- * is handled by DecorationControllerHandler for binding.
+ * on both logical sides so neither mode can destroy the clicked block.
+ *
+ * <p>This is also the guard for the held button: after the first press the client
+ * keeps calling {@code continueDestroyBlock}, which fires {@code LeftClickBlock}
+ * again every tick. Corner selection reads the input event instead (once per
+ * press), but the held path still has to be refused here or survival mining would
+ * dig through the selection.</p>
+ *
+ * <p>Right-click is deliberately not cancelled here: shift-right on a controller
+ * is handled by DecorationControllerHandler for binding.</p>
  */
 @EventBusSubscriber(modid = Crossroads.MODID)
 public final class RoadWandHandler {

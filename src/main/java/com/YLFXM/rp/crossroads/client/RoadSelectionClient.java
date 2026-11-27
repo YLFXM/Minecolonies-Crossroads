@@ -27,6 +27,16 @@ import net.minecraft.network.chat.Component;
 public final class RoadSelectionClient {
     private static BlockPos a = BlockPos.ZERO;
     private static BlockPos b = BlockPos.ZERO;
+    /**
+     * Terrain corners exactly as clicked.
+     *
+     * <p>{@link #a}/{@link #b} always hold the normalized box, so writing a raw corner
+     * over them is not reversible: after normalization the raw cell may equal neither
+     * corner, and a repeated delivery of the same press would shrink the box. Keeping the
+     * clicks separately makes "set the same corner again" a genuine no-op.</p>
+     */
+    private static BlockPos rawA = BlockPos.ZERO;
+    private static BlockPos rawB = BlockPos.ZERO;
     private static BlockPos controllerPos = BlockPos.ZERO;
     private static boolean mirror;
     private static java.util.UUID roadId;
@@ -89,6 +99,38 @@ public final class RoadSelectionClient {
         remember();
     }
 
+    /**
+     * Records one terrain corner as clicked and keeps A/B on the box's minimum corner.
+     *
+     * <p>A blueprint origin is the anchor and cannot grow towards negative coordinates, so
+     * the pair has to be ordered whichever corner came first. Ordering here — instead of at
+     * the call site — is what makes a repeated press harmless: the same click recomputes
+     * the same pair, while writing the raw cell into {@link #b} again would not.</p>
+     *
+     * @return true when the box changed
+     */
+    public static boolean setTerrainCorner(final boolean second, final BlockPos pos) {
+        final BlockPos next = pos.immutable();
+        if (second) {
+            rawB = next;
+        } else {
+            rawA = next;
+        }
+        final BlockPos beforeA = a;
+        final BlockPos beforeB = b;
+        if (rawA.equals(BlockPos.ZERO) || rawB.equals(BlockPos.ZERO)) {
+            a = rawA;
+            b = rawB;
+        } else {
+            a = new BlockPos(Math.min(rawA.getX(), rawB.getX()), Math.min(rawA.getY(), rawB.getY()),
+                    Math.min(rawA.getZ(), rawB.getZ()));
+            b = new BlockPos(Math.max(rawA.getX(), rawB.getX()), Math.max(rawA.getY(), rawB.getY()),
+                    Math.max(rawA.getZ(), rawB.getZ()));
+        }
+        remember();
+        return !a.equals(beforeA) || !b.equals(beforeB);
+    }
+
     public static void setControllerPos(final BlockPos pos) {
         controllerPos = pos.immutable();
     }
@@ -148,6 +190,8 @@ public final class RoadSelectionClient {
     public static void clear() {
         a = BlockPos.ZERO;
         b = BlockPos.ZERO;
+        rawA = BlockPos.ZERO;
+        rawB = BlockPos.ZERO;
         remember();
         ClientRoadPreviewRenderer.clear();
     }
@@ -159,6 +203,7 @@ public final class RoadSelectionClient {
 
     private static void resetActive() {
         a = BlockPos.ZERO; b = BlockPos.ZERO;
+        rawA = BlockPos.ZERO; rawB = BlockPos.ZERO;
         controllerPos = BlockPos.ZERO;
         mirror = false;
         roadId = null; dimension = "";

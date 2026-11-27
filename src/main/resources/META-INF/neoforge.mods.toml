@@ -4,7 +4,7 @@ license="GPL-3.0"
 
 [[mods]]
 modId="rp_crossroads"
-version="1.0.0"
+version="1.0.0-fix.1"
 displayName="MineColonies: Crossroads"
 authors="YLFXM"
 logoFile="icon.png"

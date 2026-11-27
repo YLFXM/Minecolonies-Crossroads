@@ -75,6 +75,56 @@ public class PreviewLifecycleRegression {
                 "src/main/java/com/YLFXM/rp/crossroads/client/ClientSelectionEvents.java"));
         check(eventsSource.contains("reloadFromRoad(boundPlan(player))"),
                 "switching back to road mode reloads the road's pair");
+        // NeoForge fires LeftClickBlock from continueDestroyBlock too, so a survival press
+        // (always held for a moment) re-entered the corner picker every tick and dragged the
+        // corner with the crosshair. Selection has to read the once-per-press input event.
+        check(!eventsSource.contains("public static void onLeftClickBlock"),
+                "corner selection no longer subscribes to the repeating block event");
+        check(eventsSource.contains("InteractionKeyMappingTriggered") && eventsSource.contains("event.isAttack()"),
+                "corner selection runs from the attack input, once per press");
+        check(eventsSource.contains("hit.getType() != HitResult.Type.BLOCK"),
+                "only a block hit is a corner; air and entity attacks keep their meaning");
+        check(eventsSource.contains("private static boolean pickCorner"),
+                "both corner kinds share one picker, so terrain and road cannot drift apart");
+        // Vanilla walks both hands for a use, so one press reached the handler twice and
+        // queued the same terrain order twice (visible as paired "Terrain … prepared" logs).
+        check(eventsSource.contains("private static boolean ownsGesture"),
+                "the hand that carries the wand owns the gesture");
+        check(eventsSource.contains("!ownsGesture(player, event.getHand())")
+                        && eventsSource.contains("!ownsGesture(event.getEntity(), event.getHand())")
+                        && eventsSource.contains("!ownsGesture(minecraft.player, event.getHand())"),
+                "every gesture path rejects the pass that came from the other hand");
+        check(eventsSource.contains("tick == dispatchedTick && fill == dispatchedFill"),
+                "a second identical order in the same tick is dropped, never sent");
+        // The sneak flag on the player entity only catches up on the next tick, so a quick
+        // shift+click was read as a plain A press. The key's own state is immediate.
+        check(eventsSource.contains("minecraft.options.keyShift.isDown()")
+                        && !eventsSource.contains("assignToB = player.isShiftKeyDown()"),
+                "the corner key reads the physical shift key, not the delayed entity flag");
+        check(eventsSource.contains("rp_crossroads.select.corner_box"),
+                "the action bar shows the box size as soon as both corners exist");
+        // NeoForge also fires the input event from continueAttack, so one press can arrive
+        // twice. The selection keeps the clicked cells apart from the normalized box, which
+        // makes the repeat harmless; writing a raw corner over the box is not reversible.
+        check(eventsSource.contains("RoadSelectionClient.setTerrainCorner(wantB, pos)"),
+                "a terrain corner goes through the pair-aware setter");
+        final String cornerState = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/YLFXM/rp/crossroads/client/RoadSelectionClient.java"));
+        check(cornerState.contains("private static BlockPos rawA") && cornerState.contains("rawB = next;"),
+                "the clicked cells are kept apart from the normalized pair");
+        check(cornerState.contains("return !a.equals(beforeA) || !b.equals(beforeB)"),
+                "setting the same corner again reports no change");
+        // NeoForge also fires the input event from continueAttack, so one press can arrive
+        // twice. The selection keeps the clicked cells apart from the normalized box, which
+        // makes the repeat harmless; writing a raw corner over the box is not reversible.
+        check(eventsSource.contains("RoadSelectionClient.setTerrainCorner(wantB, pos)"),
+                "a terrain corner goes through the pair-aware setter");
+        final String selection = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/YLFXM/rp/crossroads/client/RoadSelectionClient.java"));
+        check(selection.contains("private static BlockPos rawA") && selection.contains("rawB = next;"),
+                "the clicked cells are kept apart from the normalized pair");
+        check(selection.contains("return !a.equals(beforeA) || !b.equals(beforeB)"),
+                "setting the same corner again reports no change");
         ClientRoadCache.clear();check(ClientRoadCache.roads().isEmpty() && ClientRoadCache.surveyRoads().isEmpty(),"logout cache reset");
         System.out.println("PASS "+n+" preview lifecycle assertions");
     }
